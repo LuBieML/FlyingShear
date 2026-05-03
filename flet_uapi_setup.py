@@ -1142,13 +1142,14 @@ def main(page: ft.Page):
 
     cut_input    = make_input("Cut length (mm)",         "cut",    100)
     vline_input  = make_input("Line speed (mm/s)",       "vline",  500)
+    vmax_input   = make_input("Shear max speed (mm/s)",  "vmax",   1500, width=180)
     amax_input   = make_input("Shear max accel (mm/s²)", "amax",   5000, width=180)
     tsync_input  = make_input("Sync time (ms)",          "tsync",  30,   width=140)
     safety_input = make_input("Safety factor",           "safety", 1.5,  width=120)
 
     result_labels = {
         k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
-        for k in ("stroke", "acc", "track", "dec", "ret")
+        for k in ("stroke", "acc", "track", "dec", "ret", "vpeak")
     }
     warning_text = ft.Text("", size=13, color=ft.Colors.AMBER_300)
 
@@ -1170,24 +1171,32 @@ def main(page: ft.Page):
             border=ft.Border.all(1, ft.Colors.GREY_800), width=150,
         )
 
+    def fmt_speed(value):
+        if value >= 100:
+            return f"{value:.0f}"
+        if value >= 10:
+            return f"{value:.1f}"
+        return f"{value:.2f}"
+
     def recalc(e=None):
         try:
             L     = float(cut_input.value)
             v     = float(vline_input.value)
+            vmax  = float(vmax_input.value)
             a     = float(amax_input.value)
             tsync = float(tsync_input.value)
             sf    = float(safety_input.value)
         except (TypeError, ValueError):
             return
 
-        if L <= 0 or v < 0 or a <= 0 or tsync < 0 or sf <= 0:
-            warning_text.value = "Invalid inputs: cut, accel, and safety must be > 0; speed and sync time must be >= 0"
+        if L <= 0 or v < 0 or vmax <= 0 or a <= 0 or tsync < 0 or sf <= 0:
+            warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; line speed and sync time must be >= 0"
             warning_text.color = ft.Colors.RED_300
             code_output.value = ""
             page.update()
             return
 
-        for k, val in [("cut", L), ("vline", v), ("amax", a),
+        for k, val in [("cut", L), ("vline", v), ("vmax", vmax), ("amax", a),
                        ("tsync", tsync), ("safety", sf)]:
             calc_settings[k] = val
 
@@ -1203,22 +1212,37 @@ def main(page: ft.Page):
         sync_link  = sync_dist          # Rule 2: matched speed = equal distances
         ret_link   = L - (accel_link + sync_link + decel_link)
         ret_ad     = ret_link / 4 if ret_link > 0 else 0
+        if ret_link > 0:
+            v_retract_peak = (4.0 / 3.0) * v * (stroke / ret_link)
+        else:
+            v_retract_peak = float("inf")
 
         result_labels["stroke"].value = f"{stroke:.2f} mm"
         result_labels["acc"].value    = f"{accel_link:.2f} mm"
         result_labels["dec"].value    = f"{decel_link:.2f} mm"
         result_labels["track"].value  = f"{sync_link:.2f} mm"
         result_labels["ret"].value    = f"{ret_link:.2f} mm"
+        result_labels["vpeak"].value  = f"{fmt_speed(v_retract_peak)} mm/s" if ret_link > 0 else "—"
 
+        warnings = []
+        if v > vmax:
+            warnings.append(f"✗ Line speed ({v:g}) exceeds shear max speed ({vmax:g}) — cannot match")
         if ret_link < 0:
-            warning_text.value = "✗ Cut length too short — accel+sync+decel exceeds cut length"
-            warning_text.color = ft.Colors.RED_300
+            warnings.append("✗ Cut length too short — accel+sync+decel exceeds cut length")
+        elif v_retract_peak > vmax:
+            warnings.append(f"✗ Retract peak speed {fmt_speed(v_retract_peak)} mm/s exceeds shear max {vmax:g}")
         elif ret_link < accel_link * 0.5:
-            warning_text.value = "⚠ Tight retract — shear must return during short dwell"
-            warning_text.color = ft.Colors.AMBER_300
-        else:
+            warnings.append("⚠ Tight retract — shear must return during short dwell")
+
+        if not warnings:
             warning_text.value = "✓ OK"
             warning_text.color = ft.Colors.GREEN_300
+        elif any(w.startswith("✗") for w in warnings):
+            warning_text.value = "  |  ".join(warnings)
+            warning_text.color = ft.Colors.RED_300
+        else:
+            warning_text.value = "  |  ".join(warnings)
+            warning_text.color = ft.Colors.AMBER_300
 
         try:
             link_ax  = int(axis_m_dropdown.value or "0")
@@ -1261,7 +1285,7 @@ def main(page: ft.Page):
         )
         page.update()
 
-    for inp in (cut_input, vline_input, amax_input, tsync_input, safety_input):
+    for inp in (cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input):
         inp.on_change = recalc
         inp.on_blur = save_calc_settings
 
@@ -1302,7 +1326,7 @@ def main(page: ft.Page):
         ft.Text("Flying Shear MOVELINK Calculator", size=20,
                 weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
         ft.Container(height=10),
-        ft.Row([cut_input, vline_input, amax_input, tsync_input, safety_input],
+        ft.Row([cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input],
                wrap=True, spacing=15),
         ft.Container(height=15),
         ft.Row([
@@ -1311,6 +1335,7 @@ def main(page: ft.Page):
             result_card("Track link",    "track"),
             result_card("Decel link",    "dec"),
             result_card("Retract dwell", "ret"),
+            result_card("Retract peak speed", "vpeak"),
         ], spacing=10),
         ft.Container(height=10),
         warning_text,
