@@ -321,6 +321,7 @@ def main(page: ft.Page):
     BLADE_TIP_H = 12
     SHEAR_TRACK_HEIGHT = 90
     SHEAR_TOP_IDLE = 6
+    SHEAR_TOP_CUT = SHEAR_TRACK_HEIGHT - SHEAR_HEIGHT - 4
     CENTER_LEFT_S = TRACK_WIDTH / 2 - SHEAR_WIDTH / 2
     SHEAR_START_LEFT = 38  # ~1 cm from left; position-zero reference for slave visualizer
 
@@ -434,7 +435,7 @@ def main(page: ft.Page):
             width=SHEAR_WIDTH, height=blade_body_h,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment(-1, 0), end=ft.Alignment(1, 0),
-                colors=["#5a5a5a", "#b4b4b4", "#ececec", "#b4b4b4", "#5a5a5a"],
+                colors=["#707070", "#d8d8d8", "#ffffff", "#d8d8d8", "#707070"],
                 stops=[0.0, 0.25, 0.5, 0.75, 1.0],
             ),
             border=ft.Border.only(
@@ -447,7 +448,7 @@ def main(page: ft.Page):
             width=SHEAR_WIDTH, height=BLADE_TIP_H,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
-                colors=["#909090", "#383838", "#080808"],
+                colors=["#ffffff", "#bdbdbd", "#303030"],
                 stops=[0.0, 0.55, 1.0],
             ),
             border_radius=ft.BorderRadius.only(bottom_left=2, bottom_right=2),
@@ -479,6 +480,9 @@ def main(page: ft.Page):
                 ft.Container(width=TRACK_WIDTH, height=2,
                              bgcolor=ft.Colors.with_opacity(0.35, color),
                              top=SHEAR_TRACK_HEIGHT - 10),
+                ft.Container(width=TRACK_WIDTH, height=2,
+                             bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.WHITE),
+                             top=SHEAR_TRACK_HEIGHT - 4),
                 indicator,
             ],
             width=TRACK_WIDTH, height=SHEAR_TRACK_HEIGHT,
@@ -652,6 +656,11 @@ def main(page: ft.Page):
                     dirty = True
                 if cutter_output_state_text.color != cutter_color:
                     cutter_output_state_text.color = cutter_color
+                    dirty = True
+
+                target_blade_top = SHEAR_TOP_CUT if cutter_raw is True else SHEAR_TOP_IDLE
+                if abs((indicator_s.top or 0) - target_blade_top) > 0.1:
+                    indicator_s.top = target_blade_top
                     dirty = True
 
                 mpos_val_m = None
