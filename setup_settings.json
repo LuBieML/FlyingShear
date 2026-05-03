@@ -14,7 +14,7 @@
   "param_FS_LIMIT": "888888",
   "master_axis": "3",
   "slave_axis": "0",
-  "scale_px_per_unit": 18.0,
+  "scale_px_per_unit": 16.0,
   "axis_params": {
     "1": {
       "UNITS": "2097152.0",
@@ -69,12 +69,12 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "10",
+  "master_speed": "40",
   "shear_calc": {
-    "cut": 200.0,
-    "vline": 250.0,
-    "amax": 200000.0,
-    "tsync": 30.0,
-    "safety": 1.0
+    "cut": 100.0,
+    "vline": 50.0,
+    "amax": 10000.0,
+    "tsync": 1000.0,
+    "safety": 1.5
   }
 }
