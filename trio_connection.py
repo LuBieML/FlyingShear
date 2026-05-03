@@ -362,6 +362,14 @@ class TrioConnection:
     def is_connected(self) -> bool:
         return bool(self.connection) and bool(self._is_open)
 
+    def read_digital_output(self, output_number: int) -> bool:
+        """Read the state of one controller digital output."""
+        if not self.is_connected():
+            raise RuntimeError("Cannot read digital output: not connected")
+        if output_number < 0:
+            raise ValueError("Digital output number must be >= 0")
+        return bool(self.connection.GetDOut(output_number))
+
     def upload_file(self, local_file: str, remote_file: str,
                     file_type: TUA.FileType = TUA.FileType.BASIC,
                     transfer_option: int = 0,

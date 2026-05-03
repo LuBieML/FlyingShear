@@ -162,6 +162,14 @@ def main(page: ft.Page):
         settings["master_speed"] = e.control.value
         save_settings(settings)
 
+    def on_cutter_output_change(e):
+        settings["cutter_output"] = e.control.value
+        save_settings(settings)
+        try:
+            recalc()
+        except NameError:
+            pass
+
     def _send_master_speed():
         try:
             axis_m_val = int(axis_m_dropdown.value or "0")
@@ -196,6 +204,22 @@ def main(page: ft.Page):
         text_size=12, on_change=on_master_speed_change,
         on_submit=lambda e: _send_master_speed(),
         tooltip="Master axis SPEED set before Forward/Reverse",
+    )
+
+    cutter_output_input = ft.TextField(
+        label="Cutter Output", value=str(settings.get("cutter_output", "8")),
+        width=125, height=45,
+        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
+        text_size=12, on_change=on_cutter_output_change,
+        tooltip="Controller digital output number used for cutter OP() and live output-state read",
+    )
+
+    cutter_output_state_text = ft.Text(
+        "Cutter OP --: ---",
+        size=12,
+        color=ft.Colors.GREY_400,
+        weight=ft.FontWeight.BOLD,
+        width=125,
     )
 
     # --- Master axis Forward / Reverse / Cancel buttons ---
@@ -531,7 +555,7 @@ def main(page: ft.Page):
         # refreshed every frame and flushed on the next .update() tick.
         ui_update_every = 2
 
-        def _batch_read(axis_m, axis_s, read_slow_params):
+        def _batch_read(axis_m, axis_s, cutter_output, read_slow_params):
             """Runs on the pinned UAPI thread. Returns (results, mpos_t) or
             (None, None) if there's no connection.
 
@@ -546,6 +570,10 @@ def main(page: ft.Page):
             results = {}
             mpos_t = None
             mpos_errors = 0
+            try:
+                results[("CUTTER_OUTPUT", "state")] = trio_conn.read_digital_output(cutter_output)
+            except Exception:
+                results[("CUTTER_OUTPUT", "state")] = "ERR"
             for pn, _ in read_params:
                 if pn != "MPOS" and not read_slow_params:
                     continue
@@ -586,6 +614,7 @@ def main(page: ft.Page):
             try:
                 axis_m_val = int(axis_m_dropdown.value or "0")
                 axis_s_val = int(axis_s_dropdown.value or "1")
+                cutter_output_val = int(cutter_output_input.value or "8")
                 dirty = False
                 fps_timestamps.append(frame_start)
                 frame_counter += 1
@@ -593,7 +622,7 @@ def main(page: ft.Page):
 
                 # Single thread-crossing call for ALL reads
                 results, mpos_t = await loop.run_in_executor(
-                    uapi_executor, _batch_read, axis_m_val, axis_s_val, read_slow
+                    uapi_executor, _batch_read, axis_m_val, axis_s_val, cutter_output_val, read_slow
                 )
 
                 if results is None:
@@ -602,6 +631,28 @@ def main(page: ft.Page):
 
                 if mpos_t is not None:
                     comms_lag_samples.append(mpos_t)
+
+                cutter_raw = results.get(("CUTTER_OUTPUT", "state"))
+                if cutter_raw == "ERR":
+                    cutter_state = "ERR"
+                    cutter_color = ft.Colors.RED_300
+                elif cutter_raw is True:
+                    cutter_state = "ON"
+                    cutter_color = ft.Colors.GREEN_300
+                elif cutter_raw is False:
+                    cutter_state = "OFF"
+                    cutter_color = ft.Colors.GREY_400
+                else:
+                    cutter_state = "---"
+                    cutter_color = ft.Colors.GREY_400
+
+                cutter_label = f"Cutter OP {cutter_output_val}: {cutter_state}"
+                if cutter_output_state_text.value != cutter_label:
+                    cutter_output_state_text.value = cutter_label
+                    dirty = True
+                if cutter_output_state_text.color != cutter_color:
+                    cutter_output_state_text.color = cutter_color
+                    dirty = True
 
                 mpos_val_m = None
                 mpos_val_s = None
@@ -713,6 +764,8 @@ def main(page: ft.Page):
                     master_fwd_btn,
                     master_stop_btn,
                     master_speed_input,
+                    cutter_output_input,
+                    cutter_output_state_text,
                     ft.Container(expand=True),  # push stats right
                     comms_lag_label,
                     ft.Text("|", size=10, color=ft.Colors.GREY_700),
@@ -1461,8 +1514,9 @@ def main(page: ft.Page):
         try:
             link_ax  = int(axis_m_dropdown.value or "0")
             shear_ax = int(axis_s_dropdown.value or "1")
+            cutter_output = int(cutter_output_input.value or "8")
         except ValueError:
-            link_ax, shear_ax = 0, 1
+            link_ax, shear_ax, cutter_output = 0, 1, 8
 
         base_arg = base_dist if use_base_dist else None
         loop_start = "" if repeat_mode == "movelink_repeat" else "WHILE TRUE\n"
@@ -1472,7 +1526,7 @@ def main(page: ft.Page):
         code_output.value = (
             f"shear_ax  = {shear_ax}\n"
             f"link_ax   = {link_ax}\n"
-            f"cutter_op = 8\n"
+            f"cutter_op = {cutter_output}\n"
             f"link_options = {link_options}\n"
             f"link_pos = {link_pos:.3f}\n"
             f"\n"
@@ -1487,16 +1541,16 @@ def main(page: ft.Page):
             f"{line_prefix}' Accel to line speed\n"
             f"{line_prefix}{format_movelink(accel_dist, accel_link, accel_link, 0, link_options, link_pos, base_arg)}\n"
             f"{line_prefix}WAIT LOADED\n"
-            f"{line_prefix}OP(cutter_op, ON)\n"
             f"\n"
             f"{line_prefix}' Sync at matched speed (cut happens here)\n"
             f"{line_prefix}{format_movelink(sync_dist, sync_link, 0, 0, follow_options, 0, base_arg)}\n"
             f"{line_prefix}WAIT LOADED\n"
-            f"{line_prefix}OP(cutter_op, OFF)\n"
+            f"{line_prefix}OP(cutter_op, ON)\n"
             f"\n"
             f"{line_prefix}' Decel to stop (cutter is now clear)\n"
             f"{line_prefix}{format_movelink(decel_dist, decel_link, 0, decel_link, follow_options, 0, base_arg)}\n"
             f"{line_prefix}WAIT LOADED\n"
+            f"{line_prefix}OP(cutter_op, OFF)\n"
             f"\n"
             f"{line_prefix}' Retract carriage to home\n"
             f"{line_prefix}{format_movelink(-stroke, ret_link, ret_ad, ret_ad, follow_options, 0, base_arg)}\n"

@@ -14,6 +14,7 @@
   "param_FS_LIMIT": "888888",
   "master_axis": "3",
   "slave_axis": "0",
+  "cutter_output": "8",
   "scale_px_per_unit": 37.0,
   "axis_params": {
     "1": {
@@ -71,15 +72,15 @@
   },
   "master_speed": "10",
   "shear_calc": {
-    "cut": 30.0,
-    "vline": 50.0,
-    "amax": 500.0,
-    "tsync": 200.0,
+    "cut": 10.0,
+    "vline": 10.0,
+    "amax": 5000.0,
+    "tsync": 50.0,
     "safety": 1.5,
     "vmax": 210.0,
     "link_pos": 0.0,
     "base_dist": 0.0,
-    "profile": "sine",
+    "profile": "power9",
     "start_mode": "immediate",
     "link_source": "mpos",
     "direction_mode": "any",
