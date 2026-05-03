@@ -27,44 +27,20 @@ class TrioConnection:
         while not self._watchdog_stop.wait(0.5):
             if not (self.connection and self._is_open):
                 continue
-            try:
-                heartbeat_done = threading.Event()
-                heartbeat_error = []
+            # This thread intentionally does not touch the UAPI object. The
+            # controller API is thread-affine; health checks are performed by
+            # the caller's pinned UAPI worker and reported via
+            # mark_connection_lost().
 
-                def _heartbeat():
-                    try:
-                        self.connection.SetVrValue(66, 1)
-                    except Exception as e:
-                        heartbeat_error.append(e)
-                    finally:
-                        heartbeat_done.set()
-
-                t = threading.Thread(target=_heartbeat, name="WatchdogHeartbeat", daemon=True)
-                t.start()
-                if not heartbeat_done.wait(timeout=5.0):
-                    self.mark_connection_lost()
-                    logging.warning("Watchdog heartbeat timed out after 5s — connection lost")
-                    break
-                if heartbeat_error:
-                    raise heartbeat_error[0]
-            except Exception as exc:
-                if 'Disconnected' in str(exc) or 'No connection' in str(exc):
-                    self.mark_connection_lost()
-                    logging.warning(f"Watchdog detected connection loss: {exc}")
-                    break
-                logging.debug(f"Watchdog failed to set VR(66): {exc}")
-
-    def _cleanup_connection_async(self):
+    def _cleanup_connection(self):
         conn = self.connection
         self.connection = None
         if conn is None:
             return
-        def _close():
-            try:
-                conn.CloseConnection()
-            except Exception:
-                pass
-        threading.Thread(target=_close, name="TrioCloseCleanup", daemon=True).start()
+        try:
+            conn.CloseConnection()
+        except Exception:
+            pass
 
     def _start_watchdog(self):
         if self._watchdog_thread and self._watchdog_thread.is_alive():
@@ -102,6 +78,9 @@ class TrioConnection:
     def is_disconnect_cooldown_active(self) -> bool:
         return self.get_disconnect_cooldown_remaining() > 0.0
 
+    def set_connection_lost_callback(self, callback: Optional[Callable]) -> None:
+        self._on_connection_lost = callback
+
     def event_handler(self, et, ival, sval):
         ival_repr = hex(ival) if isinstance(ival, int) else ival
         if not self.connection or not self._is_open or self._shutting_down:
@@ -138,35 +117,19 @@ class TrioConnection:
 
     def _attempt_connection_with_timeout(self, mc_ip: str, timeout_seconds: float,
                                          cancel_check: Optional[Callable] = None):
-        connection_opened = threading.Event()
-        connection_error = []
+        if cancel_check and cancel_check():
+            logging.info("Connection attempt cancelled by user before OpenConnection")
+            return self._CANCELLED
 
-        def open_connection_thread():
-            try:
-                self.connection.OpenConnection()
-                connection_opened.set()
-            except Exception as e:
-                connection_error.append(e)
-                connection_opened.set()
-
-        thread = threading.Thread(target=open_connection_thread, name="TrioConnectionThread", daemon=True)
-        thread.start()
-
-        elapsed = 0.0
-        poll_interval = 0.5
-        while elapsed < timeout_seconds:
-            remaining = min(poll_interval, timeout_seconds - elapsed)
-            if connection_opened.wait(timeout=remaining):
-                if connection_error:
-                    raise connection_error[0]
-                return True
-            elapsed += remaining
-            if cancel_check and cancel_check():
-                logging.info("Connection attempt cancelled by user during OpenConnection wait")
-                return self._CANCELLED
-
-        logging.warning(f"Connection attempt timed out after {timeout_seconds}s")
-        return False
+        start = time.monotonic()
+        self.connection.OpenConnection()
+        elapsed = time.monotonic() - start
+        if elapsed > timeout_seconds:
+            logging.warning(
+                f"OpenConnection returned after configured timeout "
+                f"({elapsed:.3f}s > {timeout_seconds}s)"
+            )
+        return True
 
     def connect(self, mc_ip='192.168.1.250', progress_callback: Optional[Callable] = None,
                 cancel_check: Optional[Callable] = None):
@@ -221,14 +184,14 @@ class TrioConnection:
 
                 if connection_succeeded is self._CANCELLED:
                     logging.info("Connection cancelled by user")
-                    self._cleanup_connection_async()
+                    self._cleanup_connection()
                     self._is_open = False
                     self.connection = None
                     return False
 
                 if not connection_succeeded:
                     logging.warning(f"Connection attempt {attempt + 1} timed out")
-                    self._cleanup_connection_async()
+                    self._cleanup_connection()
 
                     if attempt < self._max_connection_attempts - 1:
                         for _ in range(10):
@@ -358,28 +321,13 @@ class TrioConnection:
                 logging.warning(f"Could not signal event worker: {e}")
 
             try:
-                close_done = threading.Event()
-                close_error = []
-
-                def _close_thread():
-                    try:
-                        self.connection.CloseConnection()
-                    except Exception as e:
-                        close_error.append(e)
-                    finally:
-                        close_done.set()
-
-                t = threading.Thread(target=_close_thread, name="TrioCloseConn", daemon=True)
-                t.start()
-                if not close_done.wait(timeout=5.0):
-                    logging.warning("CloseConnection() timed out after 5s — abandoning (socket may leak)")
-                elif close_error:
-                    logging.info(f"Exception during CloseConnection (disconnection successful): {close_error[0]}")
+                self.connection.CloseConnection()
             except Exception as e:
                 logging.info(f"Exception during CloseConnection (disconnection successful): {str(e)}")
 
             self.connection = None
             self._is_open = False
+            self._shutting_down = False
             self._enter_disconnect_cooldown()
             logging.info("Successfully disconnected.")
             return True

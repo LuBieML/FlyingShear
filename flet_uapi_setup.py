@@ -90,6 +90,24 @@ def main(page: ft.Page):
 
     trio_conn.status_callback = status_callback
 
+    def handle_connection_lost():
+        def update_ui():
+            nonlocal monitor_running
+            monitor_running = False
+            status_text.value = "Connection lost. Reconnect when controller is available."
+            status_text.color = ft.Colors.RED
+            connect_btn.disabled = False
+            ip_input.disabled = False
+            page.update()
+
+        loop = ui_loop_holder.get("loop")
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(update_ui)
+        else:
+            print("[error] Connection lost")
+
+    trio_conn.set_connection_lost_callback(handle_connection_lost)
+
     # --- Live Axis Monitor (Flying Shear / 2 Axes) ---
     monitor_running = False
 
@@ -490,11 +508,12 @@ def main(page: ft.Page):
             leave behind stale bound methods.
             """
             conn = trio_conn.connection
-            if not conn:
+            if not conn or not trio_conn.is_connected():
                 return None, None
 
             results = {}
             mpos_t = None
+            mpos_errors = 0
             for pn, _ in read_params:
                 if pn != "MPOS" and not read_slow_params:
                     continue
@@ -513,12 +532,18 @@ def main(page: ft.Page):
                     results[(pn, "m")] = val_m
                 except Exception:
                     results[(pn, "m")] = "ERR"
+                    if pn == "MPOS":
+                        mpos_errors += 1
                 # Slave
                 try:
                     val_s = method(axis_s)
                     results[(pn, "s")] = val_s
                 except Exception:
                     results[(pn, "s")] = "ERR"
+                    if pn == "MPOS":
+                        mpos_errors += 1
+            if mpos_errors >= 2:
+                trio_conn.mark_connection_lost()
             return results, mpos_t
 
         while monitor_running:
@@ -703,6 +728,8 @@ def main(page: ft.Page):
         ui_loop_holder["loop"] = asyncio.get_running_loop()
         status_text.value = "Connecting..."
         status_text.color = ft.Colors.WHITE
+        connect_btn.disabled = True
+        ip_input.disabled = True
         page.update()
 
         loop = asyncio.get_running_loop()
@@ -727,6 +754,8 @@ def main(page: ft.Page):
         else:
             status_text.value = "Connection Failed."
             status_text.color = ft.Colors.RED
+            connect_btn.disabled = False
+            ip_input.disabled = False
             page.update()
 
     connect_btn = ft.FilledButton("Connect", on_click=on_connect_click,
@@ -767,6 +796,7 @@ def main(page: ft.Page):
         ("RS_LIMIT", "0.0"),
         ("FS_LIMIT", "0.0"),
     ]
+    parameter_defaults = dict(parameters)
 
     def get_axis_param_settings(axis):
         axis_key = str(axis)
@@ -824,7 +854,9 @@ def main(page: ft.Page):
         axis_has_params = bool(settings.get("axis_params", {}).get(str(axis), {}))
         for param_name, _ in parameters:
             param_inputs[param_name].value = (
-                get_saved_param_value(axis, param_name, "1") if axis_has_params else "1"
+                get_saved_param_value(axis, param_name, parameter_defaults[param_name])
+                if axis_has_params
+                else parameter_defaults[param_name]
             )
 
         save_settings(settings)
@@ -864,7 +896,7 @@ def main(page: ft.Page):
         dst = axis_dropdown.value or "0"
         dst_settings = get_axis_param_settings(dst)
         for param_name, _ in parameters:
-            val = src_params.get(param_name, "1")
+            val = src_params.get(param_name, parameter_defaults[param_name])
             dst_settings[param_name] = val
             param_inputs[param_name].value = val
         save_settings(settings)
@@ -1069,6 +1101,9 @@ def main(page: ft.Page):
         calc_settings[k] = v
         save_settings(settings)
 
+    def save_calc_settings(e=None):
+        save_settings(settings)
+
     def make_input(label, key, default, width=160):
         tf = ft.TextField(
             label=label, value=str(calc_settings.get(key, default)),
@@ -1117,9 +1152,16 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             return
 
+        if L <= 0 or v < 0 or a <= 0 or tsync < 0 or sf <= 0:
+            warning_text.value = "Invalid inputs: cut, accel, and safety must be > 0; speed and sync time must be >= 0"
+            warning_text.color = ft.Colors.RED_300
+            code_output.value = ""
+            page.update()
+            return
+
         for k, val in [("cut", L), ("vline", v), ("amax", a),
                        ("tsync", tsync), ("safety", sf)]:
-            cs_set(k, val)
+            calc_settings[k] = val
 
         # Shear (slave) distances
         accel_dist = (v * v) / (2 * a) * sf
@@ -1190,6 +1232,7 @@ def main(page: ft.Page):
 
     for inp in (cut_input, vline_input, amax_input, tsync_input, safety_input):
         inp.on_change = recalc
+        inp.on_blur = save_calc_settings
 
     def copy_code(e):
         text = code_output.value
