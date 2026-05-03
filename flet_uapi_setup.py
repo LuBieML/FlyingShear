@@ -1140,6 +1140,14 @@ def main(page: ft.Page):
         )
         return tf
 
+    def make_dropdown(label, key, default, options, width=180):
+        return ft.Dropdown(
+            label=label, value=str(calc_settings.get(key, default)),
+            width=width, bgcolor=DARKER_BG, color=TEXT_COLOR,
+            border_color=ft.Colors.GREY_800, text_size=13,
+            options=[ft.dropdown.Option(value, text) for value, text in options],
+        )
+
     cut_input    = make_input("Cut length (mm)",         "cut",    100)
     vline_input  = make_input("Line speed (mm/s)",       "vline",  500)
     vmax_input   = make_input("Shear max speed (mm/s)",  "vmax",   1500, width=180)
@@ -1147,9 +1155,63 @@ def main(page: ft.Page):
     tsync_input  = make_input("Sync time (ms)",          "tsync",  30,   width=140)
     safety_input = make_input("Safety factor",           "safety", 1.5,  width=120)
 
+    profile_dropdown = make_dropdown(
+        "MOVELINK profile", "profile", "trapezoid",
+        [
+            ("trapezoid", "Trapezoidal"),
+            ("sine", "Sine S-curve"),
+            ("power9", "Power 9 S-curve"),
+            ("power7", "Power 7 S-curve"),
+            ("power5", "Power 5 S-curve"),
+            ("linear_s", "Linear ramp mode"),
+        ],
+        width=190,
+    )
+    start_dropdown = make_dropdown(
+        "Start trigger", "start_mode", "immediate",
+        [
+            ("immediate", "Immediate"),
+            ("mark", "MARK"),
+            ("absolute", "Absolute position"),
+            ("markb", "MARKB"),
+            ("rmark", "R_MARK channel"),
+        ],
+        width=190,
+    )
+    link_pos_input = make_input("Link pos / channel", "link_pos", 0, width=150)
+    source_dropdown = make_dropdown(
+        "Link source", "link_source", "mpos",
+        [("mpos", "Master MPOS"), ("dpos", "Master DPOS")],
+        width=160,
+    )
+    direction_dropdown = make_dropdown(
+        "Direction", "direction_mode", "any",
+        [
+            ("any", "Any direction"),
+            ("positive", "Positive only"),
+            ("positive_threshold", "Positive threshold"),
+        ],
+        width=185,
+    )
+    repeat_dropdown = make_dropdown(
+        "Repeat style", "repeat_mode", "program_loop",
+        [
+            ("program_loop", "Program WHILE loop"),
+            ("movelink_repeat", "MOVELINK repeat bit"),
+        ],
+        width=190,
+    )
+    base_dist_checkbox = ft.Checkbox(
+        label="Use base distance",
+        value=bool(calc_settings.get("use_base_dist", False)),
+        fill_color=ft.Colors.BLUE_700,
+        check_color=ft.Colors.WHITE,
+    )
+    base_dist_input = make_input("Base distance", "base_dist", 0, width=140)
+
     result_labels = {
         k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
-        for k in ("stroke", "acc", "track", "dec", "ret", "vpeak")
+        for k in ("stroke", "acc", "track", "dec", "ret", "vpeak", "options", "profile", "start", "base")
     }
     warning_text = ft.Text("", size=13, color=ft.Colors.AMBER_300)
 
@@ -1178,6 +1240,61 @@ def main(page: ft.Page):
             return f"{value:.1f}"
         return f"{value:.2f}"
 
+    def option_bit(index):
+        return 1 << index
+
+    def build_link_options(profile, start_mode, link_source, direction_mode, repeat_mode):
+        options = 0
+
+        profile_modes = {
+            "sine": 0,
+            "power9": 1,
+            "power7": 2,
+            "power5": 3,
+            "linear_s": 4,
+        }
+        if profile in profile_modes:
+            options |= option_bit(4)
+            options |= profile_modes[profile] << 10
+
+        start_bits = {
+            "mark": 0,
+            "absolute": 1,
+            "markb": 8,
+            "rmark": 9,
+        }
+        if start_mode in start_bits:
+            options |= option_bit(start_bits[start_mode])
+
+        if link_source == "dpos":
+            options |= option_bit(13)
+
+        if direction_mode == "positive":
+            options |= option_bit(5)
+        elif direction_mode == "positive_threshold":
+            options |= option_bit(14)
+
+        if repeat_mode == "movelink_repeat":
+            options |= option_bit(2)
+
+        return options
+
+    def format_movelink(distance, link_dist, link_acc, link_dec, options, link_pos, base_dist=None):
+        args = [
+            f"{distance:.3f}",
+            f"{link_dist:.3f}",
+            f"{link_acc:.3f}",
+            f"{link_dec:.3f}",
+            "link_ax",
+        ]
+
+        if base_dist is not None:
+            args.extend([str(options), f"{link_pos:.3f}", f"{base_dist:.3f}"])
+        elif options or link_pos:
+            args.extend([str(options), f"{link_pos:.3f}"])
+
+        return f"MOVELINK({', '.join(args)})"
+
     def recalc(e=None):
         try:
             L     = float(cut_input.value)
@@ -1186,6 +1303,8 @@ def main(page: ft.Page):
             a     = float(amax_input.value)
             tsync = float(tsync_input.value)
             sf    = float(safety_input.value)
+            link_pos = float(link_pos_input.value or 0)
+            base_dist = float(base_dist_input.value or 0)
         except (TypeError, ValueError):
             return
 
@@ -1197,8 +1316,15 @@ def main(page: ft.Page):
             return
 
         for k, val in [("cut", L), ("vline", v), ("vmax", vmax), ("amax", a),
-                       ("tsync", tsync), ("safety", sf)]:
+                       ("tsync", tsync), ("safety", sf), ("link_pos", link_pos),
+                       ("base_dist", base_dist)]:
             calc_settings[k] = val
+        calc_settings["profile"] = profile_dropdown.value
+        calc_settings["start_mode"] = start_dropdown.value
+        calc_settings["link_source"] = source_dropdown.value
+        calc_settings["direction_mode"] = direction_dropdown.value
+        calc_settings["repeat_mode"] = repeat_dropdown.value
+        calc_settings["use_base_dist"] = bool(base_dist_checkbox.value)
 
         # Shear (slave) distances
         accel_dist = (v * v) / (2 * a) * sf
@@ -1224,6 +1350,35 @@ def main(page: ft.Page):
         result_labels["ret"].value    = f"{ret_link:.2f} mm"
         result_labels["vpeak"].value  = f"{fmt_speed(v_retract_peak)} mm/s" if ret_link > 0 else "—"
 
+        profile = profile_dropdown.value or "trapezoid"
+        start_mode = start_dropdown.value or "immediate"
+        link_source = source_dropdown.value or "mpos"
+        direction_mode = direction_dropdown.value or "any"
+        repeat_mode = repeat_dropdown.value or "program_loop"
+        use_base_dist = bool(base_dist_checkbox.value)
+        link_options = build_link_options(profile, start_mode, link_source, direction_mode, repeat_mode)
+        follow_options = build_link_options(profile, "immediate", link_source, direction_mode, repeat_mode)
+
+        profile_labels = {
+            "trapezoid": "Trapezoidal",
+            "sine": "Sine S",
+            "power9": "Power 9",
+            "power7": "Power 7",
+            "power5": "Power 5",
+            "linear_s": "Linear",
+        }
+        start_labels = {
+            "immediate": "Immediate",
+            "mark": "MARK",
+            "absolute": f"Abs {link_pos:g}",
+            "markb": "MARKB",
+            "rmark": f"R_MARK {link_pos:g}",
+        }
+        result_labels["options"].value = str(link_options)
+        result_labels["profile"].value = profile_labels.get(profile, profile)
+        result_labels["start"].value = start_labels.get(start_mode, start_mode)
+        result_labels["base"].value = f"{base_dist:.2f} mm" if use_base_dist else "Off"
+
         warnings = []
         if v > vmax:
             warnings.append(f"✗ Line speed ({v:g}) exceeds shear max speed ({vmax:g}) — cannot match")
@@ -1233,6 +1388,24 @@ def main(page: ft.Page):
             warnings.append(f"✗ Retract peak speed {fmt_speed(v_retract_peak)} mm/s exceeds shear max {vmax:g}")
         elif ret_link < accel_link * 0.5:
             warnings.append("⚠ Tight retract — shear must return during short dwell")
+        for label, l_dist, l_acc, l_dec in [
+            ("Accel", accel_link, accel_link, 0),
+            ("Track", sync_link, 0, 0),
+            ("Decel", decel_link, 0, decel_link),
+            ("Retract", ret_link, ret_ad, ret_ad),
+        ]:
+            if l_dist > 0 and l_acc + l_dec > l_dist:
+                warnings.append(f"⚠ {label} accel+decel exceeds link distance; controller will scale ramps")
+        if start_mode in ("absolute", "rmark") and link_pos < 0:
+            warnings.append("✗ Link position/channel must be >= 0 for selected start trigger")
+        if start_mode == "rmark" and int(link_pos) != link_pos:
+            warnings.append("✗ R_MARK channel must be a whole number")
+        if use_base_dist and base_dist < 0:
+            warnings.append("✗ Base distance must be >= 0")
+        if start_mode != "immediate":
+            warnings.append("⚠ Start trigger is applied to the first acceleration MOVELINK only")
+        if repeat_mode == "movelink_repeat":
+            warnings.append("⚠ MOVELINK repeat bit is intended for simple repeating links; verify multi-phase shear behavior")
 
         if not warnings:
             warning_text.value = "✓ OK"
@@ -1250,10 +1423,17 @@ def main(page: ft.Page):
         except ValueError:
             link_ax, shear_ax = 0, 1
 
+        base_arg = base_dist if use_base_dist else None
+        loop_start = "" if repeat_mode == "movelink_repeat" else "WHILE TRUE\n"
+        line_prefix = "" if repeat_mode == "movelink_repeat" else "    "
+        loop_end = "" if repeat_mode == "movelink_repeat" else "WEND\n"
+
         code_output.value = (
             f"shear_ax  = {shear_ax}\n"
             f"link_ax   = {link_ax}\n"
             f"cutter_op = 8\n"
+            f"link_options = {link_options}\n"
+            f"link_pos = {link_pos:.3f}\n"
             f"\n"
             f"BASE(shear_ax)\n"
             f"SERVO = ON\n"
@@ -1262,32 +1442,44 @@ def main(page: ft.Page):
             f"WAIT IDLE\n"
             f"DEFPOS(0)\n"
             f"\n"
-            f"WHILE TRUE\n"
-            f"    ' Accel to line speed\n"
-            f"    MOVELINK({accel_dist:.3f}, {accel_link:.3f}, {accel_link:.3f}, 0, link_ax)\n"
-            f"    WAIT LOADED\n"
-            f"    OP(cutter_op, ON)\n"
+            f"{loop_start}"
+            f"{line_prefix}' Accel to line speed\n"
+            f"{line_prefix}{format_movelink(accel_dist, accel_link, accel_link, 0, link_options, link_pos, base_arg)}\n"
+            f"{line_prefix}WAIT LOADED\n"
+            f"{line_prefix}OP(cutter_op, ON)\n"
             f"\n"
-            f"    ' Sync at matched speed (cut happens here)\n"
-            f"    MOVELINK({sync_dist:.3f}, {sync_link:.3f}, 0, 0, link_ax)\n"
-            f"    WAIT LOADED\n"
-            f"    OP(cutter_op, OFF)\n"
+            f"{line_prefix}' Sync at matched speed (cut happens here)\n"
+            f"{line_prefix}{format_movelink(sync_dist, sync_link, 0, 0, follow_options, 0, base_arg)}\n"
+            f"{line_prefix}WAIT LOADED\n"
+            f"{line_prefix}OP(cutter_op, OFF)\n"
             f"\n"
-            f"    ' Decel to stop (cutter is now clear)\n"
-            f"    MOVELINK({decel_dist:.3f}, {decel_link:.3f}, 0, {decel_link:.3f}, link_ax)\n"
-            f"    WAIT LOADED\n"
+            f"{line_prefix}' Decel to stop (cutter is now clear)\n"
+            f"{line_prefix}{format_movelink(decel_dist, decel_link, 0, decel_link, follow_options, 0, base_arg)}\n"
+            f"{line_prefix}WAIT LOADED\n"
             f"\n"
-            f"    ' Retract carriage to home\n"
-            f"    MOVELINK({-stroke:.3f}, {ret_link:.3f}, "
-            f"{ret_ad:.3f}, {ret_ad:.3f}, link_ax)\n"
-            f"    WAIT LOADED\n"
-            f"WEND\n"
+            f"{line_prefix}' Retract carriage to home\n"
+            f"{line_prefix}{format_movelink(-stroke, ret_link, ret_ad, ret_ad, follow_options, 0, base_arg)}\n"
+            f"{line_prefix}WAIT LOADED\n"
+            f"{loop_end}"
         )
         page.update()
 
     for inp in (cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input):
         inp.on_change = recalc
         inp.on_blur = save_calc_settings
+
+    for inp in (link_pos_input, base_dist_input):
+        inp.on_change = recalc
+        inp.on_blur = save_calc_settings
+
+    def recalc_and_save(e=None):
+        recalc(e)
+        save_calc_settings(e)
+
+    for dd in (profile_dropdown, start_dropdown, source_dropdown, direction_dropdown, repeat_dropdown):
+        dd.on_change = recalc_and_save
+
+    base_dist_checkbox.on_change = recalc_and_save
 
     def copy_code(e):
         text = code_output.value
@@ -1328,6 +1520,17 @@ def main(page: ft.Page):
         ft.Container(height=10),
         ft.Row([cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input],
                wrap=True, spacing=15),
+        ft.Container(height=10),
+        ft.Row([
+            profile_dropdown,
+            start_dropdown,
+            link_pos_input,
+            source_dropdown,
+            direction_dropdown,
+            repeat_dropdown,
+            base_dist_checkbox,
+            base_dist_input,
+        ], wrap=True, spacing=15, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Container(height=15),
         ft.Row([
             result_card("Stroke needed", "stroke"),
@@ -1336,6 +1539,13 @@ def main(page: ft.Page):
             result_card("Decel link",    "dec"),
             result_card("Retract dwell", "ret"),
             result_card("Retract peak speed", "vpeak"),
+        ], spacing=10),
+        ft.Container(height=10),
+        ft.Row([
+            result_card("Link options", "options"),
+            result_card("Profile", "profile"),
+            result_card("Start", "start"),
+            result_card("Base distance", "base"),
         ], spacing=10),
         ft.Container(height=10),
         warning_text,

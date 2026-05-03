@@ -69,13 +69,21 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "10",
+  "master_speed": "50",
   "shear_calc": {
     "cut": 15.0,
     "vline": 50.0,
     "amax": 5000.0,
     "tsync": 200.0,
     "safety": 1.5,
-    "vmax": 210.0
+    "vmax": 210.0,
+    "link_pos": 0.0,
+    "base_dist": 0.0,
+    "profile": "trapezoid",
+    "start_mode": "immediate",
+    "link_source": "mpos",
+    "direction_mode": "any",
+    "repeat_mode": "program_loop",
+    "use_base_dist": false
   }
 }
