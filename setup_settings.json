@@ -15,7 +15,7 @@
   "master_axis": "3",
   "slave_axis": "0",
   "cutter_output": "8",
-  "scale_px_per_unit": 37.0,
+  "scale_px_per_unit": 93.0,
   "axis_params": {
     "1": {
       "UNITS": "2097152.0",
@@ -70,12 +70,12 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "10",
+  "master_speed": "5",
   "shear_calc": {
-    "cut": 40.0,
+    "cut": 30.0,
     "vline": 20.0,
     "amax": 1000.0,
-    "tsync": 300.0,
+    "tsync": 10.0,
     "safety": 1.5,
     "vmax": 210.0,
     "link_pos": 0.0,

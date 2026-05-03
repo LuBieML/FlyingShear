@@ -316,14 +316,16 @@ def main(page: ft.Page):
     BELT_TOP_IN_CONVEYOR = (CONVEYOR_HEIGHT - BELT_HEIGHT) / 2
 
     # --- Shear/cutter graphic (Slave axis) ---
-    SHEAR_WIDTH = 24
-    SHEAR_HEIGHT = 52
-    MOUNT_HEIGHT = 12
-    BLADE_TIP_H = 12
-    SHEAR_TRACK_HEIGHT = 90
-    SHEAR_TO_CONVEYOR_GAP = 10
+    SHEAR_WIDTH = 46
+    SHEAR_HEIGHT = 68
+    MOUNT_HEIGHT = 14
+    BLADE_TIP_H = 22
+    SHEAR_TRACK_HEIGHT = 118
+    SHEAR_TO_CONVEYOR_GAP = 8
+    SHEAR_CUT_OVERTRAVEL = 6
     SHEAR_TOP_IDLE = 6
-    SHEAR_TOP_CUT = SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP + BELT_TOP_IN_CONVEYOR - SHEAR_HEIGHT
+    BLADE_IDLE_EXTENSION = 30
+    BLADE_CUT_EXTENSION = 78
     CENTER_LEFT_S = TRACK_WIDTH / 2 - SHEAR_WIDTH / 2
     SHEAR_START_LEFT = 38  # ~1 cm from left; position-zero reference for slave visualizer
 
@@ -425,49 +427,81 @@ def main(page: ft.Page):
     def create_shear_track(color):
         """Shear blade for slave axis. Moves horizontally to track belt speed;
         top position (indicator.top) will be animated vertically to show cuts."""
-        blade_body_h = SHEAR_HEIGHT - MOUNT_HEIGHT - BLADE_TIP_H
+        blade_body_w = 18
+        blade_anchor_top = MOUNT_HEIGHT + 8
+        blade_left = (SHEAR_WIDTH - blade_body_w) / 2
+        guide_h = SHEAR_HEIGHT - 8
+
         mount = ft.Container(
             width=SHEAR_WIDTH, height=MOUNT_HEIGHT,
-            bgcolor="#2a2a2a",
-            border=ft.Border.all(1, "#505050"),
-            border_radius=ft.BorderRadius.only(top_left=3, top_right=3),
-            top=0, left=0,
-        )
-        blade_body = ft.Container(
-            width=SHEAR_WIDTH, height=blade_body_h,
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(-1, 0), end=ft.Alignment(1, 0),
-                colors=["#707070", "#d8d8d8", "#ffffff", "#d8d8d8", "#707070"],
-                stops=[0.0, 0.25, 0.5, 0.75, 1.0],
-            ),
-            border=ft.Border.only(
-                left=ft.BorderSide(1, "#404040"),
-                right=ft.BorderSide(1, "#404040"),
-            ),
-            top=MOUNT_HEIGHT, left=0,
-        )
-        blade_tip = ft.Container(
-            width=SHEAR_WIDTH, height=BLADE_TIP_H,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
-                colors=["#ffffff", "#bdbdbd", "#303030"],
-                stops=[0.0, 0.55, 1.0],
+                colors=["#4d4d4d", "#1c1c1c"],
             ),
-            border_radius=ft.BorderRadius.only(bottom_left=2, bottom_right=2),
-            top=SHEAR_HEIGHT - BLADE_TIP_H, left=0,
-        )
-        groove = ft.Container(
-            width=2, height=blade_body_h - 6,
-            bgcolor="#585858",
-            border_radius=1,
-            left=(SHEAR_WIDTH - 2) / 2,
-            top=MOUNT_HEIGHT + 3,
+            border=ft.Border.all(1, "#707070"),
+            border_radius=3,
+            top=0, left=0,
         )
 
+        blade_body = ft.Container(
+            width=blade_body_w,
+            height=BLADE_IDLE_EXTENSION,
+            gradient=ft.LinearGradient(
+                begin=ft.Alignment(-1, 0), end=ft.Alignment(1, 0),
+                colors=["#8f8f8f", "#f2f2f2", "#ffffff", "#c8c8c8", "#6f6f6f"],
+                stops=[0.0, 0.28, 0.5, 0.75, 1.0],
+            ),
+            border=ft.Border.all(1, "#3c3c3c"),
+            border_radius=ft.BorderRadius.only(top_left=2, top_right=2),
+            top=blade_anchor_top,
+            left=blade_left,
+        )
+        blade_edge = ft.Container(
+            width=2,
+            height=BLADE_IDLE_EXTENSION - 6,
+            bgcolor="#ffffff",
+            border_radius=1,
+            top=blade_anchor_top + 3,
+            left=blade_left + blade_body_w * 0.36,
+        )
+        blade_tip = ft.Text(
+            "▼",
+            size=32,
+            color="#f4f4f4",
+            weight=ft.FontWeight.BOLD,
+            width=SHEAR_WIDTH,
+            text_align=ft.TextAlign.CENTER,
+            top=blade_anchor_top + BLADE_IDLE_EXTENSION - 9,
+            left=0,
+        )
+        left_guide = ft.Container(
+            width=4, height=guide_h,
+            bgcolor="#2e2e2e",
+            border_radius=1,
+            top=4, left=4,
+            border=ft.Border.all(1, "#5c5c5c"),
+        )
+        right_guide = ft.Container(
+            width=4, height=guide_h,
+            bgcolor="#2e2e2e",
+            border_radius=1,
+            top=4, left=SHEAR_WIDTH - 8,
+            border=ft.Border.all(1, "#5c5c5c"),
+        )
+        crosshead = ft.Container(
+            width=SHEAR_WIDTH - 10,
+            height=6,
+            bgcolor="#3b3b3b",
+            border=ft.Border.all(1, "#666666"),
+            border_radius=2,
+            top=MOUNT_HEIGHT + 6,
+            left=5,
+        )
         indicator = ft.Container(
             content=ft.Stack(
-                [blade_body, blade_tip, mount, groove],
+                [left_guide, right_guide, blade_body, blade_edge, blade_tip, crosshead, mount],
                 width=SHEAR_WIDTH, height=SHEAR_HEIGHT,
+                clip_behavior=ft.ClipBehavior.NONE,
             ),
             width=SHEAR_WIDTH, height=SHEAR_HEIGHT,
             left=SHEAR_START_LEFT,
@@ -490,10 +524,20 @@ def main(page: ft.Page):
             width=TRACK_WIDTH, height=SHEAR_TRACK_HEIGHT,
             clip_behavior=ft.ClipBehavior.NONE,
         )
-        return indicator, track
+        return indicator, track, blade_body, blade_edge, blade_tip, blade_anchor_top
 
     belt_items_m, track_m = create_conveyor_track(ft.Colors.CYAN_300)
-    indicator_s, track_s = create_shear_track(ft.Colors.ORANGE_300)
+    indicator_s, track_s, blade_body_s, blade_edge_s, blade_tip_s, blade_anchor_top_s = create_shear_track(ft.Colors.ORANGE_300)
+    shear_conveyor_height = SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP + CONVEYOR_HEIGHT
+    shear_conveyor_view = ft.Stack(
+        [
+            ft.Container(content=track_m, top=SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP, left=0),
+            ft.Container(content=track_s, top=0, left=0),
+        ],
+        width=TRACK_WIDTH,
+        height=shear_conveyor_height,
+        clip_behavior=ft.ClipBehavior.NONE,
+    )
 
     def on_recenter(e):
         position_zero_m[0] = None
@@ -661,9 +705,11 @@ def main(page: ft.Page):
                     cutter_output_state_text.color = cutter_color
                     dirty = True
 
-                target_blade_top = SHEAR_TOP_CUT if cutter_raw is True else SHEAR_TOP_IDLE
-                if abs((indicator_s.top or 0) - target_blade_top) > 0.1:
-                    indicator_s.top = target_blade_top
+                target_blade_extension = BLADE_CUT_EXTENSION if cutter_raw is True else BLADE_IDLE_EXTENSION
+                if abs((blade_body_s.height or 0) - target_blade_extension) > 0.1:
+                    blade_body_s.height = target_blade_extension
+                    blade_edge_s.height = max(4, target_blade_extension - 6)
+                    blade_tip_s.top = blade_anchor_top_s + target_blade_extension - 9
                     dirty = True
 
                 mpos_val_m = None
@@ -794,9 +840,7 @@ def main(page: ft.Page):
                  scale_value_label],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
             ),
-            track_s,
-            ft.Container(height=SHEAR_TO_CONVEYOR_GAP),
-            track_m,
+            shear_conveyor_view,
         ]),
         bgcolor=DARKER_BG,
         border_radius=10,
