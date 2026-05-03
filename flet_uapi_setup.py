@@ -158,11 +158,39 @@ def main(page: ft.Page):
         settings["master_speed"] = e.control.value
         save_settings(settings)
 
+    def _send_master_speed():
+        try:
+            axis_m_val = int(axis_m_dropdown.value or "0")
+        except ValueError:
+            return
+
+        try:
+            speed_val = float(master_speed_input.value or "10.0")
+        except ValueError:
+            status_text.value = "Invalid master speed"
+            status_text.color = ft.Colors.RED
+            page.update()
+            return
+
+        def _do():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                return
+            try:
+                set_speed = getattr(conn, "SetAxisParameter_SPEED", None)
+                if set_speed:
+                    set_speed(axis_m_val, speed_val)
+            except Exception as ex:
+                print(f"Master speed update error on axis {axis_m_val}: {ex}")
+
+        uapi_executor.submit(_do)
+
     master_speed_input = ft.TextField(
         label="Speed", value=settings.get("master_speed", "10.0"),
         width=100, height=45,
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
         text_size=12, on_change=on_master_speed_change,
+        on_submit=lambda e: _send_master_speed(),
         tooltip="Master axis SPEED set before Forward/Reverse",
     )
 
