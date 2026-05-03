@@ -313,6 +313,7 @@ def main(page: ft.Page):
     RAIL_HEIGHT = 4
     PULLEY_SIZE = 36
     CONVEYOR_HEIGHT = PULLEY_SIZE + 2 * (RAIL_HEIGHT + 1)
+    BELT_TOP_IN_CONVEYOR = (CONVEYOR_HEIGHT - BELT_HEIGHT) / 2
 
     # --- Shear/cutter graphic (Slave axis) ---
     SHEAR_WIDTH = 24
@@ -320,8 +321,9 @@ def main(page: ft.Page):
     MOUNT_HEIGHT = 12
     BLADE_TIP_H = 12
     SHEAR_TRACK_HEIGHT = 90
+    SHEAR_TO_CONVEYOR_GAP = 10
     SHEAR_TOP_IDLE = 6
-    SHEAR_TOP_CUT = SHEAR_TRACK_HEIGHT - SHEAR_HEIGHT - 4
+    SHEAR_TOP_CUT = SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP + BELT_TOP_IN_CONVEYOR - SHEAR_HEIGHT
     CENTER_LEFT_S = TRACK_WIDTH / 2 - SHEAR_WIDTH / 2
     SHEAR_START_LEFT = 38  # ~1 cm from left; position-zero reference for slave visualizer
 
@@ -486,6 +488,7 @@ def main(page: ft.Page):
                 indicator,
             ],
             width=TRACK_WIDTH, height=SHEAR_TRACK_HEIGHT,
+            clip_behavior=ft.ClipBehavior.NONE,
         )
         return indicator, track
 
@@ -792,7 +795,7 @@ def main(page: ft.Page):
                 vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
             ),
             track_s,
-            ft.Container(height=10),
+            ft.Container(height=SHEAR_TO_CONVEYOR_GAP),
             track_m,
         ]),
         bgcolor=DARKER_BG,
