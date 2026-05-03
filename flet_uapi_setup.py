@@ -73,6 +73,9 @@ def main(page: ft.Page):
     # Load persisted settings
     settings = load_settings()
 
+    def refresh_setup_summary():
+        pass
+
     # Initialize the TrioConnection
     trio_conn = TrioConnection(status_callback=lambda msg, type_: print(f"[{type_}] {msg}"))
 
@@ -129,6 +132,7 @@ def main(page: ft.Page):
     def on_axis_m_change(e):
         settings["master_axis"] = e.control.value
         save_settings(settings)
+        refresh_setup_summary()
         try:
             recalc()
         except NameError:
@@ -137,13 +141,14 @@ def main(page: ft.Page):
     def on_axis_s_change(e):
         settings["slave_axis"] = e.control.value
         save_settings(settings)
+        refresh_setup_summary()
         try:
             recalc()
         except NameError:
             pass
 
     axis_m_dropdown = ft.Dropdown(
-        label="Master Axis", width=110, height=45,
+        label="Material / encoder axis", width=165, height=45,
         options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
         value=settings.get("master_axis", "0"),
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
@@ -151,7 +156,7 @@ def main(page: ft.Page):
     )
 
     axis_s_dropdown = ft.Dropdown(
-        label="Slave Axis", width=110, height=45,
+        label="Shear carriage axis", width=155, height=45,
         options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
         value=settings.get("slave_axis", "1"),
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
@@ -165,6 +170,7 @@ def main(page: ft.Page):
     def on_cutter_output_change(e):
         settings["cutter_output"] = e.control.value
         save_settings(settings)
+        refresh_setup_summary()
         try:
             recalc()
         except NameError:
@@ -198,24 +204,24 @@ def main(page: ft.Page):
         uapi_executor.submit(_do)
 
     master_speed_input = ft.TextField(
-        label="Speed", value=settings.get("master_speed", "10.0"),
+        label="Jog speed", value=settings.get("master_speed", "10.0"),
         width=100, height=45,
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
         text_size=12, on_change=on_master_speed_change,
         on_submit=lambda e: _send_master_speed(),
-        tooltip="Master axis SPEED set before Forward/Reverse",
+        tooltip="Material axis SPEED set before Forward/Reverse",
     )
 
     cutter_output_input = ft.TextField(
-        label="Cutter Output", value=str(settings.get("cutter_output", "8")),
+        label="Knife OP", value=str(settings.get("cutter_output", "8")),
         width=125, height=45,
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
         text_size=12, on_change=on_cutter_output_change,
-        tooltip="Controller digital output number used for cutter OP() and live output-state read",
+        tooltip="Controller digital output number used for knife OP() and live output-state read",
     )
 
     cutter_output_state_text = ft.Text(
-        "Cutter OP --: ---",
+        "Knife OP --: ---",
         size=12,
         color=ft.Colors.GREY_400,
         weight=ft.FontWeight.BOLD,
@@ -697,7 +703,7 @@ def main(page: ft.Page):
                     cutter_state = "---"
                     cutter_color = ft.Colors.GREY_400
 
-                cutter_label = f"Cutter OP {cutter_output_val}: {cutter_state}"
+                cutter_label = f"Knife OP {cutter_output_val}: {cutter_state}"
                 if cutter_output_state_text.value != cutter_label:
                     cutter_output_state_text.value = cutter_label
                     dirty = True
@@ -887,16 +893,23 @@ def main(page: ft.Page):
             ip_input.disabled = True
             page.update()
 
-            # Apply saved JSON parameters before starting the live monitor so
-            # UAPI writes and reads do not compete during startup.
-            await apply_saved_params_after_connection()
-
             start_monitor()
+            refresh_setup_summary()
+            saved_sets = get_saved_axis_param_sets()
+            if saved_sets:
+                status_text.value = "Connected. Review saved axis parameters before applying."
+                status_text.color = ft.Colors.ORANGE
+                show_saved_params_dialog(saved_sets)
+            else:
+                status_text.value = "Connected. No saved axis parameters found."
+                status_text.color = ft.Colors.GREEN
+                page.update()
         else:
             status_text.value = "Connection Failed."
             status_text.color = ft.Colors.RED
             connect_btn.disabled = False
             ip_input.disabled = False
+            refresh_setup_summary()
             page.update()
 
     connect_btn = ft.FilledButton("Connect", on_click=on_connect_click,
@@ -907,8 +920,8 @@ def main(page: ft.Page):
 
     # --- UI Elements: Setup Phase ---
     axis_dropdown = ft.Dropdown(
-        label="Target Axis",
-        width=150,
+        label="Axis being tuned",
+        width=170,
         options=[
             ft.dropdown.Option(
                 str(i),
@@ -938,6 +951,25 @@ def main(page: ft.Page):
         ("FS_LIMIT", "0.0"),
     ]
     parameter_defaults = dict(parameters)
+    parameter_groups = [
+        ("Units", ["UNITS"]),
+        ("Motion", ["SPEED", "ACCEL", "DECEL", "FASTDEC", "JERK"]),
+        ("Following Error", ["DRIVE_FE_LIMIT", "FE_LIMIT", "FE_RANGE"]),
+        ("Travel Limits", ["RS_LIMIT", "FS_LIMIT"]),
+    ]
+    parameter_tooltips = {
+        "UNITS": "User units conversion for this axis.",
+        "SPEED": "Default speed used by the axis.",
+        "ACCEL": "Default acceleration.",
+        "DECEL": "Default deceleration.",
+        "FASTDEC": "Emergency or fast deceleration.",
+        "JERK": "Jerk limit used for ramp shaping.",
+        "DRIVE_FE_LIMIT": "Drive following-error limit.",
+        "FE_LIMIT": "Controller following-error limit.",
+        "FE_RANGE": "Following-error warning range.",
+        "RS_LIMIT": "Reverse software travel limit.",
+        "FS_LIMIT": "Forward software travel limit.",
+    }
 
     def get_axis_param_settings(axis):
         axis_key = str(axis)
@@ -970,6 +1002,7 @@ def main(page: ft.Page):
         def handler(e):
             axis = axis_dropdown.value or "0"
             save_axis_param_value(axis, p_name, e.control.value)
+            validate_axis_param_inputs(show_errors=False)
         return handler
 
     for param, default in parameters:
@@ -983,10 +1016,52 @@ def main(page: ft.Page):
             bgcolor=DARKER_BG, 
             color=TEXT_COLOR,
             border_color=ft.Colors.GREY_800,
-            on_change=create_param_change_handler(param)
+            on_change=create_param_change_handler(param),
+            tooltip=parameter_tooltips.get(param),
         )
         param_inputs[param] = txt
         param_controls.append(txt)
+
+    def validate_axis_param_inputs(show_errors=True):
+        valid = True
+        values = {}
+        for param_name, _ in parameters:
+            control = param_inputs[param_name]
+            raw = (control.value or "").strip()
+            try:
+                value = float(raw)
+                values[param_name] = value
+                control.error_text = None
+            except ValueError:
+                valid = False
+                if show_errors:
+                    control.error_text = "Number required"
+
+        positive_params = ["UNITS", "SPEED", "ACCEL", "DECEL", "FASTDEC", "JERK",
+                           "DRIVE_FE_LIMIT", "FE_LIMIT", "FE_RANGE"]
+        for param_name in positive_params:
+            if param_name in values and values[param_name] <= 0:
+                valid = False
+                if show_errors:
+                    param_inputs[param_name].error_text = "Must be > 0"
+
+        limits_disabled = (
+            "RS_LIMIT" in values and "FS_LIMIT" in values
+            and values["RS_LIMIT"] == 0 and values["FS_LIMIT"] == 0
+        )
+        if (
+            "RS_LIMIT" in values and "FS_LIMIT" in values
+            and not limits_disabled
+            and values["RS_LIMIT"] >= values["FS_LIMIT"]
+        ):
+            valid = False
+            if show_errors:
+                param_inputs["RS_LIMIT"].error_text = "Below FS_LIMIT"
+                param_inputs["FS_LIMIT"].error_text = "Above RS_LIMIT"
+
+        if show_errors:
+            page.update()
+        return valid
 
     def on_target_axis_change(e):
         axis = e.control.value or "0"
@@ -1002,6 +1077,7 @@ def main(page: ft.Page):
 
         save_settings(settings)
         refresh_axis_dropdown()
+        refresh_setup_summary()
         page.update()
 
     axis_dropdown.on_select = on_target_axis_change
@@ -1177,11 +1253,54 @@ def main(page: ft.Page):
             applied_text = ", ".join(str(a) for a in applied_axes)
             status_text.value = f"Connected. Saved parameters applied to Axis {applied_text}."
             status_text.color = ft.Colors.GREEN
+        refresh_setup_summary()
         page.update()
+
+    saved_params_dialog = ft.AlertDialog(modal=True)
+
+    def show_saved_params_dialog(saved_sets):
+        axis_list = ", ".join(f"Axis {axis}" for axis, _ in saved_sets)
+
+        async def apply_saved_from_dialog(e):
+            saved_params_dialog.open = False
+            page.update()
+            await apply_saved_params_after_connection()
+
+        def skip_saved_from_dialog(e):
+            saved_params_dialog.open = False
+            status_text.value = "Connected. Saved parameters were not applied."
+            status_text.color = ft.Colors.ORANGE
+            refresh_setup_summary()
+            page.update()
+
+        saved_params_dialog.title = ft.Text("Apply saved axis parameters?")
+        saved_params_dialog.content = ft.Text(
+            f"Saved parameter sets were found for {axis_list}. "
+            "Apply them only if this controller and machine are the intended demo setup.",
+            color=TEXT_COLOR,
+        )
+        saved_params_dialog.actions = [
+            ft.OutlinedButton("Skip", on_click=skip_saved_from_dialog),
+            ft.FilledButton("Apply now", on_click=apply_saved_from_dialog,
+                            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)),
+        ]
+        saved_params_dialog.actions_alignment = ft.MainAxisAlignment.END
+        if hasattr(page, "show_dialog"):
+            page.show_dialog(saved_params_dialog)
+        else:
+            page.dialog = saved_params_dialog
+            saved_params_dialog.open = True
+            page.update()
 
     async def on_apply_click(e):
         if not trio_conn.connection:
             status_text.value = "Not connected!"
+            status_text.color = ft.Colors.RED
+            page.update()
+            return
+
+        if not validate_axis_param_inputs(show_errors=True):
+            status_text.value = "Fix highlighted axis parameters before applying."
             status_text.color = ft.Colors.RED
             page.update()
             return
@@ -1213,8 +1332,21 @@ def main(page: ft.Page):
     apply_btn = ft.FilledButton("Apply Parameters", on_click=on_apply_click,
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE))
 
-    # Arrange parameters in a grid/wrap
-    params_row = ft.Row(param_controls, wrap=True, alignment=ft.MainAxisAlignment.START, spacing=15, run_spacing=15)
+    def build_param_group(title, names):
+        controls = [param_inputs[name] for name in names]
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(title, size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ft.Row(controls, wrap=True, alignment=ft.MainAxisAlignment.START,
+                       spacing=15, run_spacing=15),
+            ], spacing=10),
+            bgcolor=DARKER_BG,
+            border_radius=8,
+            padding=14,
+            border=ft.Border.all(1, ft.Colors.GREY_800),
+        )
+
+    params_sections = [build_param_group(title, names) for title, names in parameter_groups]
 
     setup_container = ft.Column([
         ft.Container(height=10),
@@ -1222,7 +1354,7 @@ def main(page: ft.Page):
             [
                 axis_dropdown,
                 ft.Container(width=30),
-                ft.Text("Copy from:", size=13, color=ft.Colors.GREY_400),
+                ft.Text("Copy saved axis:", size=13, color=ft.Colors.GREY_400),
                 copy_from_dropdown,
                 copy_btn,
             ],
@@ -1230,10 +1362,10 @@ def main(page: ft.Page):
             spacing=10,
         ),
         ft.Container(height=10),
-        params_row,
+        *params_sections,
         ft.Container(height=20),
         apply_btn
-    ])
+    ], spacing=10)
 
     # === Flying Shear Calculator ===
     calc_settings = settings.setdefault("shear_calc", {})
@@ -1362,6 +1494,34 @@ def main(page: ft.Page):
         "", size=13, color=ft.Colors.AMBER_300,
         tooltip=CALC_TOOLTIPS["warnings"],
     )
+    review_text = ft.Text("", size=12, color=ft.Colors.GREY_300)
+    phase_labels = {
+        "accel": ft.Text("Accel", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+        "sync": ft.Text("Sync / knife", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+        "decel": ft.Text("Decel", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+        "retract": ft.Text("Retract", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
+    }
+    phase_segments = {
+        "accel": ft.Container(content=phase_labels["accel"], height=34, width=160,
+                              alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.BLUE_700,
+                              border_radius=ft.BorderRadius.only(top_left=6, bottom_left=6)),
+        "sync": ft.Container(content=phase_labels["sync"], height=34, width=160,
+                             alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.GREEN_700),
+        "decel": ft.Container(content=phase_labels["decel"], height=34, width=160,
+                              alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.ORANGE_700),
+        "retract": ft.Container(content=phase_labels["retract"], height=34, width=160,
+                                alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.BLUE_GREY_700,
+                                border_radius=ft.BorderRadius.only(top_right=6, bottom_right=6)),
+    }
+    phase_bar = ft.Column([
+        ft.Text("Generated MOVELINK cycle", size=12, color=ft.Colors.GREY_400),
+        ft.Row([
+            phase_segments["accel"],
+            phase_segments["sync"],
+            phase_segments["decel"],
+            phase_segments["retract"],
+        ], spacing=3),
+    ], spacing=6)
 
     code_output = ft.TextField(
         value="", read_only=True, multiline=True, min_lines=24, max_lines=30,
@@ -1456,12 +1616,18 @@ def main(page: ft.Page):
             link_pos = float(link_pos_input.value or 0)
             base_dist = float(base_dist_input.value or 0)
         except (TypeError, ValueError):
+            warning_text.value = "Invalid inputs: enter numeric values for the shear calculator."
+            warning_text.color = ft.Colors.RED_300
+            code_output.value = ""
+            refresh_setup_summary()
+            page.update()
             return
 
         if L <= 0 or v < 0 or vmax <= 0 or a <= 0 or tsync < 0 or sf <= 0:
             warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; line speed and sync time must be >= 0"
             warning_text.color = ft.Colors.RED_300
             code_output.value = ""
+            refresh_setup_summary()
             page.update()
             return
 
@@ -1499,6 +1665,18 @@ def main(page: ft.Page):
         result_labels["track"].value  = f"{sync_link:.2f} mm"
         result_labels["ret"].value    = f"{ret_link:.2f} mm"
         result_labels["vpeak"].value  = f"{fmt_speed(v_retract_peak)} mm/s" if ret_link > 0 else "—"
+
+        phase_total = max(accel_link + sync_link + decel_link + max(ret_link, 0), 1.0)
+        phase_data = {
+            "accel": ("Accel", accel_link),
+            "sync": ("Sync / knife", sync_link),
+            "decel": ("Decel", decel_link),
+            "retract": ("Retract", max(ret_link, 0)),
+        }
+        for phase_key, (phase_name, phase_dist) in phase_data.items():
+            phase_segments[phase_key].width = max(72, min(260, 600 * phase_dist / phase_total))
+            phase_labels[phase_key].value = f"{phase_name}\n{phase_dist:.1f} mm"
+            phase_labels[phase_key].text_align = ft.TextAlign.CENTER
 
         profile = profile_dropdown.value or "trapezoid"
         start_mode = start_dropdown.value or "immediate"
@@ -1574,6 +1752,12 @@ def main(page: ft.Page):
         except ValueError:
             link_ax, shear_ax, cutter_output = 0, 1, 8
 
+        review_text.value = (
+            f"Review before running: material/encoder Axis {link_ax}, shear carriage Axis {shear_ax}, "
+            f"knife OP {cutter_output}, profile {profile_labels.get(profile, profile)}, "
+            f"start {start_labels.get(start_mode, start_mode)}."
+        )
+
         base_arg = base_dist if use_base_dist else None
         loop_start = "" if repeat_mode == "movelink_repeat" else "WHILE TRUE\n"
         line_prefix = "" if repeat_mode == "movelink_repeat" else "    "
@@ -1613,6 +1797,7 @@ def main(page: ft.Page):
             f"{line_prefix}WAIT LOADED\n"
             f"{loop_end}"
         )
+        refresh_setup_summary()
         page.update()
 
     for inp in (cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input):
@@ -1666,51 +1851,139 @@ def main(page: ft.Page):
         tooltip=CALC_TOOLTIPS["copy"],
     )
 
-    shear_calc_container = ft.Column([
-        ft.Container(height=20),
-        ft.Text("Flying Shear MOVELINK Calculator", size=20,
-                weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-        ft.Container(height=10),
-        ft.Row([cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input],
-               wrap=True, spacing=15),
-        ft.Container(height=10),
-        ft.Row([
-            profile_dropdown,
-            start_dropdown,
-            link_pos_input,
-            source_dropdown,
-            direction_dropdown,
-            repeat_dropdown,
-            base_dist_checkbox,
-            base_dist_input,
-        ], wrap=True, spacing=15, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        ft.Container(height=15),
-        ft.Row([
-            result_card("Stroke needed", "stroke"),
-            result_card("Accel link",    "acc"),
-            result_card("Track link",    "track"),
-            result_card("Decel link",    "dec"),
-            result_card("Retract dwell", "ret"),
-            result_card("Retract peak speed", "vpeak"),
-        ], spacing=10),
-        ft.Container(height=10),
-        ft.Row([
-            result_card("Link options", "options"),
-            result_card("Profile", "profile", "profile_result"),
-            result_card("Start", "start", "start_result"),
-            result_card("Base distance", "base", "base_result"),
-        ], spacing=10),
-        ft.Container(height=10),
-        warning_text,
-        ft.Container(height=15),
-        ft.Row([
-            ft.Text("Master = link axis, Slave = shear axis (from Connection tab)",
+    shear_params_panel = ft.Container(
+        content=ft.Column([
+            ft.Text("Flying Shear MOVELINK Calculator", size=20,
+                    weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ft.Row([cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input],
+                   wrap=True, spacing=15, run_spacing=12),
+            ft.Row([
+                profile_dropdown,
+                start_dropdown,
+                link_pos_input,
+                source_dropdown,
+                direction_dropdown,
+                repeat_dropdown,
+                base_dist_checkbox,
+                base_dist_input,
+            ], wrap=True, spacing=15, run_spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row([
+                result_card("Stroke needed", "stroke"),
+                result_card("Accel link",    "acc"),
+                result_card("Track link",    "track"),
+                result_card("Decel link",    "dec"),
+                result_card("Retract dwell", "ret"),
+                result_card("Retract peak speed", "vpeak"),
+            ], wrap=True, spacing=10, run_spacing=10),
+            ft.Row([
+                result_card("Link options", "options"),
+                result_card("Profile", "profile", "profile_result"),
+                result_card("Start", "start", "start_result"),
+                result_card("Base distance", "base", "base_result"),
+            ], wrap=True, spacing=10, run_spacing=10),
+            phase_bar,
+            warning_text,
+            review_text,
+            ft.Text("Material axis = MOVELINK link axis. Shear axis = generated BASIC BASE axis.",
                     size=12, color=ft.Colors.GREY_400),
-            ft.Container(expand=True),
-            copy_btn_shear,
-        ]),
-        code_output,
-    ], expand=True)
+        ], spacing=14, scroll=ft.ScrollMode.AUTO),
+        expand=1,
+        padding=ft.padding.only(right=8),
+    )
+
+    trio_basic_panel = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Text("Trio BASIC Program", size=20,
+                        weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ft.Container(expand=True),
+                copy_btn_shear,
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            code_output,
+        ], expand=True, spacing=12),
+        expand=1,
+        padding=ft.padding.only(left=8),
+    )
+
+    shear_calc_container = ft.Row(
+        [shear_params_panel, trio_basic_panel],
+        expand=True,
+        spacing=18,
+        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+    )
+
+    summary_connection_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_300)
+    summary_controller_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+    summary_axis_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+    summary_output_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+    summary_params_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+    summary_program_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
+
+    def summary_tile(label, value_control, width=230):
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(label, size=11, color=ft.Colors.GREY_500),
+                value_control,
+            ], spacing=3),
+            width=width,
+            bgcolor=DARKER_BG,
+            border_radius=8,
+            padding=12,
+            border=ft.Border.all(1, ft.Colors.GREY_800),
+        )
+
+    setup_summary = ft.Container(
+        content=ft.Row([
+            summary_tile("Connection", summary_connection_value, width=170),
+            summary_tile("Controller", summary_controller_value, width=205),
+            summary_tile("Axes", summary_axis_value, width=290),
+            summary_tile("Knife output", summary_output_value, width=160),
+            summary_tile("Axis parameters", summary_params_value, width=280),
+            summary_tile("MOVELINK program", summary_program_value, width=220),
+        ], wrap=True, spacing=10, run_spacing=10),
+        padding=ft.padding.only(top=12, bottom=4),
+    )
+
+    def refresh_setup_summary():
+        connected = trio_conn.is_connected()
+        summary_connection_value.value = "Connected" if connected else "Disconnected"
+        summary_connection_value.color = ft.Colors.GREEN_300 if connected else ft.Colors.RED_300
+        summary_controller_value.value = ip_input.value or "--"
+        summary_axis_value.value = (
+            f"Material Axis {axis_m_dropdown.value or '--'}  |  "
+            f"Shear Axis {axis_s_dropdown.value or '--'}"
+        )
+        summary_output_value.value = f"OP {cutter_output_input.value or '--'}"
+
+        saved_sets = get_saved_axis_param_sets()
+        if saved_sets:
+            axes = ", ".join(str(axis) for axis, _ in saved_sets)
+            summary_params_value.value = f"Saved for Axis {axes}"
+            summary_params_value.color = ft.Colors.CYAN_200
+        else:
+            summary_params_value.value = "No saved axis sets"
+            summary_params_value.color = ft.Colors.ORANGE_300
+
+        warning_value = warning_text.value or ""
+        if code_output.value and warning_value.startswith("✓"):
+            summary_program_value.value = "Ready"
+            summary_program_value.color = ft.Colors.GREEN_300
+        elif code_output.value and warning_text.color == ft.Colors.RED_300:
+            summary_program_value.value = "Blocked by validation"
+            summary_program_value.color = ft.Colors.RED_300
+        elif code_output.value:
+            summary_program_value.value = "Review warnings"
+            summary_program_value.color = ft.Colors.AMBER_300
+        else:
+            summary_program_value.value = "Needs inputs"
+            summary_program_value.color = ft.Colors.ORANGE_300
+
+        try:
+            if setup_summary.page:
+                setup_summary.update()
+        except Exception:
+            pass
 
     recalc()
 
@@ -1720,9 +1993,9 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.TabBar(
                 tabs=[
-                    ft.Tab(label="Connection"),
-                    ft.Tab(label="Axis Settings"),
-                    ft.Tab(label="Flying Shear"),
+                    ft.Tab(label="1 Connect & Monitor"),
+                    ft.Tab(label="2 Tune Axes"),
+                    ft.Tab(label="3 Configure Shear"),
                 ]
             ),
             ft.TabBarView(
@@ -1807,8 +2080,10 @@ def main(page: ft.Page):
     # Assemble the main page
     page.add(
         ft.Text("Trio Motion Controller - UAPI Setup", size=28, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+        setup_summary,
         tabs
     )
+    refresh_setup_summary()
 
 if __name__ == "__main__":
     ft.run(main)
