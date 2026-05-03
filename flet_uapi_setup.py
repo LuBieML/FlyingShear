@@ -55,8 +55,12 @@ def main(page: ft.Page):
     page.title = "Trio UAPI Setup App"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 20
-    page.window_width = 1920
-    page.window_height = 1050
+    default_window_width = 1728
+    default_window_height = 1200
+    page.window_width = default_window_width
+    page.window_height = default_window_height
+    page.window.width = default_window_width
+    page.window.height = default_window_height
 
     # Aesthetics to match the GCode interpreter dark mode
     DARK_BG = "#1e1e1e"
@@ -1132,11 +1136,41 @@ def main(page: ft.Page):
     def save_calc_settings(e=None):
         save_settings(settings)
 
+    CALC_TOOLTIPS = {
+        "cut": "Master/link distance between cuts. In MOVELINK this becomes the available link-axis distance for accel, sync, decel, and retract dwell.",
+        "vline": "Measured material speed on the link axis. The shear must match this speed during the synchronized cut section.",
+        "vmax": "Maximum allowed shear/slave speed. Used to flag impossible line-speed matching and retract moves.",
+        "amax": "Maximum shear/slave acceleration. Accel distance is estimated from v^2/(2a), then multiplied by the safety factor.",
+        "tsync": "Time the shear should remain synchronized with the material while the cut output is active.",
+        "safety": "Multiplier applied to the calculated accel/decel distance to leave practical margin.",
+        "profile": "Selects how MOVELINK shapes acceleration/deceleration: trapezoidal, sinusoidal S-curve, polynomial S-curves, or linear ramp mode.",
+        "start_mode": "MOVELINK can start immediately, on MARK, at an absolute link-axis position, on MARKB, or on an R_MARK channel.",
+        "link_pos": "Absolute start position on the link axis when using Absolute position start, or registration channel number when using R_MARK channel start.",
+        "link_source": "MOVELINK normally follows the master's measured position (MPOS). DPOS mode follows the master's demanded position instead.",
+        "direction_mode": "Chooses whether the link is active for any master movement, only while the master moves positive, or only after a positive movement threshold is reached.",
+        "repeat_mode": "Program loop repeats the whole shear sequence. MOVELINK repeat asks the controller to repeat the linked move bi-directionally.",
+        "base_dist": "Firmware V2.0253+: base distance is part of the total MOVELINK distance and lets the profile start/end at a nonzero base ratio.",
+        "stroke": "Total slave/shear travel for accel, synchronized cut, and decel before retract.",
+        "acc": "Master/link-axis distance used during acceleration. Rule from MOVELINK.md: to match speed, link distance is twice the shear travel.",
+        "track": "Master/link-axis synchronized distance. At matched speed, shear distance equals link distance.",
+        "dec": "Master/link-axis distance used during deceleration. Mirrored from the acceleration phase.",
+        "ret": "Remaining master/link-axis distance before the next cut, available for retracting the shear carriage.",
+        "vpeak": "Estimated peak shear speed needed during retract. This is checked against the shear max speed.",
+        "options": "Decimal MOVELINK link_options value created from the selected profile, start trigger, position source, direction, and repeat settings.",
+        "profile_result": "Active MOVELINK acceleration/deceleration profile used in generated commands.",
+        "start_result": "Start condition applied to the first acceleration MOVELINK in the generated shear cycle.",
+        "base_result": "Base distance included as MOVELINK parameter 8 when enabled. Parameters 6 and 7 are required when using base distance.",
+        "warnings": "Validation messages for impossible speed, short cut length, ramp scaling, trigger setup, and repeat/base-distance caveats.",
+        "code": "Generated Trio BASIC program. Copy this into the controller after checking axes, output number, and safety conditions.",
+        "copy": "Copy the generated Trio BASIC MOVELINK program to the Windows clipboard.",
+    }
+
     def make_input(label, key, default, width=160):
         tf = ft.TextField(
             label=label, value=str(calc_settings.get(key, default)),
             width=width, bgcolor=DARKER_BG, color=TEXT_COLOR,
             border_color=ft.Colors.GREY_800, text_size=13,
+            tooltip=CALC_TOOLTIPS.get(key),
         )
         return tf
 
@@ -1146,6 +1180,7 @@ def main(page: ft.Page):
             width=width, bgcolor=DARKER_BG, color=TEXT_COLOR,
             border_color=ft.Colors.GREY_800, text_size=13,
             options=[ft.dropdown.Option(value, text) for value, text in options],
+            tooltip=CALC_TOOLTIPS.get(key),
         )
 
     cut_input    = make_input("Cut length (mm)",         "cut",    100)
@@ -1206,6 +1241,7 @@ def main(page: ft.Page):
         value=bool(calc_settings.get("use_base_dist", False)),
         fill_color=ft.Colors.BLUE_700,
         check_color=ft.Colors.WHITE,
+        tooltip=CALC_TOOLTIPS["base_dist"],
     )
     base_dist_input = make_input("Base distance", "base_dist", 0, width=140)
 
@@ -1213,7 +1249,10 @@ def main(page: ft.Page):
         k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
         for k in ("stroke", "acc", "track", "dec", "ret", "vpeak", "options", "profile", "start", "base")
     }
-    warning_text = ft.Text("", size=13, color=ft.Colors.AMBER_300)
+    warning_text = ft.Text(
+        "", size=13, color=ft.Colors.AMBER_300,
+        tooltip=CALC_TOOLTIPS["warnings"],
+    )
 
     code_output = ft.TextField(
         value="", read_only=True, multiline=True, min_lines=24, max_lines=30,
@@ -1221,9 +1260,10 @@ def main(page: ft.Page):
         border_color=ft.Colors.GREY_800,
         text_style=ft.TextStyle(font_family="Consolas", size=12),
         expand=True,
+        tooltip=CALC_TOOLTIPS["code"],
     )
 
-    def result_card(label, key):
+    def result_card(label, key, tooltip_key=None):
         return ft.Container(
             content=ft.Column([
                 ft.Text(label, size=12, color=ft.Colors.GREY_400),
@@ -1231,6 +1271,7 @@ def main(page: ft.Page):
             ], spacing=4),
             bgcolor=DARKER_BG, border_radius=8, padding=12,
             border=ft.Border.all(1, ft.Colors.GREY_800), width=150,
+            tooltip=CALC_TOOLTIPS.get(tooltip_key or key),
         )
 
     def fmt_speed(value):
@@ -1478,6 +1519,7 @@ def main(page: ft.Page):
 
     for dd in (profile_dropdown, start_dropdown, source_dropdown, direction_dropdown, repeat_dropdown):
         dd.on_change = recalc_and_save
+        dd.on_select = recalc_and_save
 
     base_dist_checkbox.on_change = recalc_and_save
 
@@ -1511,6 +1553,7 @@ def main(page: ft.Page):
         "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_code,
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
         height=38,
+        tooltip=CALC_TOOLTIPS["copy"],
     )
 
     shear_calc_container = ft.Column([
@@ -1543,9 +1586,9 @@ def main(page: ft.Page):
         ft.Container(height=10),
         ft.Row([
             result_card("Link options", "options"),
-            result_card("Profile", "profile"),
-            result_card("Start", "start"),
-            result_card("Base distance", "base"),
+            result_card("Profile", "profile", "profile_result"),
+            result_card("Start", "start", "start_result"),
+            result_card("Base distance", "base", "base_result"),
         ], spacing=10),
         ft.Container(height=10),
         warning_text,
