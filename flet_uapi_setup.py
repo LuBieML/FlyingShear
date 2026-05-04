@@ -54,24 +54,111 @@ except ImportError:
 def main(page: ft.Page):
     page.title = "Trio UAPI Setup App"
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 20
+    page.padding = 0
     default_window_width = 1728
     default_window_height = 1200
     page.window_width = default_window_width
     page.window_height = default_window_height
     page.window.width = default_window_width
     page.window.height = default_window_height
+    page.window.min_width = 1120
+    page.window.min_height = 760
 
-    # Aesthetics to match the GCode interpreter dark mode
-    DARK_BG = "#1e1e1e"
-    DARKER_BG = "#121212"
+    # Industrial dark theme tokens. The palette keeps the tool calm and
+    # readable while giving machine-state colors clear priority.
+    DARK_BG = "#17191c"
+    DARKER_BG = "#111316"
+    PANEL_BG = "#20242a"
+    PANEL_ALT_BG = "#181b20"
+    BORDER_COLOR = "#343a40"
     ACCENT_COLOR = "#007acc"
     TEXT_COLOR = "#d4d4d4"
+    MUTED_TEXT = ft.Colors.GREY_500
+    SUCCESS_COLOR = ft.Colors.GREEN_300
+    WARNING_COLOR = ft.Colors.AMBER_300
+    ERROR_COLOR = ft.Colors.RED_300
 
     page.bgcolor = DARK_BG
+    page.theme = ft.Theme(color_scheme_seed=ACCENT_COLOR, use_material3=True)
+    page.dark_theme = ft.Theme(color_scheme_seed=ACCENT_COLOR, use_material3=True)
 
     # Load persisted settings
     settings = load_settings()
+
+    def show_snack(message, type_="info"):
+        palette = {
+            "success": ("#133a25", ft.Icons.CHECK_CIRCLE, SUCCESS_COLOR),
+            "warning": ("#3a2a0d", ft.Icons.WARNING_AMBER, WARNING_COLOR),
+            "error": ("#3a1515", ft.Icons.ERROR, ERROR_COLOR),
+            "info": ("#102d3f", ft.Icons.INFO, ft.Colors.CYAN_200),
+        }
+        bg, icon, icon_color = palette.get(type_, palette["info"])
+        snack = ft.SnackBar(
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=18, color=icon_color),
+                    ft.Text(message, color=ft.Colors.WHITE, size=13),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=bg,
+            behavior=ft.SnackBarBehavior.FLOATING,
+            show_close_icon=True,
+            close_icon_color=ft.Colors.WHITE,
+            duration=4200,
+        )
+        if hasattr(page, "show_dialog"):
+            page.show_dialog(snack)
+        else:
+            page.snack_bar = snack
+            snack.open = True
+            page.update()
+
+    def section_header(title, subtitle=None, icon=None):
+        leading = []
+        if icon:
+            leading.append(ft.Icon(icon, size=18, color=ft.Colors.CYAN_200))
+        return ft.Row(
+            leading + [
+                ft.Column(
+                    [
+                        ft.Text(title, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                        ft.Text(subtitle, size=12, color=MUTED_TEXT) if subtitle else ft.Container(height=0),
+                    ],
+                    spacing=2,
+                    tight=True,
+                )
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+    def control_cluster(title, controls, icon=None, col=None):
+        heading = [ft.Text(title.upper(), size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)]
+        if icon:
+            heading.insert(0, ft.Icon(icon, size=14, color=MUTED_TEXT))
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(heading, spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Row(
+                        controls,
+                        wrap=True,
+                        spacing=8,
+                        run_spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=12,
+            col=col or {"xs": 12, "md": 6, "xl": 3},
+        )
 
     def refresh_setup_summary():
         pass
@@ -86,7 +173,7 @@ def main(page: ft.Page):
     def status_callback(msg, type_):
         def update_status():
             status_text.value = msg
-            status_text.color = ft.Colors.RED if type_ == "error" else (ft.Colors.ORANGE if type_ == "warning" else ft.Colors.WHITE)
+            status_text.color = ERROR_COLOR if type_ == "error" else (WARNING_COLOR if type_ == "warning" else ft.Colors.WHITE)
             page.update()
 
         loop = ui_loop_holder.get("loop")
@@ -102,13 +189,18 @@ def main(page: ft.Page):
             nonlocal monitor_running
             monitor_running = False
             status_text.value = "Connection lost. Reconnect when controller is available."
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
             connect_btn.disabled = False
             ip_input.disabled = False
+            try:
+                _set_motion_controls_enabled(False)
+            except NameError:
+                pass
             try:
                 _set_wdog_button_state(None)
             except NameError:
                 pass
+            show_snack("Connection lost. Motion controls disabled.", "error")
             page.update()
 
         loop = ui_loop_holder.get("loop")
@@ -155,7 +247,8 @@ def main(page: ft.Page):
         label="Material / encoder axis", width=165, height=45,
         options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
         value=settings.get("master_axis", "0"),
-        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
+        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
         text_size=12, on_select=on_axis_m_change
     )
 
@@ -163,7 +256,8 @@ def main(page: ft.Page):
         label="Shear carriage axis", width=155, height=45,
         options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
         value=settings.get("slave_axis", "1"),
-        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
+        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
         text_size=12, on_select=on_axis_s_change
     )
 
@@ -190,7 +284,8 @@ def main(page: ft.Page):
             speed_val = float(master_speed_input.value or "10.0")
         except ValueError:
             status_text.value = "Invalid master speed"
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
+            show_snack("Jog speed must be a number.", "error")
             page.update()
             return
 
@@ -210,7 +305,10 @@ def main(page: ft.Page):
     master_speed_input = ft.TextField(
         label="Jog speed", value=settings.get("master_speed", "10.0"),
         width=100, height=45,
-        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
+        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        suffix="u/s",
         text_size=12, on_change=on_master_speed_change,
         on_submit=lambda e: _send_master_speed(),
         tooltip="Material axis SPEED set before Forward/Reverse",
@@ -219,7 +317,9 @@ def main(page: ft.Page):
     cutter_output_input = ft.TextField(
         label="Knife OP", value=str(settings.get("cutter_output", "8")),
         width=125, height=45,
-        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=ft.Colors.GREY_800,
+        bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
         text_size=12, on_change=on_cutter_output_change,
         tooltip="Controller digital output number used for knife OP() and live output-state read",
     )
@@ -302,11 +402,13 @@ def main(page: ft.Page):
             print(f"WDOG write error: {ex}")
             _set_wdog_button_state(None, error=True)
             status_text.value = f"WDOG control failed: {ex}"
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
+            show_snack(f"WDOG control failed: {ex}", "error")
         page.update()
 
     wdog_btn = ft.FilledButton(
         "WDOG --",
+        icon=ft.Icons.POWER_SETTINGS_NEW,
         on_click=on_wdog_click,
         disabled=True,
         height=38,
@@ -320,6 +422,10 @@ def main(page: ft.Page):
     # Cancel mode 2 stops both buffered and current move. All UAPI calls dispatched
     # via uapi_executor to preserve COM thread-affinity.
     def _send_master_cmd(cmd):
+        if not trio_conn.is_connected():
+            show_snack("Connect to the controller before jogging the material axis.", "warning")
+            return
+
         try:
             axis_m_val = int(axis_m_dropdown.value or "0")
         except ValueError:
@@ -350,20 +456,27 @@ def main(page: ft.Page):
 
         uapi_executor.submit(_do)
 
+    def _set_motion_controls_enabled(enabled):
+        for btn in (master_fwd_btn, master_rev_btn, master_stop_btn):
+            btn.disabled = not enabled
+
     master_fwd_btn = ft.FilledButton(
-        "Start ▶", on_click=lambda e: _send_master_cmd("forward"),
+        "Forward", icon=ft.Icons.PLAY_ARROW, on_click=lambda e: _send_master_cmd("forward"),
+        disabled=True,
         style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE),
-        height=38, tooltip="Forward(master) — continuous move forward",
+        height=38, tooltip="Forward(master) - continuous move forward",
     )
     master_rev_btn = ft.FilledButton(
-        "◀ Reverse", on_click=lambda e: _send_master_cmd("reverse"),
+        "Reverse", icon=ft.Icons.ARROW_BACK, on_click=lambda e: _send_master_cmd("reverse"),
+        disabled=True,
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_GREY_700, color=ft.Colors.WHITE),
-        height=38, tooltip="Reverse(master) — continuous move reverse",
+        height=38, tooltip="Reverse(master) - continuous move reverse",
     )
     master_stop_btn = ft.FilledButton(
-        "Stop ■", on_click=lambda e: _send_master_cmd("cancel"),
+        "Stop", icon=ft.Icons.STOP, on_click=lambda e: _send_master_cmd("cancel"),
+        disabled=True,
         style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE),
-        height=38, tooltip="Cancel(2, master) — stop buffered + current move",
+        height=38, tooltip="Cancel(2, master) - stop buffered + current move",
     )
 
     # Build monitor rows
@@ -604,7 +717,7 @@ def main(page: ft.Page):
             [
                 ft.Container(width=TRACK_WIDTH, height=SHEAR_TRACK_HEIGHT,
                              bgcolor=DARKER_BG,
-                             border=ft.Border.all(1, ft.Colors.GREY_800), border_radius=4),
+                             border=ft.Border.all(1, BORDER_COLOR), border_radius=4),
                 ft.Container(width=TRACK_WIDTH, height=2,
                              bgcolor=ft.Colors.with_opacity(0.35, color),
                              top=SHEAR_TRACK_HEIGHT - 10),
@@ -618,17 +731,162 @@ def main(page: ft.Page):
         )
         return indicator, track, blade_body, blade_edge, blade_tip, blade_anchor_top
 
-    belt_items_m, track_m = create_conveyor_track(ft.Colors.CYAN_300)
-    indicator_s, track_s, blade_body_s, blade_edge_s, blade_tip_s, blade_anchor_top_s = create_shear_track(ft.Colors.ORANGE_300)
+    visual_width = 1120
+    visual_inner_width = visual_width - 20
+    belt_width = visual_inner_width - (2 * PULLEY_SIZE)
     shear_conveyor_height = SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP + CONVEYOR_HEIGHT
-    shear_conveyor_view = ft.Stack(
-        [
-            ft.Container(content=track_m, top=SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP, left=0),
-            ft.Container(content=track_s, top=0, left=0),
-        ],
-        width=TRACK_WIDTH,
+
+    blade_body_w = 14
+    rail_w = 5
+    rail_gap = 3
+    blade_body_s = ft.Container(
+        width=blade_body_w,
+        height=BLADE_IDLE_EXTENSION,
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
+            colors=["#7a7a7a", "#e8e8e8", "#ffffff", "#e8e8e8", "#7a7a7a"],
+            stops=[0.0, 0.3, 0.5, 0.7, 1.0],
+        ),
+        border=ft.Border.all(1, "#5a5a5a"),
+    )
+    blade_tip_s = ft.Text(
+        "▼",
+        size=18,
+        color="#f4f4f4",
+        weight=ft.FontWeight.BOLD,
+        text_align=ft.TextAlign.CENTER,
+        width=SHEAR_WIDTH,
+    )
+    shear_position_spacer = ft.Container(width=SHEAR_START_LEFT)
+    belt_offset_spacer = ft.Container(width=0)
+    belt_cleats = [
+        ft.Container(width=CLEAT_WIDTH, height=CLEAT_HEIGHT, bgcolor="#8c8c8c", border_radius=2)
+        for _ in range(NUM_BELT_ITEMS + 2)
+    ]
+
+    shear_carriage = ft.Container(
+        width=SHEAR_WIDTH,
+        content=ft.Column(
+            [
+                # Top carriage frame (yoke holding the actuator)
+                ft.Container(
+                    width=SHEAR_WIDTH, height=MOUNT_HEIGHT,
+                    gradient=ft.LinearGradient(
+                        begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
+                        colors=["#6a6a6a", "#3a3a3a"],
+                    ),
+                    border=ft.Border.all(1, "#8a8a8a"),
+                    border_radius=ft.BorderRadius.only(top_left=4, top_right=4),
+                    content=ft.Row(
+                        [
+                            ft.Container(width=3, height=3, bgcolor="#1a1a1a", border_radius=2),
+                            ft.Container(expand=True),
+                            ft.Container(width=3, height=3, bgcolor="#1a1a1a", border_radius=2),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.padding.symmetric(horizontal=4),
+                ),
+                # Actuator / piston connector
+                ft.Container(
+                    width=SHEAR_WIDTH - 14, height=4,
+                    bgcolor="#222222",
+                    border=ft.Border.all(1, "#4a4a4a"),
+                ),
+                # Blade body flanked by guide rails
+                ft.Row(
+                    [
+                        ft.Container(width=rail_w, height=BLADE_IDLE_EXTENSION,
+                                     bgcolor="#2a2a2a",
+                                     border=ft.Border.all(1, "#5a5a5a"),
+                                     border_radius=1),
+                        ft.Container(width=rail_gap),
+                        blade_body_s,
+                        ft.Container(width=rail_gap),
+                        ft.Container(width=rail_w, height=BLADE_IDLE_EXTENSION,
+                                     bgcolor="#2a2a2a",
+                                     border=ft.Border.all(1, "#5a5a5a"),
+                                     border_radius=1),
+                    ],
+                    spacing=0,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    tight=True,
+                ),
+                # Sharp cutting tip - centered under the blade body
+                blade_tip_s,
+            ],
+            spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+        ),
+    )
+
+    shear_lane = ft.Container(
+        width=visual_inner_width,
+        height=SHEAR_TRACK_HEIGHT,
+        bgcolor="#15181c",
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=4,
+        padding=ft.padding.only(top=SHEAR_TOP_IDLE, left=0, right=0),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Column(
+            [
+                ft.Row([shear_position_spacer, shear_carriage, ft.Container(width=visual_inner_width)],
+                       spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
+                ft.Container(height=14),
+                ft.Container(height=2, bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.ORANGE_300)),
+                ft.Container(height=4),
+                ft.Container(height=2, bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.WHITE)),
+            ],
+            spacing=0,
+        ),
+    )
+
+    belt_surface = ft.Container(
+        width=belt_width,
+        height=BELT_HEIGHT,
+        bgcolor="#080808",
+        border_radius=BELT_HEIGHT / 2,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        content=ft.Row(
+            [belt_offset_spacer] + belt_cleats,
+            spacing=BELT_SPACING - CLEAT_WIDTH,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+    )
+    pulley = lambda: ft.Container(
+        width=PULLEY_SIZE,
+        height=PULLEY_SIZE,
+        bgcolor="#6f7478",
+        border_radius=PULLEY_SIZE / 2,
+        border=ft.Border.all(1, "#111111"),
+        content=ft.Container(width=PULLEY_SIZE * 0.32, height=PULLEY_SIZE * 0.32,
+                             bgcolor="#151515", border_radius=PULLEY_SIZE * 0.16),
+        alignment=ft.Alignment.CENTER,
+    )
+    conveyor_lane = ft.Container(
+        width=visual_inner_width,
+        height=CONVEYOR_HEIGHT,
+        content=ft.Column(
+            [
+                ft.Container(width=visual_inner_width, height=RAIL_HEIGHT, bgcolor="#4a4f55"),
+                ft.Row([pulley(), belt_surface, pulley()], spacing=0,
+                       vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Container(width=visual_inner_width, height=RAIL_HEIGHT, bgcolor="#4a4f55"),
+            ],
+            spacing=1,
+        ),
+    )
+
+    shear_conveyor_view = ft.Container(
+        width=visual_width,
         height=shear_conveyor_height,
-        clip_behavior=ft.ClipBehavior.NONE,
+        bgcolor=DARKER_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=ft.padding.symmetric(horizontal=10),
+        content=ft.Column([shear_lane, ft.Container(height=SHEAR_TO_CONVEYOR_GAP), conveyor_lane], spacing=0),
     )
 
     def on_recenter(e):
@@ -820,8 +1078,6 @@ def main(page: ft.Page):
                 target_blade_extension = BLADE_CUT_EXTENSION if cutter_raw is True else BLADE_IDLE_EXTENSION
                 if abs((blade_body_s.height or 0) - target_blade_extension) > 0.1:
                     blade_body_s.height = target_blade_extension
-                    blade_edge_s.height = max(4, target_blade_extension - 6)
-                    blade_tip_s.top = blade_anchor_top_s + target_blade_extension - 9
                     dirty = True
 
                 mpos_val_m = None
@@ -867,18 +1123,17 @@ def main(page: ft.Page):
                         position_zero_m[0] = mpos_val_m
                     delta = mpos_val_m - position_zero_m[0]
                     offset_px = delta * scale_px_per_unit[0]
-                    for i, item in enumerate(belt_items_m):
-                        new_left = (offset_px + i * BELT_SPACING) % WRAP_WIDTH - CLEAT_WIDTH
-                        if abs((item.left or 0) - new_left) > 0.1:
-                            item.left = new_left
-                            dirty = True
+                    new_offset = abs(offset_px) % BELT_SPACING
+                    if abs((belt_offset_spacer.width or 0) - new_offset) > 0.1:
+                        belt_offset_spacer.width = new_offset
+                        dirty = True
 
                 # Update Slave visualizer — absolute MPOS maps directly to pixel position
                 if mpos_val_s is not None:
                     new_left = SHEAR_START_LEFT + mpos_val_s * scale_px_per_unit[0]
-                    new_left = max(0, min(TRACK_WIDTH - SHEAR_WIDTH, new_left))
-                    if abs((indicator_s.left or 0) - new_left) > 0.1:
-                        indicator_s.left = new_left
+                    new_left = max(0, min(visual_inner_width - SHEAR_WIDTH, new_left))
+                    if abs((shear_position_spacer.width or 0) - new_left) > 0.1:
+                        shear_position_spacer.width = new_left
                         dirty = True
 
                 # Update FPS display
@@ -917,47 +1172,70 @@ def main(page: ft.Page):
     # Parameter readout table — lifted out so it can sit next to the Connection panel.
     params_panel = ft.Container(
         content=ft.Column(monitor_rows, spacing=6),
-        bgcolor=DARKER_BG,
-        border_radius=10,
+        bgcolor=PANEL_BG,
+        border_radius=8,
         padding=15,
-        border=ft.Border.all(1, ft.Colors.GREY_800),
+        border=ft.Border.all(1, BORDER_COLOR),
+        col={"xs": 12, "lg": 5},
+    )
+
+    monitor_controls_grid = ft.ResponsiveRow(
+        [
+            control_cluster(
+                "Axes",
+                [axis_m_dropdown, axis_s_dropdown],
+                icon=ft.Icons.ACCOUNT_TREE,
+                col={"xs": 12, "md": 6, "xl": 3},
+            ),
+            control_cluster(
+                "Material jog",
+                [master_rev_btn, master_fwd_btn, master_stop_btn, master_speed_input],
+                icon=ft.Icons.PLAY_ARROW,
+                col={"xs": 12, "md": 6, "xl": 5},
+            ),
+            control_cluster(
+                "Knife output",
+                [cutter_output_input, cutter_output_state_text],
+                icon=ft.Icons.POWER,
+                col={"xs": 12, "md": 12, "xl": 4},
+            ),
+        ],
+        columns=12,
+        spacing=10,
+        run_spacing=10,
     )
 
     monitor_container = ft.Container(
         content=ft.Column([
             ft.Row(
                 [
-                    ft.Text("Flying Shear Live Monitor", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                    axis_m_dropdown,
-                    axis_s_dropdown,
-                    master_rev_btn,
-                    master_fwd_btn,
-                    master_stop_btn,
-                    master_speed_input,
-                    cutter_output_input,
-                    cutter_output_state_text,
-                    ft.Container(expand=True),  # push stats right
-                    comms_lag_label,
-                    ft.Text("|", size=10, color=ft.Colors.GREY_700),
-                    fps_label,
+                    section_header("Flying Shear Live Monitor", "Live axes, jog controls and cutter state", ft.Icons.ANALYTICS),
+                    ft.Row(
+                        [comms_lag_label, ft.Text("|", size=10, color=ft.Colors.GREY_700), fps_label],
+                        spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
                 ],
-                spacing=20, vertical_alignment=ft.CrossAxisAlignment.CENTER
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=12,
             ),
-            ft.Container(height=14),
+            monitor_controls_grid,
             ft.Row(
                 [recenter_btn,
                  ft.Text("Scale:", size=12, color=ft.Colors.GREY_400),
                  scale_minus10_btn, scale_minus_btn,
                  scale_plus_btn, scale_plus10_btn,
                  scale_value_label],
+                wrap=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
             ),
             shear_conveyor_view,
-        ]),
-        bgcolor=DARKER_BG,
-        border_radius=10,
+        ], spacing=14),
+        bgcolor=PANEL_BG,
+        border_radius=8,
         padding=20,
-        border=ft.Border.all(1, ft.Colors.GREY_800),
+        border=ft.Border.all(1, BORDER_COLOR),
     )
 
     # --- UI Elements: Connection Phase ---
@@ -971,7 +1249,9 @@ def main(page: ft.Page):
         width=200, 
         bgcolor=DARKER_BG, 
         color=TEXT_COLOR,
-        border_color=ft.Colors.GREY_800,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        prefix_icon=ft.Icons.LAN,
         on_change=on_ip_change
     )
     
@@ -983,6 +1263,7 @@ def main(page: ft.Page):
         status_text.color = ft.Colors.WHITE
         connect_btn.disabled = True
         ip_input.disabled = True
+        connect_progress.visible = True
         _set_wdog_button_state(None, busy=True)
         page.update()
 
@@ -995,10 +1276,16 @@ def main(page: ft.Page):
 
         if success:
             status_text.value = "Connected Successfully!"
-            status_text.color = ft.Colors.GREEN
+            status_text.color = SUCCESS_COLOR
             connect_btn.disabled = True
             ip_input.disabled = True
+            connect_progress.visible = False
+            try:
+                _set_motion_controls_enabled(True)
+            except NameError:
+                pass
             page.update()
+            show_snack("Controller connected. Live monitor is starting.", "success")
 
             await refresh_wdog_state()
             start_monitor()
@@ -1006,26 +1293,36 @@ def main(page: ft.Page):
             saved_sets = get_saved_axis_param_sets()
             if saved_sets:
                 status_text.value = "Connected. Review saved axis parameters before applying."
-                status_text.color = ft.Colors.ORANGE
+                status_text.color = WARNING_COLOR
                 show_saved_params_dialog(saved_sets)
             else:
                 status_text.value = "Connected. No saved axis parameters found."
-                status_text.color = ft.Colors.GREEN
+                status_text.color = SUCCESS_COLOR
                 page.update()
         else:
             status_text.value = "Connection Failed."
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
             connect_btn.disabled = False
             ip_input.disabled = False
+            connect_progress.visible = False
+            try:
+                _set_motion_controls_enabled(False)
+            except NameError:
+                pass
             _set_wdog_button_state(None)
             refresh_setup_summary()
+            show_snack("Connection failed. Check controller IP and network state.", "error")
             page.update()
 
-    connect_btn = ft.FilledButton("Connect", on_click=on_connect_click,
+    connect_progress = ft.ProgressRing(width=18, height=18, stroke_width=2, color=ft.Colors.CYAN_200, visible=False)
+    connect_btn = ft.FilledButton("Connect", icon=ft.Icons.LAN, on_click=on_connect_click,
                                   style=ft.ButtonStyle(bgcolor=ACCENT_COLOR, color=ft.Colors.WHITE))
     status_text = ft.Text("", size=14, color=TEXT_COLOR, width=300)
 
-    conn_row = ft.Row([ip_input, connect_btn, wdog_btn, status_text], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    conn_row = ft.Row([ip_input, connect_btn, connect_progress, wdog_btn, status_text],
+                      wrap=True, spacing=10, run_spacing=10,
+                      alignment=ft.MainAxisAlignment.START,
+                      vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # --- UI Elements: Setup Phase ---
     axis_dropdown = ft.Dropdown(
@@ -1041,7 +1338,8 @@ def main(page: ft.Page):
         value=settings.get("target_axis", "0"),
         bgcolor=DARKER_BG,
         color=TEXT_COLOR,
-        border_color=ft.Colors.GREY_800
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
     )
 
     # Dictionary to hold the parameter inputs
@@ -1124,7 +1422,10 @@ def main(page: ft.Page):
             width=160, 
             bgcolor=DARKER_BG, 
             color=TEXT_COLOR,
-            border_color=ft.Colors.GREY_800,
+            border_color=BORDER_COLOR,
+            focused_border_color=ACCENT_COLOR,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.RIGHT,
             on_change=create_param_change_handler(param),
             tooltip=parameter_tooltips.get(param),
         )
@@ -1201,7 +1502,8 @@ def main(page: ft.Page):
         ],
         bgcolor=DARKER_BG,
         color=TEXT_COLOR,
-        border_color=ft.Colors.GREY_800,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
     )
 
     def refresh_copy_dropdown():
@@ -1227,10 +1529,11 @@ def main(page: ft.Page):
             param_inputs[param_name].value = val
         save_settings(settings)
         refresh_axis_dropdown()
+        show_snack(f"Copied saved parameters from Axis {src} to Axis {dst}.", "success")
         page.update()
 
     copy_btn = ft.FilledButton(
-        "Copy", on_click=on_copy_click,
+        "Copy", icon=ft.Icons.CONTENT_COPY, on_click=on_copy_click,
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
         height=38,
     )
@@ -1329,7 +1632,7 @@ def main(page: ft.Page):
 
         if not saved_sets:
             status_text.value = "Connected. No saved axis parameters found."
-            status_text.color = ft.Colors.ORANGE
+            status_text.color = WARNING_COLOR
             page.update()
             return
 
@@ -1357,11 +1660,13 @@ def main(page: ft.Page):
         if failed_axes:
             failed_text = ", ".join(str(a) for a, _ in failed_axes)
             status_text.value = f"Connected. Some saved params failed. Failed axes: {failed_text}"
-            status_text.color = ft.Colors.ORANGE
+            status_text.color = WARNING_COLOR
+            show_snack(f"Some saved parameter sets failed: Axis {failed_text}.", "warning")
         else:
             applied_text = ", ".join(str(a) for a in applied_axes)
             status_text.value = f"Connected. Saved parameters applied to Axis {applied_text}."
-            status_text.color = ft.Colors.GREEN
+            status_text.color = SUCCESS_COLOR
+            show_snack(f"Saved parameters applied to Axis {applied_text}.", "success")
         refresh_setup_summary()
         page.update()
 
@@ -1378,7 +1683,7 @@ def main(page: ft.Page):
         def skip_saved_from_dialog(e):
             saved_params_dialog.open = False
             status_text.value = "Connected. Saved parameters were not applied."
-            status_text.color = ft.Colors.ORANGE
+            status_text.color = WARNING_COLOR
             refresh_setup_summary()
             page.update()
 
@@ -1401,16 +1706,20 @@ def main(page: ft.Page):
             saved_params_dialog.open = True
             page.update()
 
+    apply_progress = ft.ProgressRing(width=18, height=18, stroke_width=2, color=ft.Colors.CYAN_200, visible=False)
+
     async def on_apply_click(e):
         if not trio_conn.connection:
             status_text.value = "Not connected!"
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
+            show_snack("Connect to the controller before applying axis parameters.", "warning")
             page.update()
             return
 
         if not validate_axis_param_inputs(show_errors=True):
             status_text.value = "Fix highlighted axis parameters before applying."
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
+            show_snack("Fix highlighted axis parameters before applying.", "error")
             page.update()
             return
 
@@ -1429,16 +1738,27 @@ def main(page: ft.Page):
         refresh_axis_dropdown()
 
         loop = asyncio.get_running_loop()
+        apply_btn.disabled = True
+        apply_progress.visible = True
+        status_text.value = f"Applying parameters to Axis {axis}..."
+        status_text.color = ft.Colors.WHITE
+        page.update()
         try:
             await loop.run_in_executor(uapi_executor, _apply_params_blocking, axis, param_values)
             status_text.value = f"Parameters applied successfully to Axis {axis}!"
-            status_text.color = ft.Colors.GREEN
+            status_text.color = SUCCESS_COLOR
+            show_snack(f"Parameters applied to Axis {axis}.", "success")
         except Exception as ex:
             status_text.value = f"Error applying: {ex}"
-            status_text.color = ft.Colors.RED
+            status_text.color = ERROR_COLOR
+            show_snack(f"Parameter apply failed: {ex}", "error")
+        finally:
+            apply_btn.disabled = False
+            apply_progress.visible = False
         page.update()
 
     apply_btn = ft.FilledButton("Apply Parameters", on_click=on_apply_click,
+                                icon=ft.Icons.CHECK_CIRCLE,
                                 style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE))
 
     def build_param_group(title, names):
@@ -1449,10 +1769,10 @@ def main(page: ft.Page):
                 ft.Row(controls, wrap=True, alignment=ft.MainAxisAlignment.START,
                        spacing=15, run_spacing=15),
             ], spacing=10),
-            bgcolor=DARKER_BG,
+            bgcolor=PANEL_BG,
             border_radius=8,
             padding=14,
-            border=ft.Border.all(1, ft.Colors.GREY_800),
+            border=ft.Border.all(1, BORDER_COLOR),
         )
 
     params_sections = [build_param_group(title, names) for title, names in parameter_groups]
@@ -1468,12 +1788,14 @@ def main(page: ft.Page):
                 copy_btn,
             ],
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=True,
+            run_spacing=10,
             spacing=10,
         ),
         ft.Container(height=10),
         *params_sections,
         ft.Container(height=20),
-        apply_btn
+        ft.Row([apply_btn, apply_progress], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
     ], spacing=10)
 
     # === Flying Shear Calculator ===
@@ -1515,11 +1837,16 @@ def main(page: ft.Page):
         "copy": "Copy the generated Trio BASIC MOVELINK program to the Windows clipboard.",
     }
 
-    def make_input(label, key, default, width=160):
+    def make_input(label, key, default, width=160, suffix=None):
         tf = ft.TextField(
             label=label, value=str(calc_settings.get(key, default)),
             width=width, bgcolor=DARKER_BG, color=TEXT_COLOR,
-            border_color=ft.Colors.GREY_800, text_size=13,
+            border_color=BORDER_COLOR,
+            focused_border_color=ACCENT_COLOR,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.RIGHT,
+            suffix=suffix,
+            text_size=13,
             tooltip=CALC_TOOLTIPS.get(key),
         )
         return tf
@@ -1528,16 +1855,18 @@ def main(page: ft.Page):
         return ft.Dropdown(
             label=label, value=str(calc_settings.get(key, default)),
             width=width, bgcolor=DARKER_BG, color=TEXT_COLOR,
-            border_color=ft.Colors.GREY_800, text_size=13,
+            border_color=BORDER_COLOR,
+            focused_border_color=ACCENT_COLOR,
+            text_size=13,
             options=[ft.dropdown.Option(value, text) for value, text in options],
             tooltip=CALC_TOOLTIPS.get(key),
         )
 
-    cut_input    = make_input("Cut length (mm)",         "cut",    100)
-    vline_input  = make_input("Line speed (mm/s)",       "vline",  500)
-    vmax_input   = make_input("Shear max speed (mm/s)",  "vmax",   1500, width=180)
-    amax_input   = make_input("Shear max accel (mm/s²)", "amax",   5000, width=180)
-    tsync_input  = make_input("Sync time (ms)",          "tsync",  30,   width=140)
+    cut_input    = make_input("Cut length",      "cut",    100, suffix="mm")
+    vline_input  = make_input("Line speed",      "vline",  500, suffix="mm/s")
+    vmax_input   = make_input("Shear max speed", "vmax",   1500, width=180, suffix="mm/s")
+    amax_input   = make_input("Shear max accel", "amax",   5000, width=180, suffix="mm/s2")
+    tsync_input  = make_input("Sync time",       "tsync",  30,   width=140, suffix="ms")
     safety_input = make_input("Safety factor",           "safety", 1.5,  width=120)
 
     profile_dropdown = make_dropdown(
@@ -1593,7 +1922,7 @@ def main(page: ft.Page):
         check_color=ft.Colors.WHITE,
         tooltip=CALC_TOOLTIPS["base_dist"],
     )
-    base_dist_input = make_input("Base distance", "base_dist", 0, width=140)
+    base_dist_input = make_input("Base distance", "base_dist", 0, width=140, suffix="mm")
 
     result_labels = {
         k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
@@ -1629,13 +1958,14 @@ def main(page: ft.Page):
             phase_segments["sync"],
             phase_segments["decel"],
             phase_segments["retract"],
-        ], spacing=3),
+        ], wrap=True, spacing=3, run_spacing=3),
     ], spacing=6)
 
     code_output = ft.TextField(
         value="", read_only=True, multiline=True, min_lines=29, max_lines=36,
         bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
-        border_color=ft.Colors.GREY_800,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
         text_style=ft.TextStyle(font_family="Consolas", size=12),
         expand=True,
         tooltip=CALC_TOOLTIPS["code"],
@@ -1647,8 +1977,8 @@ def main(page: ft.Page):
                 ft.Text(label, size=12, color=ft.Colors.GREY_400),
                 result_labels[key],
             ], spacing=4),
-            bgcolor=DARKER_BG, border_radius=8, padding=12,
-            border=ft.Border.all(1, ft.Colors.GREY_800), width=150,
+            bgcolor=PANEL_BG, border_radius=8, padding=12,
+            border=ft.Border.all(1, BORDER_COLOR), width=150,
             tooltip=CALC_TOOLTIPS.get(tooltip_key or key),
         )
 
@@ -1950,7 +2280,8 @@ def main(page: ft.Page):
         u32.SetClipboardData(CF_UNICODETEXT, h)
         u32.CloseClipboard()
         status_text.value = "Program copied to clipboard"
-        status_text.color = ft.Colors.GREEN
+        status_text.color = SUCCESS_COLOR
+        show_snack("Program copied to clipboard.", "success")
         page.update()
 
     copy_btn_shear = ft.FilledButton(
@@ -1962,8 +2293,7 @@ def main(page: ft.Page):
 
     shear_params_panel = ft.Container(
         content=ft.Column([
-            ft.Text("Flying Shear MOVELINK Calculator", size=20,
-                    weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            section_header("Flying Shear MOVELINK Calculator", "Shape the linked move and validate machine limits", ft.Icons.CALCULATE),
             ft.Row([cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input],
                    wrap=True, spacing=15, run_spacing=12),
             ft.Row([
@@ -1987,29 +2317,35 @@ def main(page: ft.Page):
             ft.Text("Material axis = MOVELINK link axis. Shear axis = generated BASIC BASE axis.",
                     size=12, color=ft.Colors.GREY_400),
         ], spacing=14, scroll=ft.ScrollMode.AUTO),
-        expand=1,
-        padding=ft.padding.only(right=8),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        col={"xs": 12, "xl": 6},
     )
 
     trio_basic_panel = ft.Container(
         content=ft.Column([
             ft.Row([
-                ft.Text("Trio BASIC Program", size=20,
-                        weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                section_header("Trio BASIC Program", "Generated controller code", ft.Icons.CODE),
                 ft.Container(expand=True),
                 copy_btn_shear,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             code_output,
         ], expand=True, spacing=12),
-        expand=1,
-        padding=ft.padding.only(left=8),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        col={"xs": 12, "xl": 6},
     )
 
-    shear_calc_container = ft.Row(
+    shear_calc_container = ft.ResponsiveRow(
         [shear_params_panel, trio_basic_panel],
-        expand=True,
+        columns=12,
         spacing=18,
-        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+        run_spacing=18,
+        vertical_alignment=ft.CrossAxisAlignment.START,
     )
 
     summary_connection_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_300)
@@ -2026,10 +2362,10 @@ def main(page: ft.Page):
                 value_control,
             ], spacing=3),
             width=width,
-            bgcolor=DARKER_BG,
+            bgcolor=PANEL_BG,
             border_radius=8,
             padding=12,
-            border=ft.Border.all(1, ft.Colors.GREY_800),
+            border=ft.Border.all(1, BORDER_COLOR),
         )
 
     setup_summary = ft.Container(
@@ -2047,7 +2383,7 @@ def main(page: ft.Page):
     def refresh_setup_summary():
         connected = trio_conn.is_connected()
         summary_connection_value.value = "Connected" if connected else "Disconnected"
-        summary_connection_value.color = ft.Colors.GREEN_300 if connected else ft.Colors.RED_300
+        summary_connection_value.color = SUCCESS_COLOR if connected else ERROR_COLOR
         summary_controller_value.value = ip_input.value or "--"
         summary_axis_value.value = (
             f"Material Axis {axis_m_dropdown.value or '--'}  |  "
@@ -2062,21 +2398,21 @@ def main(page: ft.Page):
             summary_params_value.color = ft.Colors.CYAN_200
         else:
             summary_params_value.value = "No saved axis sets"
-            summary_params_value.color = ft.Colors.ORANGE_300
+            summary_params_value.color = WARNING_COLOR
 
         warning_value = warning_text.value or ""
         if code_output.value and warning_value.startswith("✓"):
             summary_program_value.value = "Ready"
-            summary_program_value.color = ft.Colors.GREEN_300
+            summary_program_value.color = SUCCESS_COLOR
         elif code_output.value and warning_text.color == ft.Colors.RED_300:
             summary_program_value.value = "Blocked by validation"
-            summary_program_value.color = ft.Colors.RED_300
+            summary_program_value.color = ERROR_COLOR
         elif code_output.value:
             summary_program_value.value = "Review warnings"
-            summary_program_value.color = ft.Colors.AMBER_300
+            summary_program_value.color = WARNING_COLOR
         else:
             summary_program_value.value = "Needs inputs"
-            summary_program_value.color = ft.Colors.ORANGE_300
+            summary_program_value.color = WARNING_COLOR
 
         try:
             if setup_summary.page:
@@ -2092,45 +2428,57 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.TabBar(
                 tabs=[
-                    ft.Tab(label="1 Connect & Monitor"),
-                    ft.Tab(label="2 Tune Axes"),
-                    ft.Tab(label="3 Configure Shear"),
-                ]
+                    ft.Tab(label="Configure Shear", icon=ft.Icons.CALCULATE),
+                    ft.Tab(label="Connect & Monitor", icon=ft.Icons.ANALYTICS),
+                    ft.Tab(label="Setup Axes", icon=ft.Icons.TUNE),
+                ],
+                label_color=ft.Colors.CYAN_200,
+                unselected_label_color=MUTED_TEXT,
+                indicator_color=ACCENT_COLOR,
+                divider_color=BORDER_COLOR,
             ),
             ft.TabBarView(
                 controls=[
                     ft.Container(
+                        content=ft.Column([shear_calc_container], spacing=14, scroll=ft.ScrollMode.AUTO),
+                        padding=20,
+                    ),
+                    ft.Container(
                         content=ft.Column([
-                            ft.Container(height=20),
-                            ft.Row(
+                            ft.ResponsiveRow(
                                 [
-                                    ft.Column(
-                                        [
-                                            ft.Text("Controller Connection", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                                            conn_row,
-                                        ],
-                                        spacing=10,
-                                        expand=True,
+                                    ft.Container(
+                                        content=ft.Column(
+                                            [
+                                                section_header("Controller Connection", "Connect first, then verify watchdog and saved parameters", ft.Icons.LAN),
+                                                conn_row,
+                                            ],
+                                            spacing=12,
+                                        ),
+                                        bgcolor=PANEL_BG,
+                                        border=ft.Border.all(1, BORDER_COLOR),
+                                        border_radius=8,
+                                        padding=16,
+                                        col={"xs": 12, "lg": 7},
                                     ),
                                     params_panel,
                                 ],
+                                columns=12,
+                                spacing=14,
+                                run_spacing=14,
                                 vertical_alignment=ft.CrossAxisAlignment.START,
-                                spacing=20,
                             ),
-                            ft.Container(height=20),
                             monitor_container
-                        ]),
+                        ], spacing=14, scroll=ft.ScrollMode.AUTO),
                         padding=20
                     ),
                     ft.Container(
                         content=ft.Column([
-                            ft.Container(height=20),
-                            ft.Text("Axis Parameter Setup", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            section_header("Axis Parameter Setup", "Tune and save controller parameters per axis", ft.Icons.TUNE),
                             setup_container
-                        ]),
+                        ], spacing=14, scroll=ft.ScrollMode.AUTO),
                         padding=20
                     ),
-                    ft.Container(content=shear_calc_container, padding=20),
                 ],
                 expand=1
             )
@@ -2177,10 +2525,24 @@ def main(page: ft.Page):
     page.window.on_event = on_window_event
 
     # Assemble the main page
+    page.appbar = ft.AppBar(
+        title=ft.Text("Trio Motion Controller - UAPI Setup", size=18, weight=ft.FontWeight.BOLD),
+        bgcolor=PANEL_BG,
+        color=ft.Colors.WHITE,
+        elevation=0,
+        actions=[
+            ft.Container(
+                content=ft.Text("Flying Shear", size=12, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD),
+                padding=ft.padding.only(right=16),
+                alignment=ft.Alignment.CENTER,
+            )
+        ],
+    )
     page.add(
-        ft.Text("Trio Motion Controller - UAPI Setup", size=28, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-        setup_summary,
-        tabs
+        ft.SafeArea(
+            content=ft.Column([setup_summary, tabs], expand=True, spacing=10),
+            minimum_padding=ft.padding.only(left=16, right=16, bottom=16),
+        )
     )
     refresh_setup_summary()
 
