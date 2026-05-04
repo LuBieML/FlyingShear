@@ -105,6 +105,10 @@ def main(page: ft.Page):
             status_text.color = ft.Colors.RED
             connect_btn.disabled = False
             ip_input.disabled = False
+            try:
+                _set_wdog_button_state(None)
+            except NameError:
+                pass
             page.update()
 
         loop = ui_loop_holder.get("loop")
@@ -226,6 +230,88 @@ def main(page: ft.Page):
         color=ft.Colors.GREY_400,
         weight=ft.FontWeight.BOLD,
         width=125,
+    )
+    wdog_state = {"enabled": None, "busy": False}
+
+    def _set_wdog_button_state(enabled=None, busy=False, error=False):
+        wdog_state["enabled"] = enabled
+        wdog_state["busy"] = busy
+        wdog_btn.disabled = busy or not trio_conn.is_connected()
+
+        if busy:
+            wdog_btn.text = "WDOG ..."
+            bg_color = ft.Colors.AMBER_700
+        elif error:
+            wdog_btn.text = "WDOG ERR"
+            bg_color = ft.Colors.RED_700
+        elif enabled is True:
+            wdog_btn.text = "WDOG ON"
+            bg_color = ft.Colors.GREEN_700
+        elif enabled is False:
+            wdog_btn.text = "WDOG OFF"
+            bg_color = ft.Colors.BLUE_GREY_700
+        else:
+            wdog_btn.text = "WDOG --"
+            bg_color = ft.Colors.GREY_700
+
+        wdog_btn.style = ft.ButtonStyle(bgcolor=bg_color, color=ft.Colors.WHITE)
+
+    async def refresh_wdog_state():
+        if not trio_conn.is_connected():
+            _set_wdog_button_state(None)
+            page.update()
+            return
+
+        loop = asyncio.get_running_loop()
+
+        def _read():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                return None
+            return bool(conn.GetSystemParameter_WDOG())
+
+        try:
+            enabled = await loop.run_in_executor(uapi_executor, _read)
+            _set_wdog_button_state(enabled)
+        except Exception as ex:
+            print(f"WDOG read error: {ex}")
+            _set_wdog_button_state(None, error=True)
+        page.update()
+
+    async def on_wdog_click(e):
+        if wdog_state["busy"] or not trio_conn.is_connected():
+            return
+
+        target_enabled = not bool(wdog_state["enabled"])
+        _set_wdog_button_state(wdog_state["enabled"], busy=True)
+        page.update()
+
+        loop = asyncio.get_running_loop()
+
+        def _write():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                return None
+            conn.SetSystemParameter_WDOG(target_enabled)
+            return bool(conn.GetSystemParameter_WDOG())
+
+        try:
+            enabled = await loop.run_in_executor(uapi_executor, _write)
+            _set_wdog_button_state(enabled)
+        except Exception as ex:
+            print(f"WDOG write error: {ex}")
+            _set_wdog_button_state(None, error=True)
+            status_text.value = f"WDOG control failed: {ex}"
+            status_text.color = ft.Colors.RED
+        page.update()
+
+    wdog_btn = ft.FilledButton(
+        "WDOG --",
+        on_click=on_wdog_click,
+        disabled=True,
+        height=38,
+        tooltip="Toggle controller WDOG master enable",
+        style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_700, color=ft.Colors.WHITE),
     )
 
     # --- Master axis Forward / Reverse / Cancel buttons ---
@@ -631,6 +717,11 @@ def main(page: ft.Page):
                 results[("CUTTER_OUTPUT", "state")] = trio_conn.read_digital_output(cutter_output)
             except Exception:
                 results[("CUTTER_OUTPUT", "state")] = "ERR"
+            if read_slow_params:
+                try:
+                    results[("WDOG", "state")] = bool(conn.GetSystemParameter_WDOG())
+                except Exception:
+                    results[("WDOG", "state")] = "ERR"
             for pn, _ in read_params:
                 if pn != "MPOS" and not read_slow_params:
                     continue
@@ -710,6 +801,21 @@ def main(page: ft.Page):
                 if cutter_output_state_text.color != cutter_color:
                     cutter_output_state_text.color = cutter_color
                     dirty = True
+
+                wdog_raw = results.get(("WDOG", "state"))
+                if wdog_raw == "ERR":
+                    _set_wdog_button_state(None, error=True)
+                    try:
+                        wdog_btn.update()
+                    except Exception:
+                        pass
+                elif isinstance(wdog_raw, bool) and not wdog_state["busy"]:
+                    if wdog_state["enabled"] != wdog_raw or wdog_btn.disabled:
+                        _set_wdog_button_state(wdog_raw)
+                        try:
+                            wdog_btn.update()
+                        except Exception:
+                            pass
 
                 target_blade_extension = BLADE_CUT_EXTENSION if cutter_raw is True else BLADE_IDLE_EXTENSION
                 if abs((blade_body_s.height or 0) - target_blade_extension) > 0.1:
@@ -877,6 +983,7 @@ def main(page: ft.Page):
         status_text.color = ft.Colors.WHITE
         connect_btn.disabled = True
         ip_input.disabled = True
+        _set_wdog_button_state(None, busy=True)
         page.update()
 
         loop = asyncio.get_running_loop()
@@ -893,6 +1000,7 @@ def main(page: ft.Page):
             ip_input.disabled = True
             page.update()
 
+            await refresh_wdog_state()
             start_monitor()
             refresh_setup_summary()
             saved_sets = get_saved_axis_param_sets()
@@ -909,6 +1017,7 @@ def main(page: ft.Page):
             status_text.color = ft.Colors.RED
             connect_btn.disabled = False
             ip_input.disabled = False
+            _set_wdog_button_state(None)
             refresh_setup_summary()
             page.update()
 
@@ -916,7 +1025,7 @@ def main(page: ft.Page):
                                   style=ft.ButtonStyle(bgcolor=ACCENT_COLOR, color=ft.Colors.WHITE))
     status_text = ft.Text("", size=14, color=TEXT_COLOR, width=300)
 
-    conn_row = ft.Row([ip_input, connect_btn, status_text], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    conn_row = ft.Row([ip_input, connect_btn, wdog_btn, status_text], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # --- UI Elements: Setup Phase ---
     axis_dropdown = ft.Dropdown(
@@ -1524,7 +1633,7 @@ def main(page: ft.Page):
     ], spacing=6)
 
     code_output = ft.TextField(
-        value="", read_only=True, multiline=True, min_lines=24, max_lines=30,
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=36,
         bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
         border_color=ft.Colors.GREY_800,
         text_style=ft.TextStyle(font_family="Consolas", size=12),
@@ -1870,17 +1979,7 @@ def main(page: ft.Page):
                 vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
                 result_card("Stroke needed", "stroke"),
-                result_card("Accel link",    "acc"),
-                result_card("Track link",    "track"),
-                result_card("Decel link",    "dec"),
-                result_card("Retract dwell", "ret"),
                 result_card("Retract peak speed", "vpeak"),
-            ], wrap=True, spacing=10, run_spacing=10),
-            ft.Row([
-                result_card("Link options", "options"),
-                result_card("Profile", "profile", "profile_result"),
-                result_card("Start", "start", "start_result"),
-                result_card("Base distance", "base", "base_result"),
             ], wrap=True, spacing=10, run_spacing=10),
             phase_bar,
             warning_text,
