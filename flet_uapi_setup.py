@@ -1995,7 +1995,7 @@ def main(page: ft.Page):
 
     CALC_TOOLTIPS = {
         "cut": "Master/link distance between cuts. In MOVELINK this becomes the available link-axis distance for accel, sync, decel, and retract dwell.",
-        "vline": "Measured material speed on the link axis. The shear must match this speed during the synchronized cut section.",
+        "vline": "Maximum material line speed on the link axis. The shear must match this speed during the synchronized cut section.",
         "vmax": "Maximum allowed shear/slave speed. Used to flag impossible line-speed matching and retract moves.",
         "amax": "Maximum shear/slave acceleration. Accel distance is estimated from v^2/(2a), then multiplied by the safety factor.",
         "tsync": "Time the shear should remain synchronized with the material while the cut output is active.",
@@ -2049,7 +2049,7 @@ def main(page: ft.Page):
         )
 
     cut_input    = make_input("Cut length",      "cut",    100, suffix="mm")
-    vline_input  = make_input("Line speed",      "vline",  500, suffix="mm/s")
+    vline_input  = make_input("MAX line speed",  "vline",  500, suffix="mm/s")
     vmax_input   = make_input("Shear max speed", "vmax",   1500, width=180, suffix="mm/s")
     amax_input   = make_input("Shear max accel", "amax",   5000, width=180, suffix="mm/s2")
     tsync_input  = make_input("Sync time",       "tsync",  30,   width=140, suffix="ms")
@@ -2260,7 +2260,7 @@ def main(page: ft.Page):
             size=15, color=ft.Colors.WHITE, rotate=-1.5708,
         )
         add_profile_text(
-            shapes, plot_end - 46, baseline + 45, "Time / distance",
+            shapes, plot_end - 46, baseline + 45, "Distance",
             size=13, color=ft.Colors.WHITE, max_width=130,
         )
 
@@ -2302,7 +2302,7 @@ def main(page: ft.Page):
     ], spacing=6)
 
     code_output = ft.TextField(
-        value="", read_only=True, multiline=True, min_lines=29, max_lines=36,
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
         bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
         border_color=BORDER_COLOR,
         focused_border_color=ACCENT_COLOR,
@@ -2402,7 +2402,7 @@ def main(page: ft.Page):
             return
 
         if L <= 0 or v < 0 or vmax <= 0 or a <= 0 or tsync < 0 or sf <= 0:
-            warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; line speed and sync time must be >= 0"
+            warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; MAX line speed and sync time must be >= 0"
             warning_text.color = ft.Colors.RED_300
             code_output.value = ""
             page.update()
@@ -2441,7 +2441,12 @@ def main(page: ft.Page):
         result_labels["dec"].value    = f"{decel_link:.2f} mm"
         result_labels["track"].value  = f"{sync_link:.2f} mm"
         result_labels["ret"].value    = f"{ret_link:.2f} mm"
-        result_labels["vpeak"].value  = f"{fmt_speed(v_retract_peak)} mm/s" if ret_link > 0 else "—"
+        if ret_link > 0:
+            result_labels["vpeak"].value = f"{fmt_speed(v_retract_peak)} mm/s"
+            result_labels["vpeak"].color = ERROR_COLOR if v_retract_peak > vmax else SUCCESS_COLOR
+        else:
+            result_labels["vpeak"].value = "—"
+            result_labels["vpeak"].color = ERROR_COLOR
 
         profile = profile_dropdown.value or "trapezoid"
         profile_canvas.shapes = build_velocity_profile_shapes(
@@ -2478,7 +2483,7 @@ def main(page: ft.Page):
 
         warnings = []
         if v > vmax:
-            warnings.append(f"✗ Line speed ({v:g}) exceeds shear max speed ({vmax:g}) — cannot match")
+            warnings.append(f"✗ MAX line speed ({v:g}) exceeds shear max speed ({vmax:g}) — cannot match")
         if ret_link < 0:
             warnings.append("✗ Cut length too short — accel+sync+decel exceeds cut length")
         elif v_retract_peak > vmax:
@@ -2547,7 +2552,7 @@ def main(page: ft.Page):
             f"DEFPOS(0)\n"
             f"\n"
             f"{loop_start}"
-            f"{line_prefix}' Accel to line speed\n"
+            f"{line_prefix}' Accel to MAX line speed\n"
             f"{line_prefix}{format_movelink(accel_dist, accel_link, accel_link, 0, link_options, link_pos, base_arg)}\n"
             f"{line_prefix}WAIT LOADED\n"
             f"\n"
@@ -2627,7 +2632,7 @@ def main(page: ft.Page):
         col={"xs": 12},
     )
 
-    shear_calc_panel_height = 798
+    shear_calc_panel_height = 1000
 
     shear_params_panel = ft.Container(
         content=ft.Column([
