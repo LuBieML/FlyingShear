@@ -2999,7 +2999,7 @@ def main(page: ft.Page):
     ex_ret_link = example_inputs["cut"] - (ex_accel_link + ex_sync_dist + ex_decel_link)
     ex_retract_peak = (4.0 / 3.0) * example_inputs["v"] * (ex_stroke / ex_ret_link)
 
-    movelink_help_list = ft.Column(
+    movelink_help_list = ft.ListView(
         controls=[
                 section_header("MOVELINK Math Help", "The equations behind the generated flying-shear program", ft.Icons.FUNCTIONS),
                 ft.ResponsiveRow(
@@ -3211,13 +3211,9 @@ def main(page: ft.Page):
                 ),
         ],
         spacing=18,
-        scroll=ft.ScrollMode.AUTO,
-    )
-
-    movelink_help_container = ft.Container(
-        content=movelink_help_list,
         padding=20,
         expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
 
     recalc()
@@ -3245,7 +3241,7 @@ def main(page: ft.Page):
                         padding=20,
                         expand=True,
                     ),
-                    movelink_help_container,
+                    movelink_help_list,
                     ft.Container(
                         content=ft.Column([
                             ft.ResponsiveRow(
@@ -3352,6 +3348,7 @@ def main(page: ft.Page):
         ft.SafeArea(
             content=ft.Column([tabs], expand=True, spacing=10),
             minimum_padding=ft.Padding.only(left=16, right=16, bottom=16),
+            expand=True,
         )
     )
 
