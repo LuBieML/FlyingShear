@@ -70,7 +70,7 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "20",
+  "master_speed": "5",
   "shear_calc": {
     "cut": 30.0,
     "vline": 20.0,

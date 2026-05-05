@@ -893,6 +893,35 @@ def main(page: ft.Page):
         weight=ft.FontWeight.BOLD,
         text_align=ft.TextAlign.CENTER,
         width=SHEAR_WIDTH,
+        margin=ft.Margin.only(top=-6),
+    )
+    SCREW_TOP = 15
+    screw_shaft = ft.Container(
+        width=visual_inner_width,
+        height=9,
+        border_radius=5,
+        gradient=ft.LinearGradient(
+            begin=ft.Alignment.TOP_CENTER,
+            end=ft.Alignment.BOTTOM_CENTER,
+            colors=["#8b949c", "#454d55", "#14191f"],
+            stops=[0.0, 0.48, 1.0],
+        ),
+        border=ft.Border.all(1, "#0f1215"),
+        top=6,
+        left=0,
+    )
+    screw_highlight = ft.Container(
+        width=visual_inner_width,
+        height=2,
+        bgcolor=ft.Colors.with_opacity(0.55, ft.Colors.WHITE),
+        border_radius=1,
+        top=7,
+        left=0,
+    )
+    screw_support = ft.Stack(
+        [screw_shaft, screw_highlight],
+        width=visual_inner_width,
+        height=24,
     )
     shear_position_spacer = ft.Container(width=_shear_zero_left(visual_inner_width))
     shear_lane_tail_spacer = ft.Container(width=visual_inner_width)
@@ -960,25 +989,29 @@ def main(page: ft.Page):
         ),
     )
 
+    shear_carriage_row = ft.Row(
+        [shear_position_spacer, shear_carriage, shear_lane_tail_spacer],
+        spacing=0,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+
+    shear_lane_stack = ft.Stack(
+        [
+            ft.Container(content=screw_support, top=SCREW_TOP, left=0),
+            ft.Container(content=shear_carriage_row, top=SHEAR_TOP_IDLE, left=0),
+        ],
+        width=visual_inner_width,
+        height=SHEAR_TRACK_HEIGHT,
+    )
+
     shear_lane = ft.Container(
         width=visual_inner_width,
         height=SHEAR_TRACK_HEIGHT,
         bgcolor="#15181c",
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=4,
-        padding=ft.Padding.only(top=SHEAR_TOP_IDLE, left=0, right=0),
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        content=ft.Column(
-            [
-                ft.Row([shear_position_spacer, shear_carriage, shear_lane_tail_spacer],
-                       spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
-                ft.Container(height=14),
-                ft.Container(height=2, bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.ORANGE_300)),
-                ft.Container(height=4),
-                ft.Container(height=2, bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.WHITE)),
-            ],
-            spacing=0,
-        ),
+        content=shear_lane_stack,
     )
 
     belt_surface = ft.Container(
@@ -1038,6 +1071,10 @@ def main(page: ft.Page):
         visual_inner_width_current[0] = new_inner_width
         shear_conveyor_view.width = new_visual_width
         shear_lane.width = new_inner_width
+        shear_lane_stack.width = new_inner_width
+        screw_support.width = new_inner_width
+        screw_shaft.width = new_inner_width
+        screw_highlight.width = new_inner_width
         shear_lane_tail_spacer.width = new_inner_width
         conveyor_lane.width = new_inner_width
         conveyor_top_rail.width = new_inner_width
