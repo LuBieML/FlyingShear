@@ -80,7 +80,7 @@
     "vmax": 210.0,
     "link_pos": 0.0,
     "base_dist": 0.0,
-    "profile": "power5",
+    "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
     "direction_mode": "any",

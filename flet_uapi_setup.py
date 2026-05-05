@@ -53,7 +53,7 @@ except ImportError:
         sys.exit(1)
 
 def main(page: ft.Page):
-    page.title = "Trio UAPI Setup App"
+    page.title = "Trio Flying Shear Setup"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
     default_window_width = 1728
@@ -2197,7 +2197,7 @@ def main(page: ft.Page):
 
         axis_paint = canvas_paint(axis_color, 3)
         grid_paint = canvas_paint(grid_color, 1, dash=[4, 5])
-        profile_paint = canvas_paint(profile_color, 6)
+        profile_paint = canvas_paint(profile_color, 4.5)
         return_paint = canvas_paint(return_color, 3, dash=[6, 5])
         thin_return_paint = canvas_paint(return_color, 1.4)
 
@@ -2805,7 +2805,7 @@ def main(page: ft.Page):
 
     # Assemble the main page
     page.appbar = ft.AppBar(
-        title=ft.Text("Trio Motion Controller - UAPI Setup", size=18, weight=ft.FontWeight.BOLD),
+        title=ft.Text("Trio Flying Shear Setup", size=18, weight=ft.FontWeight.BOLD),
         bgcolor=PANEL_BG,
         color=ft.Colors.WHITE,
         elevation=0,
