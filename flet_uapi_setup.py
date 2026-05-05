@@ -134,7 +134,7 @@ def main(page: ft.Page):
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-    def control_cluster(title, controls, icon=None, col=None):
+    def control_cluster(title, controls, icon=None, col=None, height=None):
         heading = [ft.Text(title.upper(), size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)]
         if icon:
             heading.insert(0, ft.Icon(icon, size=14, color=MUTED_TEXT))
@@ -157,6 +157,7 @@ def main(page: ft.Page):
             border=ft.Border.all(1, BORDER_COLOR),
             border_radius=8,
             padding=12,
+            height=height,
             col=col or {"xs": 12, "md": 6, "xl": 3},
         )
 
@@ -623,7 +624,7 @@ def main(page: ft.Page):
         )
 
     # --- Infinite Conveyor Belt visualizer (Master) ---
-    TRACK_WIDTH = 1540
+    TRACK_WIDTH = 2400
     TRACK_HEIGHT = 24
     BELT_HEIGHT = 24
     CLEAT_HEIGHT = 18
@@ -648,7 +649,8 @@ def main(page: ft.Page):
     BLADE_IDLE_EXTENSION = 30
     BLADE_CUT_EXTENSION = 78
     CENTER_LEFT_S = TRACK_WIDTH / 2 - SHEAR_WIDTH / 2
-    SHEAR_START_LEFT = 38  # ~1 cm from left; position-zero reference for slave visualizer
+    SHEAR_ZERO_FROM_BELT_LEFT_PX = 38  # ~1 cm from the rubber belt's left edge.
+    SHEAR_VISUAL_DIRECTION = 1  # Positive slave MPOS moves right from the left-side zero.
 
     # Mutable holders so closures can mutate without `nonlocal` boilerplate.
     position_zero_m = [None]
@@ -825,7 +827,7 @@ def main(page: ft.Page):
                 clip_behavior=ft.ClipBehavior.NONE,
             ),
             width=SHEAR_WIDTH, height=SHEAR_HEIGHT,
-            left=SHEAR_START_LEFT,
+            left=CENTER_LEFT_S,
             top=SHEAR_TOP_IDLE,
         )
 
@@ -847,10 +849,29 @@ def main(page: ft.Page):
         )
         return indicator, track, blade_body, blade_edge, blade_tip, blade_anchor_top
 
-    visual_width = 1120
+    def _available_visual_width():
+        return max(720, (page.width or default_window_width) - 112)
+
+    visual_width = _available_visual_width()
     visual_inner_width = visual_width - 20
+    visual_inner_width_current = [visual_inner_width]
+    visual_slave_mpos = [0.0]
     belt_width = visual_inner_width - (2 * PULLEY_SIZE)
     shear_conveyor_height = SHEAR_TRACK_HEIGHT + SHEAR_TO_CONVEYOR_GAP + CONVEYOR_HEIGHT
+
+    def _clamp_shear_left(left, inner_width):
+        return max(0, min(inner_width - SHEAR_WIDTH, left))
+
+    def _shear_zero_left(inner_width):
+        belt_left_edge = PULLEY_SIZE
+        blade_center = belt_left_edge + SHEAR_ZERO_FROM_BELT_LEFT_PX
+        return _clamp_shear_left(blade_center - (SHEAR_WIDTH / 2), inner_width)
+
+    def _slave_mpos_to_shear_left(mpos, inner_width):
+        return _clamp_shear_left(
+            _shear_zero_left(inner_width) + SHEAR_VISUAL_DIRECTION * mpos * scale_px_per_unit[0],
+            inner_width,
+        )
 
     blade_body_w = 14
     rail_w = 5
@@ -873,7 +894,8 @@ def main(page: ft.Page):
         text_align=ft.TextAlign.CENTER,
         width=SHEAR_WIDTH,
     )
-    shear_position_spacer = ft.Container(width=SHEAR_START_LEFT)
+    shear_position_spacer = ft.Container(width=_shear_zero_left(visual_inner_width))
+    shear_lane_tail_spacer = ft.Container(width=visual_inner_width)
     belt_offset_spacer = ft.Container(width=0)
     belt_cleats = [
         ft.Container(width=CLEAT_WIDTH, height=CLEAT_HEIGHT, bgcolor="#8c8c8c", border_radius=2)
@@ -948,7 +970,7 @@ def main(page: ft.Page):
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Column(
             [
-                ft.Row([shear_position_spacer, shear_carriage, ft.Container(width=visual_inner_width)],
+                ft.Row([shear_position_spacer, shear_carriage, shear_lane_tail_spacer],
                        spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
                 ft.Container(height=14),
                 ft.Container(height=2, bgcolor=ft.Colors.with_opacity(0.35, ft.Colors.ORANGE_300)),
@@ -981,15 +1003,18 @@ def main(page: ft.Page):
                              bgcolor="#151515", border_radius=PULLEY_SIZE * 0.16),
         alignment=ft.Alignment.CENTER,
     )
+    conveyor_top_rail = ft.Container(width=visual_inner_width, height=RAIL_HEIGHT, bgcolor="#4a4f55")
+    conveyor_bottom_rail = ft.Container(width=visual_inner_width, height=RAIL_HEIGHT, bgcolor="#4a4f55")
+
     conveyor_lane = ft.Container(
         width=visual_inner_width,
         height=CONVEYOR_HEIGHT,
         content=ft.Column(
             [
-                ft.Container(width=visual_inner_width, height=RAIL_HEIGHT, bgcolor="#4a4f55"),
+                conveyor_top_rail,
                 ft.Row([pulley(), belt_surface, pulley()], spacing=0,
                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Container(width=visual_inner_width, height=RAIL_HEIGHT, bgcolor="#4a4f55"),
+                conveyor_bottom_rail,
             ],
             spacing=1,
         ),
@@ -1004,6 +1029,28 @@ def main(page: ft.Page):
         padding=ft.Padding.symmetric(horizontal=10),
         content=ft.Column([shear_lane, ft.Container(height=SHEAR_TO_CONVEYOR_GAP), conveyor_lane], spacing=0),
     )
+
+    def resize_shear_visual(update=False):
+        new_visual_width = _available_visual_width()
+        new_inner_width = new_visual_width - 20
+        new_belt_width = new_inner_width - (2 * PULLEY_SIZE)
+
+        visual_inner_width_current[0] = new_inner_width
+        shear_conveyor_view.width = new_visual_width
+        shear_lane.width = new_inner_width
+        shear_lane_tail_spacer.width = new_inner_width
+        conveyor_lane.width = new_inner_width
+        conveyor_top_rail.width = new_inner_width
+        conveyor_bottom_rail.width = new_inner_width
+        belt_surface.width = new_belt_width
+
+        shear_position_spacer.width = _slave_mpos_to_shear_left(
+            visual_slave_mpos[0],
+            new_inner_width,
+        )
+
+        if update:
+            shear_conveyor_view.update()
 
     def on_recenter(e):
         position_zero_m[0] = None
@@ -1237,8 +1284,8 @@ def main(page: ft.Page):
 
                 # Update Slave visualizer — absolute MPOS maps directly to pixel position
                 if mpos_val_s is not None:
-                    new_left = SHEAR_START_LEFT + mpos_val_s * scale_px_per_unit[0]
-                    new_left = max(0, min(visual_inner_width - SHEAR_WIDTH, new_left))
+                    visual_slave_mpos[0] = mpos_val_s
+                    new_left = _slave_mpos_to_shear_left(mpos_val_s, visual_inner_width_current[0])
                     if abs((shear_position_spacer.width or 0) - new_left) > 0.1:
                         shear_position_spacer.width = new_left
                         dirty = True
@@ -1286,18 +1333,22 @@ def main(page: ft.Page):
         col={"xs": 12, "lg": 5},
     )
 
+    monitor_control_cluster_height = 116
+
     monitor_controls_grid = ft.ResponsiveRow(
         [
             control_cluster(
                 "Material jog",
                 [master_rev_btn, master_fwd_btn, master_stop_btn, master_speed_input],
                 icon=ft.Icons.PLAY_ARROW,
+                height=monitor_control_cluster_height,
                 col={"xs": 12, "md": 8, "xl": 8},
             ),
             control_cluster(
                 "Knife output state",
                 [cutter_output_lamp_panel],
                 icon=ft.Icons.POWER,
+                height=monitor_control_cluster_height,
                 col={"xs": 12, "md": 4, "xl": 4},
             ),
         ],
@@ -2556,6 +2607,11 @@ def main(page: ft.Page):
 
     page.window.prevent_close = True
     page.window.on_event = on_window_event
+
+    def on_page_resize(e):
+        resize_shear_visual(update=True)
+
+    page.on_resize = on_page_resize
 
     # Assemble the main page
     page.appbar = ft.AppBar(
