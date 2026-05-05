@@ -72,9 +72,9 @@
   },
   "master_speed": "5",
   "shear_calc": {
-    "cut": 30.0,
-    "vline": 20.0,
-    "amax": 2000.0,
+    "cut": 65.0,
+    "vline": 50.0,
+    "amax": 6000.0,
     "tsync": 1000.0,
     "safety": 1.5,
     "vmax": 210.0,

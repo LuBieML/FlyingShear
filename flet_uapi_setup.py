@@ -1,4 +1,5 @@
 import flet as ft
+import flet.canvas as cv
 import collections
 import sys
 import os
@@ -2012,6 +2013,7 @@ def main(page: ft.Page):
         "dec": "Master/link-axis distance used during deceleration. Mirrored from the acceleration phase.",
         "ret": "Remaining master/link-axis distance before the next cut, available for retracting the shear carriage.",
         "vpeak": "Estimated peak shear speed needed during retract. This is checked against the shear max speed.",
+        "profile_graph": "Velocity profile drawn from the calculated MOVELINK link-axis distances.",
         "options": "Decimal MOVELINK link_options value created from the selected profile, start trigger, position source, direction, and repeat settings.",
         "profile_result": "Active MOVELINK acceleration/deceleration profile used in generated commands.",
         "start_result": "Start condition applied to the first acceleration MOVELINK in the generated shear cycle.",
@@ -2117,32 +2119,186 @@ def main(page: ft.Page):
         tooltip=CALC_TOOLTIPS["warnings"],
     )
     review_text = ft.Text("", size=12, color=ft.Colors.GREY_300)
-    phase_labels = {
-        "accel": ft.Text("Accel", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-        "sync": ft.Text("Sync / knife", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-        "decel": ft.Text("Decel", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-        "retract": ft.Text("Retract", size=11, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD),
-    }
-    phase_segments = {
-        "accel": ft.Container(content=phase_labels["accel"], height=34, width=160,
-                              alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.BLUE_700,
-                              border_radius=ft.BorderRadius.only(top_left=6, bottom_left=6)),
-        "sync": ft.Container(content=phase_labels["sync"], height=34, width=160,
-                             alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.GREEN_700),
-        "decel": ft.Container(content=phase_labels["decel"], height=34, width=160,
-                              alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.ORANGE_700),
-        "retract": ft.Container(content=phase_labels["retract"], height=34, width=160,
-                                alignment=ft.Alignment.CENTER, bgcolor=ft.Colors.BLUE_GREY_700,
-                                border_radius=ft.BorderRadius.only(top_right=6, bottom_right=6)),
-    }
+    profile_canvas = cv.Canvas(width=660, height=218, shapes=[])
+
+    def fmt_distance(value):
+        abs_value = abs(value)
+        if abs_value >= 100:
+            return f"{value:.0f}"
+        if abs_value >= 10:
+            return f"{value:.1f}"
+        return f"{value:.2f}"
+
+    def canvas_paint(color, width=1, dash=None, style=ft.PaintingStyle.STROKE):
+        return ft.Paint(
+            color=color,
+            stroke_width=width,
+            stroke_cap=ft.StrokeCap.ROUND,
+            stroke_dash_pattern=dash,
+            style=style,
+        )
+
+    def add_profile_text(shapes, x, y, value, size=11, color=ft.Colors.GREY_300,
+                         weight=None, align=ft.Alignment.CENTER, max_width=None, rotate=0):
+        shapes.append(
+            cv.Text(
+                x=x,
+                y=y,
+                value=value,
+                style=ft.TextStyle(size=size, color=color, weight=weight),
+                alignment=align,
+                text_align=ft.TextAlign.CENTER,
+                max_width=max_width,
+                rotate=rotate,
+            )
+        )
+
+    def scaled_segment_widths(values, plot_width):
+        positive_values = [max(v, 0) for v in values]
+        total = sum(positive_values)
+        if total <= 0:
+            return [plot_width / len(values) for _ in values]
+
+        minimums = [62, 92, 62, 86]
+        minimums = [minimums[i] if positive_values[i] > 0 else 0 for i in range(len(values))]
+        minimum_total = sum(minimums)
+        if minimum_total >= plot_width:
+            return [plot_width * value / total if value > 0 else 0 for value in positive_values]
+
+        remaining = plot_width - minimum_total
+        return [
+            minimums[i] + (remaining * positive_values[i] / total if positive_values[i] > 0 else 0)
+            for i in range(len(values))
+        ]
+
+    def build_velocity_profile_shapes(accel_link, sync_link, decel_link, ret_link, profile):
+        width = 660
+        height = 218
+        left = 70
+        right = 34
+        top = 22
+        baseline = 150
+        peak = 50
+        plot_end = width - right
+        plot_width = plot_end - left
+        axis_color = "#b8a80f"
+        profile_color = "#b9250f"
+        return_color = "#90a4ae"
+        grid_color = "#46505a"
+        label_color = ft.Colors.GREY_300
+
+        values = [accel_link, sync_link, decel_link, max(ret_link, 0)]
+        widths = scaled_segment_widths(values, plot_width)
+        x0 = left
+        x1 = x0 + widths[0]
+        x2 = x1 + widths[1]
+        x3 = x2 + widths[2]
+        x4 = x3 + widths[3]
+
+        axis_paint = canvas_paint(axis_color, 3)
+        grid_paint = canvas_paint(grid_color, 1, dash=[4, 5])
+        profile_paint = canvas_paint(profile_color, 6)
+        return_paint = canvas_paint(return_color, 3, dash=[6, 5])
+        thin_return_paint = canvas_paint(return_color, 1.4)
+
+        shapes = [
+            cv.Rect(
+                0, 0, width, height,
+                border_radius=ft.BorderRadius.all(8),
+                paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL),
+            ),
+            cv.Line(left, baseline, plot_end + 12, baseline, paint=axis_paint),
+            cv.Line(left, baseline, left, top, paint=axis_paint),
+            cv.Line(plot_end + 12, baseline, plot_end + 2, baseline - 6, paint=axis_paint),
+            cv.Line(plot_end + 12, baseline, plot_end + 2, baseline + 6, paint=axis_paint),
+            cv.Line(left, top, left - 6, top + 10, paint=axis_paint),
+            cv.Line(left, top, left + 6, top + 10, paint=axis_paint),
+        ]
+
+        for marker_x in (x1, x2, x3):
+            if left + 8 < marker_x < plot_end - 8:
+                shapes.append(cv.Line(marker_x, top + 8, marker_x, baseline + 8, paint=grid_paint))
+
+        if profile in ("sine", "power9", "power7", "power5"):
+            ramp_in = max(widths[0], 1)
+            ramp_out = max(widths[2], 1)
+            elements = [
+                cv.Path.MoveTo(x0, baseline),
+                cv.Path.CubicTo(x0 + ramp_in * 0.30, baseline, x1 - ramp_in * 0.30, peak, x1, peak),
+                cv.Path.LineTo(x2, peak),
+                cv.Path.CubicTo(x2 + ramp_out * 0.30, peak, x3 - ramp_out * 0.30, baseline, x3, baseline),
+            ]
+        else:
+            elements = [
+                cv.Path.MoveTo(x0, baseline),
+                cv.Path.LineTo(x1, peak),
+                cv.Path.LineTo(x2, peak),
+                cv.Path.LineTo(x3, baseline),
+            ]
+        shapes.append(cv.Path(elements=elements, paint=profile_paint))
+
+        if ret_link > 0:
+            return_y = baseline - 17
+            shapes.append(cv.Line(x3 + 6, return_y, min(x4, plot_end), return_y, paint=return_paint))
+            shapes.append(cv.Line(min(x4, plot_end), return_y, min(x4, plot_end) - 8, return_y - 5, paint=thin_return_paint))
+            shapes.append(cv.Line(min(x4, plot_end), return_y, min(x4, plot_end) - 8, return_y + 5, paint=thin_return_paint))
+            add_profile_text(
+                shapes, (x3 + min(x4, plot_end)) / 2, peak + 38,
+                "Return", size=17, color=ft.Colors.WHITE,
+                max_width=max(80, min(x4, plot_end) - x3),
+            )
+
+        if sync_link > 0:
+            add_profile_text(
+                shapes, (x1 + x2) / 2, peak - 22,
+                "Synchronized", size=18, color=ft.Colors.WHITE,
+                max_width=max(120, x2 - x1),
+            )
+
+        add_profile_text(
+            shapes, 24, (top + baseline) / 2, "Velocity",
+            size=15, color=ft.Colors.WHITE, rotate=-1.5708,
+        )
+        add_profile_text(
+            shapes, plot_end - 46, baseline + 45, "Time / distance",
+            size=13, color=ft.Colors.WHITE, max_width=130,
+        )
+
+        label_y = baseline + 18
+        segment_specs = [
+            (x0, x1, accel_link),
+            (x1, x2, sync_link),
+            (x2, x3, decel_link),
+        ]
+        if ret_link > 0:
+            segment_specs.append((x3, min(x4, plot_end), ret_link))
+
+        for start_x, end_x, value in segment_specs:
+            if end_x - start_x < 10:
+                continue
+            add_profile_text(
+                shapes, (start_x + end_x) / 2, label_y,
+                f"{fmt_distance(value)} mm",
+                size=12, color=label_color, max_width=max(54, end_x - start_x - 4),
+            )
+
+        if ret_link < 0:
+            add_profile_text(
+                shapes, plot_end - 92, peak + 38,
+                "No return distance", size=13, color=ft.Colors.RED_200, max_width=150,
+            )
+
+        return shapes
+
     phase_bar = ft.Column([
-        ft.Text("Generated MOVELINK cycle", size=12, color=ft.Colors.GREY_400),
-        ft.Row([
-            phase_segments["accel"],
-            phase_segments["sync"],
-            phase_segments["decel"],
-            phase_segments["retract"],
-        ], wrap=True, spacing=3, run_spacing=3),
+        ft.Text("Generated MOVELINK velocity profile", size=12, color=ft.Colors.GREY_400),
+        ft.Container(
+            content=profile_canvas,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            tooltip=CALC_TOOLTIPS["profile_graph"],
+        ),
     ], spacing=6)
 
     code_output = ft.TextField(
@@ -2287,19 +2443,11 @@ def main(page: ft.Page):
         result_labels["ret"].value    = f"{ret_link:.2f} mm"
         result_labels["vpeak"].value  = f"{fmt_speed(v_retract_peak)} mm/s" if ret_link > 0 else "—"
 
-        phase_total = max(accel_link + sync_link + decel_link + max(ret_link, 0), 1.0)
-        phase_data = {
-            "accel": ("Accel", accel_link),
-            "sync": ("Sync / knife", sync_link),
-            "decel": ("Decel", decel_link),
-            "retract": ("Retract", max(ret_link, 0)),
-        }
-        for phase_key, (phase_name, phase_dist) in phase_data.items():
-            phase_segments[phase_key].width = max(72, min(260, 600 * phase_dist / phase_total))
-            phase_labels[phase_key].value = f"{phase_name}\n{phase_dist:.1f} mm"
-            phase_labels[phase_key].text_align = ft.TextAlign.CENTER
-
         profile = profile_dropdown.value or "trapezoid"
+        profile_canvas.shapes = build_velocity_profile_shapes(
+            accel_link, sync_link, decel_link, ret_link, profile
+        )
+
         start_mode = start_dropdown.value or "immediate"
         link_source = source_dropdown.value or "mpos"
         direction_mode = direction_dropdown.value or "any"
