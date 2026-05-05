@@ -318,13 +318,135 @@ def main(page: ft.Page):
         tooltip="Controller digital output number used for knife OP() and live output-state read",
     )
 
-    cutter_output_state_text = ft.Text(
-        "Knife OP --: ---",
-        size=12,
-        color=ft.Colors.GREY_400,
+    cutter_lamp_op_text = ft.Text(
+        "OP --",
+        size=11,
+        color=MUTED_TEXT,
         weight=ft.FontWeight.BOLD,
-        width=125,
     )
+    cutter_lamp_caption_text = ft.Text(
+        "LIVE OUTPUT",
+        size=10,
+        color=MUTED_TEXT,
+        weight=ft.FontWeight.BOLD,
+    )
+    cutter_lamp_bulb = ft.Container(
+        width=36,
+        height=36,
+        border_radius=18,
+        gradient=ft.RadialGradient(
+            center=ft.Alignment(-0.38, -0.42),
+            radius=0.9,
+            colors=["#174729", "#0b2f1a", "#05160c"],
+            stops=[0.0, 0.58, 1.0],
+        ),
+        border=ft.Border.all(1, "#123f24"),
+        shadow=[
+            ft.BoxShadow(
+                spread_radius=0,
+                blur_radius=8,
+                color="#33092616",
+                offset=ft.Offset(0, 0),
+            )
+        ],
+    )
+    cutter_lamp = ft.Container(
+        width=54,
+        height=54,
+        padding=5,
+        bgcolor="#0b1110",
+        border_radius=27,
+        border=ft.Border.all(1, "#2c3a34"),
+        content=cutter_lamp_bulb,
+        alignment=ft.Alignment(0, 0),
+        tooltip="Knife output state unavailable",
+    )
+    cutter_output_lamp_panel = ft.Container(
+        content=ft.Row(
+            [
+                cutter_lamp,
+                ft.Column(
+                    [
+                        cutter_lamp_op_text,
+                        cutter_lamp_caption_text,
+                    ],
+                    spacing=1,
+                    tight=True,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.Padding(8, 6, 10, 6),
+        border_radius=8,
+        bgcolor="#121a16",
+        border=ft.Border.all(1, "#263b2f"),
+    )
+    cutter_lamp_state = {"output": None, "state": None}
+
+    def _set_cutter_output_lamp(output, state):
+        if cutter_lamp_state["output"] == output and cutter_lamp_state["state"] == state:
+            return False
+
+        cutter_lamp_state["output"] = output
+        cutter_lamp_state["state"] = state
+        cutter_lamp_op_text.value = f"OP {output}"
+
+        if state == "ON":
+            label = "ON"
+            caption = "LIVE OUTPUT"
+            caption_color = ft.Colors.GREEN_200
+            bulb_colors = ["#e8fff0", "#35e873", "#05843b"]
+            bulb_border = "#77f29b"
+            glow = "#9935e873"
+            housing_border = "#2f8d52"
+        elif state == "OFF":
+            label = "OFF"
+            caption = "LIVE OUTPUT"
+            caption_color = "#79a98a"
+            bulb_colors = ["#1b5b31", "#0b331d", "#031108"]
+            bulb_border = "#174d2b"
+            glow = "#330b331d"
+            housing_border = "#263b2f"
+        elif state == "ERR":
+            label = "ERR"
+            caption = "READ ERROR"
+            caption_color = ERROR_COLOR
+            bulb_colors = ["#ffd6d6", "#e04747", "#671515"]
+            bulb_border = "#ff7d7d"
+            glow = "#88e04747"
+            housing_border = "#8a3434"
+        else:
+            label = "---"
+            caption = "NO DATA"
+            caption_color = ft.Colors.GREY_300
+            bulb_colors = ["#515a55", "#26302b", "#111615"]
+            bulb_border = "#48534e"
+            glow = "#30323a36"
+            housing_border = "#2c3a34"
+
+        cutter_lamp_caption_text.value = caption
+        cutter_lamp_caption_text.color = caption_color
+        cutter_lamp_bulb.gradient = ft.RadialGradient(
+            center=ft.Alignment(-0.38, -0.42),
+            radius=0.9,
+            colors=bulb_colors,
+            stops=[0.0, 0.58, 1.0],
+        )
+        cutter_lamp_bulb.border = ft.Border.all(1, bulb_border)
+        cutter_lamp_bulb.shadow = [
+            ft.BoxShadow(
+                spread_radius=1 if state == "ON" else 0,
+                blur_radius=20 if state == "ON" else 8,
+                color=glow,
+                offset=ft.Offset(0, 0),
+            )
+        ]
+        cutter_lamp.border = ft.Border.all(1, housing_border)
+        cutter_lamp.tooltip = f"Knife output OP {output}: {label}"
+        return True
+
     wdog_state = {"enabled": None, "busy": False}
 
     def _set_wdog_button_state(enabled=None, busy=False, error=False):
@@ -1035,23 +1157,14 @@ def main(page: ft.Page):
                 cutter_raw = results.get(("CUTTER_OUTPUT", "state"))
                 if cutter_raw == "ERR":
                     cutter_state = "ERR"
-                    cutter_color = ft.Colors.RED_300
                 elif cutter_raw is True:
                     cutter_state = "ON"
-                    cutter_color = ft.Colors.GREEN_300
                 elif cutter_raw is False:
                     cutter_state = "OFF"
-                    cutter_color = ft.Colors.GREY_400
                 else:
                     cutter_state = "---"
-                    cutter_color = ft.Colors.GREY_400
 
-                cutter_label = f"Knife OP {cutter_output_val}: {cutter_state}"
-                if cutter_output_state_text.value != cutter_label:
-                    cutter_output_state_text.value = cutter_label
-                    dirty = True
-                if cutter_output_state_text.color != cutter_color:
-                    cutter_output_state_text.color = cutter_color
+                if _set_cutter_output_lamp(cutter_output_val, cutter_state):
                     dirty = True
 
                 wdog_raw = results.get(("WDOG", "state"))
@@ -1183,7 +1296,7 @@ def main(page: ft.Page):
             ),
             control_cluster(
                 "Knife output state",
-                [cutter_output_state_text],
+                [cutter_output_lamp_panel],
                 icon=ft.Icons.POWER,
                 col={"xs": 12, "md": 4, "xl": 4},
             ),
@@ -2278,6 +2391,8 @@ def main(page: ft.Page):
         col={"xs": 12},
     )
 
+    shear_calc_panel_height = 798
+
     shear_params_panel = ft.Container(
         content=ft.Column([
             section_header("Flying Shear MOVELINK Calculator", "Shape the linked move and validate machine limits", ft.Icons.CALCULATE),
@@ -2309,6 +2424,7 @@ def main(page: ft.Page):
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
         padding=16,
+        height=shear_calc_panel_height,
         col={"xs": 12, "xl": 6},
     )
 
@@ -2325,6 +2441,7 @@ def main(page: ft.Page):
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
         padding=16,
+        height=shear_calc_panel_height,
         col={"xs": 12, "xl": 6},
     )
 
