@@ -2803,15 +2803,433 @@ def main(page: ft.Page):
         vertical_alignment=ft.CrossAxisAlignment.START,
     )
 
+    # === MOVELINK Math Help ===
+    def help_text(value, size=13, color=TEXT_COLOR, weight=None, selectable=True):
+        return ft.Text(
+            value,
+            size=size,
+            color=color,
+            weight=weight,
+            selectable=selectable,
+        )
+
+    def help_card(title, controls, icon=None, col=None):
+        heading = [
+            ft.Row(
+                [
+                    ft.Icon(icon, size=18, color=ft.Colors.CYAN_200) if icon else ft.Container(width=0),
+                    ft.Text(title, size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                ],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        ]
+        return ft.Container(
+            content=ft.Column(heading + controls, spacing=10),
+            bgcolor=PANEL_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=16,
+            col=col or {"xs": 12},
+        )
+
+    def formula_block(lines):
+        return ft.Container(
+            content=ft.Column(
+                [ft.Text(line, size=13, color=ft.Colors.GREEN_200, font_family="Consolas", selectable=True) for line in lines],
+                spacing=5,
+            ),
+            bgcolor=DARKER_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=12,
+        )
+
+    def mini_table(headers, rows, widths):
+        table_rows = [
+            ft.Row(
+                [
+                    ft.Text(headers[i], width=widths[i], size=12, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
+                    for i in range(len(headers))
+                ],
+                spacing=8,
+            )
+        ]
+        for row in rows:
+            table_rows.append(
+                ft.Row(
+                    [
+                        ft.Text(str(row[i]), width=widths[i], size=12, color=TEXT_COLOR, selectable=True)
+                        for i in range(len(row))
+                    ],
+                    spacing=8,
+                )
+            )
+        return ft.Container(
+            content=ft.Column(table_rows, spacing=6),
+            bgcolor=DARKER_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=12,
+        )
+
+    def build_help_phase_shapes():
+        width = 700
+        height = 260
+        left = 70
+        right = 28
+        top = 26
+        baseline = 182
+        peak = 58
+        plot_end = width - right
+        axis_paint = canvas_paint("#b8a80f", 3)
+        grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
+        red_paint = canvas_paint("#d24a35", 4.5)
+        blue_paint = canvas_paint("#4fc3f7", 4)
+        green_paint = canvas_paint("#81c784", 4)
+        amber_paint = canvas_paint("#ffb74d", 4)
+        label_color = ft.Colors.GREY_300
+
+        x0 = left
+        x1 = 200
+        x2 = 390
+        x3 = 520
+        x4 = plot_end
+        shapes = [
+            cv.Rect(0, 0, width, height, border_radius=ft.BorderRadius.all(8), paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
+            cv.Line(left, baseline, plot_end + 10, baseline, paint=axis_paint),
+            cv.Line(left, baseline, left, top, paint=axis_paint),
+            cv.Line(plot_end + 10, baseline, plot_end, baseline - 6, paint=axis_paint),
+            cv.Line(plot_end + 10, baseline, plot_end, baseline + 6, paint=axis_paint),
+            cv.Line(left, top, left - 6, top + 10, paint=axis_paint),
+            cv.Line(left, top, left + 6, top + 10, paint=axis_paint),
+        ]
+        for x in (x1, x2, x3):
+            shapes.append(cv.Line(x, top + 8, x, baseline + 10, paint=grid_paint))
+        shapes.extend(
+            [
+                cv.Path(
+                    elements=[
+                        cv.Path.MoveTo(x0, baseline),
+                        cv.Path.LineTo(x1, peak),
+                        cv.Path.LineTo(x2, peak),
+                        cv.Path.LineTo(x3, baseline),
+                    ],
+                    paint=red_paint,
+                ),
+                cv.Line(x3 + 8, baseline - 22, x4 - 8, baseline - 22, paint=blue_paint),
+                cv.Line(x4 - 8, baseline - 22, x4 - 20, baseline - 30, paint=blue_paint),
+                cv.Line(x4 - 8, baseline - 22, x4 - 20, baseline - 14, paint=blue_paint),
+                cv.Line(x0, baseline + 34, x1, baseline + 34, paint=green_paint),
+                cv.Line(x1, baseline + 45, x2, baseline + 45, paint=green_paint),
+                cv.Line(x2, baseline + 56, x3, baseline + 56, paint=green_paint),
+                cv.Line(x3, baseline + 67, x4, baseline + 67, paint=amber_paint),
+            ]
+        )
+        add_profile_text(shapes, 26, 104, "slave velocity", size=14, color=ft.Colors.WHITE, rotate=-1.5708)
+        add_profile_text(shapes, plot_end - 54, baseline + 45, "master distance", size=13, color=ft.Colors.WHITE, max_width=150)
+        add_profile_text(shapes, (x0 + x1) / 2, peak - 28, "Accel", size=16, color=ft.Colors.WHITE)
+        add_profile_text(shapes, (x1 + x2) / 2, peak - 28, "Sync / cut", size=16, color=ft.Colors.WHITE)
+        add_profile_text(shapes, (x2 + x3) / 2, peak - 28, "Decel", size=16, color=ft.Colors.WHITE)
+        add_profile_text(shapes, (x3 + x4) / 2, baseline - 56, "Retract dwell", size=16, color=ft.Colors.WHITE)
+        add_profile_text(shapes, (x0 + x1) / 2, baseline + 22, "link_acc = 2 x accel_dist", size=11, color=label_color, max_width=145)
+        add_profile_text(shapes, (x1 + x2) / 2, baseline + 22, "link_dist = sync_dist", size=11, color=label_color, max_width=160)
+        add_profile_text(shapes, (x2 + x3) / 2, baseline + 22, "link_dec = 2 x decel_dist", size=11, color=label_color, max_width=140)
+        add_profile_text(shapes, (x3 + x4) / 2, baseline + 22, "remaining cut length", size=11, color=label_color, max_width=140)
+        return shapes
+
+    def build_help_scurve_shapes():
+        width = 700
+        height = 230
+        left = 64
+        right = 30
+        top = 26
+        baseline = 168
+        peak = 52
+        plot_end = width - right
+        axis_paint = canvas_paint("#b8a80f", 3)
+        trap_paint = canvas_paint("#ef5350", 3.5)
+        s_paint = canvas_paint("#4fc3f7", 4)
+        grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
+        shapes = [
+            cv.Rect(0, 0, width, height, border_radius=ft.BorderRadius.all(8), paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
+            cv.Line(left, baseline, plot_end + 10, baseline, paint=axis_paint),
+            cv.Line(left, baseline, left, top, paint=axis_paint),
+            cv.Line(plot_end + 10, baseline, plot_end, baseline - 6, paint=axis_paint),
+            cv.Line(plot_end + 10, baseline, plot_end, baseline + 6, paint=axis_paint),
+            cv.Line(left, peak, plot_end - 4, peak, paint=grid_paint),
+        ]
+        x0 = left + 12
+        x1 = 224
+        x2 = 472
+        x3 = plot_end - 14
+        shapes.append(cv.Path(elements=[cv.Path.MoveTo(x0, baseline), cv.Path.LineTo(x1, peak), cv.Path.LineTo(x2, peak), cv.Path.LineTo(x3, baseline)], paint=trap_paint))
+        shapes.append(
+            cv.Path(
+                elements=[
+                    cv.Path.MoveTo(x0, baseline),
+                    cv.Path.CubicTo(x0 + 55, baseline, x1 - 55, peak, x1, peak),
+                    cv.Path.LineTo(x2, peak),
+                    cv.Path.CubicTo(x2 + 55, peak, x3 - 55, baseline, x3, baseline),
+                ],
+                paint=s_paint,
+            )
+        )
+        add_profile_text(shapes, 28, 98, "velocity", size=14, color=ft.Colors.WHITE, rotate=-1.5708)
+        add_profile_text(shapes, plot_end - 54, baseline + 32, "link distance", size=13, color=ft.Colors.WHITE, max_width=140)
+        add_profile_text(shapes, 178, 30, "Trapezoid: constant acceleration", size=13, color=ft.Colors.RED_200, max_width=220)
+        add_profile_text(shapes, 494, 30, "S-curve: smoother jerk, higher peak accel", size=13, color=ft.Colors.CYAN_200, max_width=250)
+        return shapes
+
+    phase_help_canvas = cv.Canvas(width=700, height=260, shapes=build_help_phase_shapes())
+    scurve_help_canvas = cv.Canvas(width=700, height=230, shapes=build_help_scurve_shapes())
+
+    example_inputs = {
+        "cut": 160.0,
+        "v": 500.0,
+        "a": 5000.0,
+        "sf": 1.5,
+        "tsync": 40.0,
+    }
+    ex_accel_dist = (example_inputs["v"] * example_inputs["v"]) / (2 * example_inputs["a"]) * example_inputs["sf"]
+    ex_sync_dist = example_inputs["v"] * (example_inputs["tsync"] / 1000.0)
+    ex_stroke = ex_accel_dist + ex_sync_dist + ex_accel_dist
+    ex_accel_link = 2 * ex_accel_dist
+    ex_decel_link = ex_accel_link
+    ex_ret_link = example_inputs["cut"] - (ex_accel_link + ex_sync_dist + ex_decel_link)
+    ex_retract_peak = (4.0 / 3.0) * example_inputs["v"] * (ex_stroke / ex_ret_link)
+
+    movelink_help_list = ft.Column(
+        controls=[
+                section_header("MOVELINK Math Help", "The equations behind the generated flying-shear program", ft.Icons.FUNCTIONS),
+                ft.ResponsiveRow(
+                    [
+                        help_card(
+                            "Command Shape",
+                            [
+                                help_text("MOVELINK(distance, link_dist, link_acc, link_dec, link_axis[, link_options[, link_pos[, base_dist]]])"),
+                                help_text("distance is the slave/base-axis travel. link_dist is the positive measured master-axis travel that drives it."),
+                                help_text("link_acc and link_dec are master-axis distances over which the slave accelerates and decelerates. If link_acc + link_dec is larger than link_dist, the controller scales them down proportionally."),
+                                formula_block(
+                                    [
+                                        "instantaneous ratio = slave_velocity / master_velocity",
+                                        "slave distance = area under ratio curve over master distance",
+                                        "matched speed for a flying shear means ratio = 1 during the cut",
+                                    ]
+                                ),
+                            ],
+                            icon=ft.Icons.CODE,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                        help_card(
+                            "Flying Shear Core Rules",
+                            [
+                                help_text("The app follows the same two practical rules shown in MOVELINK.md example 1."),
+                                formula_block(
+                                    [
+                                        "accel_dist = v_line^2 / (2 * a_shear) * safety_factor",
+                                        "decel_dist = accel_dist",
+                                        "sync_dist = v_line * sync_time_seconds",
+                                        "stroke = accel_dist + sync_dist + decel_dist",
+                                        "accel_link = 2 * accel_dist",
+                                        "sync_link = sync_dist",
+                                        "decel_link = 2 * decel_dist",
+                                        "return_link = cut_length - accel_link - sync_link - decel_link",
+                                    ]
+                                ),
+                                help_text("Why 2x? During a linear ramp from zero to matched speed, average shear speed is half line speed. To travel X on the shear while the master runs at line speed, the master must travel 2X."),
+                            ],
+                            icon=ft.Icons.CALCULATE,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                    ],
+                    columns=12,
+                    spacing=18,
+                    run_spacing=18,
+                ),
+                ft.ResponsiveRow(
+                    [
+                        help_card(
+                            "Phase Graph",
+                            [
+                                ft.Container(
+                                    content=phase_help_canvas,
+                                    border=ft.Border.all(1, BORDER_COLOR),
+                                    border_radius=8,
+                                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                ),
+                                help_text("The red line is shear velocity against master distance. The colored bars under the axis show the link distances consumed by each generated MOVELINK command."),
+                            ],
+                            icon=ft.Icons.SHOW_CHART,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                        help_card(
+                            "Worked Example",
+                            [
+                                help_text("Example inputs: cut length 160 mm, line speed 500 mm/s, shear accel 5000 mm/s2, safety 1.5, sync time 40 ms."),
+                                formula_block(
+                                    [
+                                        f"accel_dist = 500^2 / (2 * 5000) * 1.5 = {ex_accel_dist:.2f} mm",
+                                        f"sync_dist = 500 * 0.040 = {ex_sync_dist:.2f} mm",
+                                        f"stroke = {ex_accel_dist:.2f} + {ex_sync_dist:.2f} + {ex_accel_dist:.2f} = {ex_stroke:.2f} mm",
+                                        f"accel_link = decel_link = 2 * {ex_accel_dist:.2f} = {ex_accel_link:.2f} mm",
+                                        f"return_link = 160 - {ex_accel_link:.2f} - {ex_sync_dist:.2f} - {ex_decel_link:.2f} = {ex_ret_link:.2f} mm",
+                                        f"estimated retract peak = 4/3 * 500 * ({ex_stroke:.2f} / {ex_ret_link:.2f}) = {ex_retract_peak:.1f} mm/s",
+                                    ]
+                                ),
+                                mini_table(
+                                    ["Phase", "MOVELINK distance", "link_dist", "link_acc", "link_dec"],
+                                    [
+                                        ("Accel", f"{ex_accel_dist:.2f}", f"{ex_accel_link:.2f}", f"{ex_accel_link:.2f}", "0"),
+                                        ("Sync", f"{ex_sync_dist:.2f}", f"{ex_sync_dist:.2f}", "0", "0"),
+                                        ("Decel", f"{ex_accel_dist:.2f}", f"{ex_decel_link:.2f}", "0", f"{ex_decel_link:.2f}"),
+                                        ("Retract", f"{-ex_stroke:.2f}", f"{ex_ret_link:.2f}", f"{ex_ret_link / 4:.2f}", f"{ex_ret_link / 4:.2f}"),
+                                    ],
+                                    [88, 132, 92, 92, 92],
+                                ),
+                            ],
+                            icon=ft.Icons.ARTICLE,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                    ],
+                    columns=12,
+                    spacing=18,
+                    run_spacing=18,
+                ),
+                ft.ResponsiveRow(
+                    [
+                        help_card(
+                            "Profiles And Jerk",
+                            [
+                                ft.Container(
+                                    content=scurve_help_canvas,
+                                    border=ft.Border.all(1, BORDER_COLOR),
+                                    border_radius=8,
+                                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                ),
+                                help_text("Bit 4 changes accel/decel from a trapezoidal speed profile to an S-ramp profile. Bits 10..12 select the S-ramp type."),
+                                mini_table(
+                                    ["Profile", "Bits 10..12", "Peak accel note"],
+                                    [
+                                        ("Sine", "0", "about 1.55x trapezoid"),
+                                        ("Power 9", "1", "about 2.42x trapezoid"),
+                                        ("Power 7", "2", "about 2.16x trapezoid"),
+                                        ("Power 5", "3", "about 1.86x trapezoid"),
+                                        ("Linear ramp", "4", "linear ramp mode"),
+                                    ],
+                                    [110, 92, 190],
+                                ),
+                                help_text("S-curves reduce jerk at the transitions, but the peak acceleration is higher for the same link_acc/link_dec distance. Keep that in mind when comparing the calculator's acceleration setting to servo limits."),
+                            ],
+                            icon=ft.Icons.TIMELINE,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                        help_card(
+                            "link_options Bits",
+                            [
+                                help_text("The calculator builds one decimal link_options value by adding the selected bit values."),
+                                mini_table(
+                                    ["Bit", "Value", "Meaning used by this app"],
+                                    [
+                                        ("0", "1", "start on MARK"),
+                                        ("1", "2", "start at absolute link_pos"),
+                                        ("2", "4", "automatic bi-directional MOVELINK repeat"),
+                                        ("4", "16", "enable S-ramp / curved profile"),
+                                        ("5", "32", "active only for positive master movement"),
+                                        ("8", "256", "start on MARKB"),
+                                        ("9", "512", "start on R_MARK channel in link_pos"),
+                                        ("10..12", "1024..4096", "S-ramp mode number shifted left by 10"),
+                                        ("13", "8192", "follow master DPOS instead of MPOS"),
+                                        ("14", "16384", "positive threshold mode"),
+                                    ],
+                                    [70, 90, 320],
+                                ),
+                                formula_block(
+                                    [
+                                        "Power 5 profile only: 16 + (3 << 10) = 3088",
+                                        "Power 5 + MARK start + DPOS = 3088 + 1 + 8192 = 11281",
+                                    ]
+                                ),
+                            ],
+                            icon=ft.Icons.TOGGLE_ON,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                    ],
+                    columns=12,
+                    spacing=18,
+                    run_spacing=18,
+                ),
+                ft.ResponsiveRow(
+                    [
+                        help_card(
+                            "Base Distance",
+                            [
+                                help_text("Firmware V2.0253 and newer allow an eighth MOVELINK parameter: base_dist."),
+                                help_text("base_dist is part of the total distance parameter. It represents travel at the base ratio before/after the shaped profile contribution, so the profile can start and end at a nonzero ratio."),
+                                formula_block(
+                                    [
+                                        "MOVELINK(total_slave_distance, link_dist, link_acc, link_dec, link_axis, options, link_pos, base_dist)",
+                                        "profile_extra_distance = total_slave_distance - base_dist",
+                                    ]
+                                ),
+                                help_text("MOVELINK.md notes that parameters 6 and 7 must be present when base_dist is used, even when they are zero. MOVELINK_MODIFY cannot be used with base distance."),
+                            ],
+                            icon=ft.Icons.LAYERS,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                        help_card(
+                            "Practical Checks",
+                            [
+                                help_text("The calculator warns when the shear cannot match the requested line speed, when the phase distances are longer than the cut length, or when retract speed is too high."),
+                                formula_block(
+                                    [
+                                        "must have: v_line <= shear_max_speed",
+                                        "must have: return_link > 0",
+                                        "approx retract_peak = 4/3 * v_line * stroke / return_link",
+                                        "controller scaling risk: link_acc + link_dec > link_dist",
+                                    ]
+                                ),
+                                help_text("The retract estimate assumes a symmetric triangular/trapezoid style return over the remaining master distance. Treat it as a sizing warning, then validate on the actual machine."),
+                            ],
+                            icon=ft.Icons.WARNING_AMBER,
+                            col={"xs": 12, "xl": 6},
+                        ),
+                    ],
+                    columns=12,
+                    spacing=18,
+                    run_spacing=18,
+                ),
+                help_card(
+                    "Notes From MOVELINK.md",
+                    [
+                        help_text("MOVELINK links slave motion to the measured position of another axis by default. The app exposes DPOS mode with option bit 13."),
+                        help_text("link_dist is always positive, even if the link axis is moving in the opposite direction. The generated retract command uses a negative slave distance but keeps link_dist positive."),
+                        help_text("The original flying-shear example splits acceleration and synchronized motion so the program can switch the cutter output at a known point in the move buffer. This app keeps the same idea: accel, sync/cut, decel, then retract."),
+                        help_text("For a pure exact-ratio gearbox, MOVELINK can also be used with zero accel/decel and repeat bit 2. The flying-shear program loop is usually easier to reason about for multi-phase cutting."),
+                    ],
+                    icon=ft.Icons.MENU_BOOK,
+                ),
+        ],
+        spacing=18,
+        scroll=ft.ScrollMode.AUTO,
+    )
+
+    movelink_help_container = ft.Container(
+        content=movelink_help_list,
+        padding=20,
+        expand=True,
+    )
+
     recalc()
 
     tabs = ft.Tabs(
-        length=3,
+        length=4,
         selected_index=0,
         content=ft.Column([
             ft.TabBar(
                 tabs=[
                     ft.Tab(label="Configure Shear", icon=ft.Icons.CALCULATE),
+                    ft.Tab(label="MoveLink Help", icon=ft.Icons.FUNCTIONS),
                     ft.Tab(label="Connect & Monitor", icon=ft.Icons.ANALYTICS),
                     ft.Tab(label="Setup Axes", icon=ft.Icons.TUNE),
                 ],
@@ -2825,7 +3243,9 @@ def main(page: ft.Page):
                     ft.Container(
                         content=ft.Column([shear_calc_container], spacing=14, scroll=ft.ScrollMode.AUTO),
                         padding=20,
+                        expand=True,
                     ),
+                    movelink_help_container,
                     ft.Container(
                         content=ft.Column([
                             ft.ResponsiveRow(
@@ -2853,20 +3273,22 @@ def main(page: ft.Page):
                             ),
                             monitor_container
                         ], spacing=14, scroll=ft.ScrollMode.AUTO),
-                        padding=20
+                        padding=20,
+                        expand=True,
                     ),
                     ft.Container(
                         content=ft.Column([
                             section_header("Axis Parameter Setup", "Tune and save controller parameters per axis", ft.Icons.TUNE),
                             setup_container
                         ], spacing=14, scroll=ft.ScrollMode.AUTO),
-                        padding=20
+                        padding=20,
+                        expand=True,
                     ),
                 ],
-                expand=1
+                expand=1,
             )
         ], expand=1),
-        expand=1
+        expand=1,
     )
 
     # Clean up monitor on window close
