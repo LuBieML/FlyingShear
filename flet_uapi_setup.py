@@ -258,9 +258,57 @@ def main(page: ft.Page):
         text_size=12, on_select=on_axis_s_change
     )
 
+    def get_conveyor_speed_max(default=10.0):
+        try:
+            return max(0.0, float(settings.get("shear_calc", {}).get("vline", default)))
+        except (TypeError, ValueError):
+            return default
+
+    def format_conveyor_speed(value):
+        if value >= 100:
+            return f"{value:.0f}"
+        if value >= 10:
+            return f"{value:.1f}"
+        return f"{value:.2f}"
+
+    def clamp_conveyor_speed(value, max_speed=None):
+        limit = get_conveyor_speed_max() if max_speed is None else max(0.0, max_speed)
+        return max(0.0, min(value, limit))
+
+    def get_saved_conveyor_speed():
+        try:
+            return float(settings.get("master_speed", "10.0") or 0)
+        except (TypeError, ValueError):
+            return 10.0
+
     def on_master_speed_change(e):
         settings["master_speed"] = e.control.value
         save_settings(settings)
+        try:
+            master_speed_slider.value = clamp_conveyor_speed(float(e.control.value or "0"), master_speed_slider.max)
+            master_speed_slider.update()
+        except (NameError, TypeError, ValueError):
+            pass
+
+    def on_master_speed_slider_change(e):
+        speed = float(e.control.value or 0)
+        master_speed_input.value = format_conveyor_speed(speed)
+        settings["master_speed"] = master_speed_input.value
+        save_settings(settings)
+        master_speed_input.update()
+
+    def refresh_conveyor_speed_limit(max_speed):
+        max_speed = max(0.0, max_speed)
+        current = clamp_conveyor_speed(get_saved_conveyor_speed(), max_speed)
+        old_max = master_speed_slider.max or 0
+        if max_speed >= old_max:
+            master_speed_slider.max = max_speed
+            master_speed_slider.value = current
+        else:
+            master_speed_slider.value = current
+            master_speed_slider.max = max_speed
+        master_speed_input.value = format_conveyor_speed(current)
+        settings["master_speed"] = master_speed_input.value
 
     def on_cutter_output_change(e):
         settings["cutter_output"] = e.control.value
@@ -279,11 +327,21 @@ def main(page: ft.Page):
         try:
             speed_val = float(master_speed_input.value or "10.0")
         except ValueError:
-            status_text.value = "Invalid master speed"
+            status_text.value = "Invalid conveyor speed"
             status_text.color = ERROR_COLOR
-            show_snack("Jog speed must be a number.", "error")
+            show_snack("Conveyor speed must be a number.", "error")
             page.update()
             return
+        speed_val = clamp_conveyor_speed(speed_val, master_speed_slider.max)
+        master_speed_input.value = format_conveyor_speed(speed_val)
+        master_speed_slider.value = speed_val
+        settings["master_speed"] = master_speed_input.value
+        save_settings(settings)
+        try:
+            master_speed_input.update()
+            master_speed_slider.update()
+        except AssertionError:
+            pass
 
         def _do():
             conn = trio_conn.connection
@@ -299,16 +357,48 @@ def main(page: ft.Page):
         uapi_executor.submit(_do)
 
     master_speed_input = ft.TextField(
-        label="Jog speed", value=settings.get("master_speed", "10.0"),
-        width=100, height=45,
+        label="Conveyor speed",
+        value=format_conveyor_speed(clamp_conveyor_speed(get_saved_conveyor_speed())),
+        width=140, height=45,
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
         focused_border_color=ACCENT_COLOR,
         keyboard_type=ft.KeyboardType.NUMBER,
         suffix="u/s",
         text_size=12, on_change=on_master_speed_change,
+        on_blur=lambda e: normalize_conveyor_speed_input(),
         on_submit=lambda e: _send_master_speed(),
-        tooltip="Material axis SPEED set before Forward/Reverse",
+        tooltip="Conveyor axis SPEED set before Forward/Reverse",
     )
+    master_speed_slider = ft.Slider(
+        min=0,
+        max=get_conveyor_speed_max(),
+        value=clamp_conveyor_speed(float(master_speed_input.value or 0)),
+        width=230,
+        label="{value} u/s",
+        round=1,
+        active_color=ft.Colors.CYAN_300,
+        inactive_color=ft.Colors.GREY_700,
+        thumb_color=ft.Colors.CYAN_200,
+        on_change=on_master_speed_slider_change,
+        on_change_end=lambda e: _send_master_speed(),
+        tooltip="Limited by the calculator MAX line speed",
+    )
+
+    def normalize_conveyor_speed_input():
+        try:
+            speed = float(master_speed_input.value or "0")
+        except (TypeError, ValueError):
+            return
+        speed = clamp_conveyor_speed(speed, master_speed_slider.max)
+        master_speed_input.value = format_conveyor_speed(speed)
+        master_speed_slider.value = speed
+        settings["master_speed"] = master_speed_input.value
+        save_settings(settings)
+        try:
+            master_speed_input.update()
+            master_speed_slider.update()
+        except AssertionError:
+            pass
 
     cutter_output_input = ft.TextField(
         label="Knife OP", value=str(settings.get("cutter_output", "8")),
@@ -541,7 +631,7 @@ def main(page: ft.Page):
     # via uapi_executor to preserve COM thread-affinity.
     def _send_master_cmd(cmd):
         if not trio_conn.is_connected():
-            show_snack("Connect to the controller before jogging the material axis.", "warning")
+            show_snack("Connect to the controller before moving the conveyor axis.", "warning")
             return
 
         try:
@@ -553,6 +643,16 @@ def main(page: ft.Page):
             speed_val = float(master_speed_input.value or "10.0")
         except ValueError:
             speed_val = 10.0
+        speed_val = clamp_conveyor_speed(speed_val, master_speed_slider.max)
+        master_speed_input.value = format_conveyor_speed(speed_val)
+        master_speed_slider.value = speed_val
+        settings["master_speed"] = master_speed_input.value
+        save_settings(settings)
+        try:
+            master_speed_input.update()
+            master_speed_slider.update()
+        except AssertionError:
+            pass
 
         def _do():
             conn = trio_conn.connection
@@ -633,6 +733,7 @@ def main(page: ft.Page):
     CLEAT_WIDTH = 10
     NUM_BELT_ITEMS = (TRACK_WIDTH // BELT_SPACING) + 1
     WRAP_WIDTH = NUM_BELT_ITEMS * BELT_SPACING
+    CONVEYOR_VISUAL_DIRECTION = 1
     RAIL_HEIGHT = 4
     PULLEY_SIZE = 36
     CONVEYOR_HEIGHT = PULLEY_SIZE + 2 * (RAIL_HEIGHT + 1)
@@ -931,6 +1032,12 @@ def main(page: ft.Page):
         ft.Container(width=CLEAT_WIDTH, height=CLEAT_HEIGHT, bgcolor="#8c8c8c", border_radius=2)
         for _ in range(NUM_BELT_ITEMS + 2)
     ]
+    belt_cleats_row = ft.Row(
+        belt_cleats,
+        spacing=BELT_SPACING - CLEAT_WIDTH,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        tight=True,
+    )
 
     shear_carriage = ft.Container(
         width=SHEAR_WIDTH,
@@ -1022,9 +1129,10 @@ def main(page: ft.Page):
         border_radius=BELT_HEIGHT / 2,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Row(
-            [belt_offset_spacer] + belt_cleats,
-            spacing=BELT_SPACING - CLEAT_WIDTH,
+            [belt_offset_spacer, belt_cleats_row],
+            spacing=0,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
         ),
     )
     pulley = lambda: ft.Container(
@@ -1314,8 +1422,8 @@ def main(page: ft.Page):
                     if position_zero_m[0] is None:
                         position_zero_m[0] = mpos_val_m
                     delta = mpos_val_m - position_zero_m[0]
-                    offset_px = delta * scale_px_per_unit[0]
-                    new_offset = abs(offset_px) % BELT_SPACING
+                    offset_px = CONVEYOR_VISUAL_DIRECTION * delta * scale_px_per_unit[0]
+                    new_offset = offset_px % BELT_SPACING
                     if abs((belt_offset_spacer.width or 0) - new_offset) > 0.1:
                         belt_offset_spacer.width = new_offset
                         dirty = True
@@ -1376,8 +1484,8 @@ def main(page: ft.Page):
     monitor_controls_grid = ft.ResponsiveRow(
         [
             control_cluster(
-                "Material jog",
-                [master_rev_btn, master_fwd_btn, master_stop_btn, master_speed_input],
+                "Conveyor control",
+                [master_rev_btn, master_fwd_btn, master_stop_btn, master_speed_input, master_speed_slider],
                 icon=ft.Icons.PLAY_ARROW,
                 height=monitor_control_cluster_height,
                 col={"xs": 12, "md": 8, "xl": 8},
@@ -1399,7 +1507,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Row(
                 [
-                    section_header("Flying Shear Live Monitor", "Live axes, jog controls and knife state", ft.Icons.ANALYTICS),
+                    section_header("Flying Shear Live Monitor", "Live axes, conveyor controls and knife state", ft.Icons.ANALYTICS),
                     ft.Row(
                         [comms_lag_label, ft.Text("|", size=10, color=ft.Colors.GREY_700), fps_label],
                         spacing=12,
@@ -2418,6 +2526,7 @@ def main(page: ft.Page):
         calc_settings["direction_mode"] = direction_dropdown.value
         calc_settings["repeat_mode"] = repeat_dropdown.value
         calc_settings["use_base_dist"] = bool(base_dist_checkbox.value)
+        refresh_conveyor_speed_limit(v)
 
         # Shear (slave) distances
         accel_dist = (v * v) / (2 * a) * sf
