@@ -160,9 +160,6 @@ def main(page: ft.Page):
             col=col or {"xs": 12, "md": 6, "xl": 3},
         )
 
-    def refresh_setup_summary():
-        pass
-
     # Initialize the TrioConnection
     trio_conn = TrioConnection(status_callback=lambda msg, type_: print(f"[{type_}] {msg}"))
 
@@ -228,7 +225,6 @@ def main(page: ft.Page):
     def on_axis_m_change(e):
         settings["master_axis"] = e.control.value
         save_settings(settings)
-        refresh_setup_summary()
         try:
             recalc()
         except NameError:
@@ -237,7 +233,6 @@ def main(page: ft.Page):
     def on_axis_s_change(e):
         settings["slave_axis"] = e.control.value
         save_settings(settings)
-        refresh_setup_summary()
         try:
             recalc()
         except NameError:
@@ -268,7 +263,6 @@ def main(page: ft.Page):
     def on_cutter_output_change(e):
         settings["cutter_output"] = e.control.value
         save_settings(settings)
-        refresh_setup_summary()
         try:
             recalc()
         except NameError:
@@ -785,7 +779,7 @@ def main(page: ft.Page):
                         ],
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    padding=ft.padding.symmetric(horizontal=4),
+                    padding=ft.Padding.symmetric(horizontal=4),
                 ),
                 # Actuator / piston connector
                 ft.Container(
@@ -828,7 +822,7 @@ def main(page: ft.Page):
         bgcolor="#15181c",
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=4,
-        padding=ft.padding.only(top=SHEAR_TOP_IDLE, left=0, right=0),
+        padding=ft.Padding.only(top=SHEAR_TOP_IDLE, left=0, right=0),
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         content=ft.Column(
             [
@@ -885,7 +879,7 @@ def main(page: ft.Page):
         bgcolor=DARKER_BG,
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
-        padding=ft.padding.symmetric(horizontal=10),
+        padding=ft.Padding.symmetric(horizontal=10),
         content=ft.Column([shear_lane, ft.Container(height=SHEAR_TO_CONVEYOR_GAP), conveyor_lane], spacing=0),
     )
 
@@ -1182,22 +1176,16 @@ def main(page: ft.Page):
     monitor_controls_grid = ft.ResponsiveRow(
         [
             control_cluster(
-                "Axes",
-                [axis_m_dropdown, axis_s_dropdown],
-                icon=ft.Icons.ACCOUNT_TREE,
-                col={"xs": 12, "md": 6, "xl": 3},
-            ),
-            control_cluster(
                 "Material jog",
                 [master_rev_btn, master_fwd_btn, master_stop_btn, master_speed_input],
                 icon=ft.Icons.PLAY_ARROW,
-                col={"xs": 12, "md": 6, "xl": 5},
+                col={"xs": 12, "md": 8, "xl": 8},
             ),
             control_cluster(
-                "Knife output",
-                [cutter_output_input, cutter_output_state_text],
+                "Knife output state",
+                [cutter_output_state_text],
                 icon=ft.Icons.POWER,
-                col={"xs": 12, "md": 12, "xl": 4},
+                col={"xs": 12, "md": 4, "xl": 4},
             ),
         ],
         columns=12,
@@ -1209,7 +1197,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Row(
                 [
-                    section_header("Flying Shear Live Monitor", "Live axes, jog controls and cutter state", ft.Icons.ANALYTICS),
+                    section_header("Flying Shear Live Monitor", "Live axes, jog controls and knife state", ft.Icons.ANALYTICS),
                     ft.Row(
                         [comms_lag_label, ft.Text("|", size=10, color=ft.Colors.GREY_700), fps_label],
                         spacing=12,
@@ -1289,7 +1277,6 @@ def main(page: ft.Page):
 
             await refresh_wdog_state()
             start_monitor()
-            refresh_setup_summary()
             saved_sets = get_saved_axis_param_sets()
             if saved_sets:
                 status_text.value = "Connected. Review saved axis parameters before applying."
@@ -1310,7 +1297,6 @@ def main(page: ft.Page):
             except NameError:
                 pass
             _set_wdog_button_state(None)
-            refresh_setup_summary()
             show_snack("Connection failed. Check controller IP and network state.", "error")
             page.update()
 
@@ -1487,7 +1473,6 @@ def main(page: ft.Page):
 
         save_settings(settings)
         refresh_axis_dropdown()
-        refresh_setup_summary()
         page.update()
 
     axis_dropdown.on_select = on_target_axis_change
@@ -1667,7 +1652,6 @@ def main(page: ft.Page):
             status_text.value = f"Connected. Saved parameters applied to Axis {applied_text}."
             status_text.color = SUCCESS_COLOR
             show_snack(f"Saved parameters applied to Axis {applied_text}.", "success")
-        refresh_setup_summary()
         page.update()
 
     saved_params_dialog = ft.AlertDialog(modal=True)
@@ -1684,7 +1668,6 @@ def main(page: ft.Page):
             saved_params_dialog.open = False
             status_text.value = "Connected. Saved parameters were not applied."
             status_text.color = WARNING_COLOR
-            refresh_setup_summary()
             page.update()
 
         saved_params_dialog.title = ft.Text("Apply saved axis parameters?")
@@ -2058,7 +2041,6 @@ def main(page: ft.Page):
             warning_text.value = "Invalid inputs: enter numeric values for the shear calculator."
             warning_text.color = ft.Colors.RED_300
             code_output.value = ""
-            refresh_setup_summary()
             page.update()
             return
 
@@ -2066,7 +2048,6 @@ def main(page: ft.Page):
             warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; line speed and sync time must be >= 0"
             warning_text.color = ft.Colors.RED_300
             code_output.value = ""
-            refresh_setup_summary()
             page.update()
             return
 
@@ -2236,7 +2217,6 @@ def main(page: ft.Page):
             f"{line_prefix}WAIT LOADED\n"
             f"{loop_end}"
         )
-        refresh_setup_summary()
         page.update()
 
     for inp in (cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input):
@@ -2291,9 +2271,17 @@ def main(page: ft.Page):
         tooltip=CALC_TOOLTIPS["copy"],
     )
 
+    axis_assignment_cluster = control_cluster(
+        "Axis & knife assignment",
+        [axis_m_dropdown, axis_s_dropdown, cutter_output_input],
+        icon=ft.Icons.ACCOUNT_TREE,
+        col={"xs": 12},
+    )
+
     shear_params_panel = ft.Container(
         content=ft.Column([
             section_header("Flying Shear MOVELINK Calculator", "Shape the linked move and validate machine limits", ft.Icons.CALCULATE),
+            axis_assignment_cluster,
             ft.Row([cut_input, vline_input, vmax_input, amax_input, tsync_input, safety_input],
                    wrap=True, spacing=15, run_spacing=12),
             ft.Row([
@@ -2347,78 +2335,6 @@ def main(page: ft.Page):
         run_spacing=18,
         vertical_alignment=ft.CrossAxisAlignment.START,
     )
-
-    summary_connection_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_300)
-    summary_controller_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
-    summary_axis_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
-    summary_output_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
-    summary_params_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
-    summary_program_value = ft.Text("", size=14, weight=ft.FontWeight.BOLD, color=TEXT_COLOR)
-
-    def summary_tile(label, value_control, width=230):
-        return ft.Container(
-            content=ft.Column([
-                ft.Text(label, size=11, color=ft.Colors.GREY_500),
-                value_control,
-            ], spacing=3),
-            width=width,
-            bgcolor=PANEL_BG,
-            border_radius=8,
-            padding=12,
-            border=ft.Border.all(1, BORDER_COLOR),
-        )
-
-    setup_summary = ft.Container(
-        content=ft.Row([
-            summary_tile("Connection", summary_connection_value, width=170),
-            summary_tile("Controller", summary_controller_value, width=205),
-            summary_tile("Axes", summary_axis_value, width=290),
-            summary_tile("Knife output", summary_output_value, width=160),
-            summary_tile("Axis parameters", summary_params_value, width=280),
-            summary_tile("MOVELINK program", summary_program_value, width=220),
-        ], wrap=True, spacing=10, run_spacing=10),
-        padding=ft.padding.only(top=12, bottom=4),
-    )
-
-    def refresh_setup_summary():
-        connected = trio_conn.is_connected()
-        summary_connection_value.value = "Connected" if connected else "Disconnected"
-        summary_connection_value.color = SUCCESS_COLOR if connected else ERROR_COLOR
-        summary_controller_value.value = ip_input.value or "--"
-        summary_axis_value.value = (
-            f"Material Axis {axis_m_dropdown.value or '--'}  |  "
-            f"Shear Axis {axis_s_dropdown.value or '--'}"
-        )
-        summary_output_value.value = f"OP {cutter_output_input.value or '--'}"
-
-        saved_sets = get_saved_axis_param_sets()
-        if saved_sets:
-            axes = ", ".join(str(axis) for axis, _ in saved_sets)
-            summary_params_value.value = f"Saved for Axis {axes}"
-            summary_params_value.color = ft.Colors.CYAN_200
-        else:
-            summary_params_value.value = "No saved axis sets"
-            summary_params_value.color = WARNING_COLOR
-
-        warning_value = warning_text.value or ""
-        if code_output.value and warning_value.startswith("✓"):
-            summary_program_value.value = "Ready"
-            summary_program_value.color = SUCCESS_COLOR
-        elif code_output.value and warning_text.color == ft.Colors.RED_300:
-            summary_program_value.value = "Blocked by validation"
-            summary_program_value.color = ERROR_COLOR
-        elif code_output.value:
-            summary_program_value.value = "Review warnings"
-            summary_program_value.color = WARNING_COLOR
-        else:
-            summary_program_value.value = "Needs inputs"
-            summary_program_value.color = WARNING_COLOR
-
-        try:
-            if setup_summary.page:
-                setup_summary.update()
-        except Exception:
-            pass
 
     recalc()
 
@@ -2533,18 +2449,17 @@ def main(page: ft.Page):
         actions=[
             ft.Container(
                 content=ft.Text("Flying Shear", size=12, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD),
-                padding=ft.padding.only(right=16),
+                padding=ft.Padding.only(right=16),
                 alignment=ft.Alignment.CENTER,
             )
         ],
     )
     page.add(
         ft.SafeArea(
-            content=ft.Column([setup_summary, tabs], expand=True, spacing=10),
-            minimum_padding=ft.padding.only(left=16, right=16, bottom=16),
+            content=ft.Column([tabs], expand=True, spacing=10),
+            minimum_padding=ft.Padding.only(left=16, right=16, bottom=16),
         )
     )
-    refresh_setup_summary()
 
 if __name__ == "__main__":
     ft.run(main)
