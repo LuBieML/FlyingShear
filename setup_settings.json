@@ -86,5 +86,16 @@
     "direction_mode": "any",
     "repeat_mode": "program_loop",
     "use_base_dist": false
+  },
+  "cam_calc": {
+    "cut": 100.0,
+    "drum_dia": 60.0,
+    "n_knives": 1,
+    "cut_window": 30.0,
+    "cpr": 2097152,
+    "n_points": 1000,
+    "blend": 0.4,
+    "vline": 500.0,
+    "table_start": 1000
   }
 }

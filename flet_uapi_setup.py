@@ -4,6 +4,7 @@ import collections
 import sys
 import os
 import json
+import math
 import time
 import asyncio
 import ctypes
@@ -3218,8 +3219,494 @@ def main(page: ft.Page):
 
     recalc()
 
+    # ============================================================
+    # === Rotary Knife Cam Table Generator =======================
+    # ============================================================
+    cam_settings = settings.setdefault("cam_calc", {})
+
+    def cam_set(k, v):
+        cam_settings[k] = v
+        save_settings(settings)
+
+    CAM_TOOLTIPS = {
+        "cut":        "Material distance per cut (mm of master). The cam cycle repeats every cut_length of link travel.",
+        "drum_dia":   "Knife drum outside diameter. Used to compute drum circumference and tangential velocity.",
+        "n_knives":   "Number of knives evenly spaced around the drum. Each cut consumes 360°/n_knives of drum rotation.",
+        "cut_window": "Angular width of the constant-tangential-match zone (the 'pure cut' window) on the drum.",
+        "cpr":        "Drum axis encoder counts per full revolution. CAMBOX TABLE values are in encoder counts, not user units.",
+        "n_points":   "Number of points in the cam table. Resolution = (360°/n_knives) / n_points.",
+        "blend":      "Fraction of the outside zone used for sinusoidal accel/decel blends. 0.0 = step (rough), 1.0 = pure sinusoid (smooth).",
+        "vline":      "Line speed for diagnostic peak-RPS and peak-angular-accel calculations. Does not affect the table itself.",
+        "table_start":"Starting TABLE() index where the cam profile is loaded into controller memory.",
+        "R":          "Natural ratio = (drum_segment_per_cut) / cut_length. R=1 → constant 1:1, R<1 → slow cut/fast outside, R>1 → fast cut/slow outside.",
+        "cut_zone":   "Master/material distance during the cut window (when drum is at exact tangential match).",
+        "rps_cut":    "Drum revolutions per second during the cut window. Equal to line_speed / drum_circumference by definition.",
+        "rps_out":    "Drum revolutions per second in the slow/fast zone outside the cut window. Check against drum motor max RPM.",
+        "peak_accel": "Peak drum angular acceleration during the sinusoidal blend transitions. Check against drum motor torque/inertia limits.",
+        "table_res":  "Angular resolution of the cam table on the drum.",
+        "code":       "Generated Trio BASIC TABLE() loader and CAMBOX() call. Copy this into the controller.",
+    }
+
+    def make_cam_input(label, key, default, width=160, suffix=None):
+        return ft.TextField(
+            label=label, value=str(cam_settings.get(key, default)),
+            width=width, bgcolor=DARKER_BG, color=TEXT_COLOR,
+            border_color=BORDER_COLOR, focused_border_color=ACCENT_COLOR,
+            keyboard_type=ft.KeyboardType.NUMBER, text_align=ft.TextAlign.RIGHT,
+            suffix=suffix, text_size=13,
+            tooltip=CAM_TOOLTIPS.get(key),
+        )
+
+    cam_cut_input        = make_cam_input("Cut length",        "cut",         100,   suffix="mm")
+    cam_drum_dia_input   = make_cam_input("Drum diameter",     "drum_dia",    200,   suffix="mm")
+    cam_n_knives_input   = make_cam_input("Number of knives",  "n_knives",    1,     width=140)
+    cam_cut_window_input = make_cam_input("Cut window",        "cut_window",  30,    width=140, suffix="°")
+    cam_cpr_input        = make_cam_input("Encoder cnts/rev",  "cpr",         10000, width=160)
+    cam_n_points_input   = make_cam_input("Table points",      "n_points",    720,   width=140)
+    cam_blend_input      = make_cam_input("Blend fraction",    "blend",       0.4,   width=140)
+    cam_vline_input      = make_cam_input("Line speed (diag.)", "vline",      500,   width=170, suffix="mm/s")
+    cam_table_start_input = make_cam_input("TABLE start idx",  "table_start", 1000,  width=160)
+
+    cam_result_labels = {
+        k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
+        for k in ("R", "cut_zone", "rps_cut", "rps_out", "peak_accel", "table_res")
+    }
+    cam_warning_text = ft.Text("", size=13, color=ft.Colors.AMBER_300)
+    cam_review_text  = ft.Text("", size=12, color=ft.Colors.GREY_300)
+
+    def cam_result_card(label, key):
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(label, size=12, color=ft.Colors.GREY_400),
+                cam_result_labels[key],
+            ], spacing=4),
+            bgcolor=PANEL_BG, border_radius=8, padding=12,
+            border=ft.Border.all(1, BORDER_COLOR), width=180,
+            tooltip=CAM_TOOLTIPS.get(key),
+        )
+
+    cam_profile_canvas = cv.Canvas(width=660, height=240, shapes=[])
+    cam_code_output = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR, focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True, tooltip=CAM_TOOLTIPS["code"],
+    )
+
+    # --- Cam table math (sinusoidal blend, returns int counts + diagnostics) ---
+    def generate_rotary_knife_cam_table(cut_length_mm, drum_diameter_mm, n_knives,
+                                         cut_window_deg, encoder_counts_per_rev,
+                                         n_points=720, blend_fraction=0.4,
+                                         line_speed_mm_s=500):
+        drum_circumference = math.pi * drum_diameter_mm
+        cut_segment_counts = encoder_counts_per_rev / n_knives
+
+        if cut_window_deg >= 360.0 / n_knives:
+            raise ValueError(f"Cut window {cut_window_deg}° too large; must be < {360.0/n_knives:.1f}° for {n_knives}-knife drum")
+
+        cut_zone_master_mm = cut_window_deg * drum_circumference / 360.0
+        w_cut = cut_zone_master_mm / cut_length_mm
+        if w_cut >= 1.0:
+            raise ValueError(f"Cut zone ({cut_zone_master_mm:.2f} mm) exceeds cut length ({cut_length_mm} mm)")
+
+        w_blend = blend_fraction * (1.0 - w_cut) / 2.0
+        w_outside = 1.0 - w_cut - 2.0 * w_blend
+        if w_outside < 0:
+            raise ValueError(f"Blend fraction {blend_fraction} too large; reduce or increase cut length")
+
+        R = n_knives * cut_length_mm / drum_circumference
+        v_cut = R
+        v_out = (1.0 - v_cut * (w_cut + w_blend)) / (w_outside + w_blend)
+        if v_out < 0:
+            raise ValueError(f"Outside velocity would be negative ({v_out:.3f}); drum cannot reverse — increase cut_length or reduce drum dia")
+
+        u1 = w_outside / 2.0
+        u2 = u1 + w_blend
+        u3 = u2 + w_cut
+        u4 = u3 + w_blend
+
+        def velocity(u):
+            if u < u1: return v_out
+            if u < u2:
+                t = (u - u1) / w_blend
+                return v_out + (v_cut - v_out) * 0.5 * (1.0 - math.cos(math.pi * t))
+            if u < u3: return v_cut
+            if u < u4:
+                t = (u - u3) / w_blend
+                return v_cut + (v_out - v_cut) * 0.5 * (1.0 - math.cos(math.pi * t))
+            return v_out
+
+        n_fine = max(n_points * 8, 8000)
+        du_fine = 1.0 / n_fine
+        theta_fine = [0.0]
+        v_prev = velocity(0.0)
+        for i in range(1, n_fine + 1):
+            v_curr = velocity(i * du_fine)
+            theta_fine.append(theta_fine[-1] + 0.5 * (v_prev + v_curr) * du_fine)
+            v_prev = v_curr
+        scale = 1.0 / theta_fine[-1]
+        theta_fine = [t * scale for t in theta_fine]
+
+        table_int = []
+        for i in range(n_points + 1):
+            idx_f = (i / n_points) * n_fine
+            idx_lo = int(idx_f)
+            idx_hi = min(idx_lo + 1, n_fine)
+            frac = idx_f - idx_lo
+            theta_norm = theta_fine[idx_lo] * (1 - frac) + theta_fine[idx_hi] * frac
+            table_int.append(int(round(theta_norm * cut_segment_counts)))
+
+        line_period_s = cut_length_mm / line_speed_mm_s if line_speed_mm_s > 0 else 1.0
+        drum_rps_cut = line_speed_mm_s / drum_circumference if drum_circumference > 0 else 0
+        drum_rps_out = v_out / n_knives * line_speed_mm_s / cut_length_mm if cut_length_mm > 0 else 0
+        peak_ang_accel = (abs(v_cut - v_out) * math.pi / (2 * w_blend) / n_knives / line_period_s ** 2) if w_blend > 0 else 0.0
+
+        diag = {
+            "R": R, "cut_zone_master_mm": cut_zone_master_mm,
+            "w_cut": w_cut, "w_blend": w_blend, "w_outside": w_outside,
+            "v_cut": v_cut, "v_out": v_out,
+            "drum_circumference": drum_circumference, "cut_segment_counts": cut_segment_counts,
+            "drum_rps_cut": drum_rps_cut, "drum_rps_out": drum_rps_out,
+            "peak_drum_rps": max(drum_rps_cut, drum_rps_out),
+            "peak_ang_accel_rev_s2": peak_ang_accel,
+            "table_resolution_deg": (360.0 / n_knives) / n_points,
+        }
+        return table_int, diag
+
+    def build_cam_profile_shapes(table_values, diag):
+        """Velocity profile: dθ/du vs u, with cut window shaded."""
+        width, height = 660, 240
+        left, right = 60, 30
+        top, bottom = 30, 200
+        plot_end = width - right
+        plot_w = plot_end - left
+        plot_h = bottom - top
+
+        n = len(table_values)
+        # Numerical derivative of position in normalized counts/u
+        du = 1.0 / (n - 1)
+        velocities = []
+        for i in range(n):
+            if i == 0:
+                v = (table_values[1] - table_values[0]) / du
+            elif i == n - 1:
+                v = (table_values[-1] - table_values[-2]) / du
+            else:
+                v = (table_values[i+1] - table_values[i-1]) / (2 * du)
+            velocities.append(v)
+        v_min = min(velocities)
+        v_max = max(velocities)
+        v_pad = max((v_max - v_min) * 0.1, 1.0)
+        v_lo = v_min - v_pad
+        v_hi = v_max + v_pad
+
+        def map_x(u): return left + u * plot_w
+        def map_y(v): return bottom - (v - v_lo) / (v_hi - v_lo) * plot_h
+
+        axis_paint = canvas_paint("#b8a80f", 2.5)
+        grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
+        vel_paint  = canvas_paint("#4fc3f7", 2.5)
+        ref_paint  = canvas_paint("#90a4ae", 1.4, dash=[5, 4])
+        cut_band_paint = ft.Paint(color="#33d24a35", style=ft.PaintingStyle.FILL)
+
+        shapes = [
+            cv.Rect(0, 0, width, height, border_radius=ft.BorderRadius.all(8),
+                    paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
+        ]
+
+        # Cut window band
+        u_cut_start = 0.5 - diag["w_cut"] / 2
+        u_cut_end   = 0.5 + diag["w_cut"] / 2
+        x_cs = map_x(u_cut_start)
+        x_ce = map_x(u_cut_end)
+        shapes.append(cv.Rect(x_cs, top, x_ce - x_cs, plot_h, paint=cut_band_paint))
+
+        # Axes
+        shapes.extend([
+            cv.Line(left, bottom, plot_end, bottom, paint=axis_paint),
+            cv.Line(left, bottom, left, top, paint=axis_paint),
+        ])
+
+        # Reference lines for v_cut and v_out (in counts/u space)
+        v_cut_counts = diag["v_cut"] * diag["cut_segment_counts"]
+        v_out_counts = diag["v_out"] * diag["cut_segment_counts"]
+        for v_ref, label, label_color in [(v_cut_counts, "v_cut", "#d24a35"),
+                                            (v_out_counts, "v_out", "#ffb74d")]:
+            y_ref = map_y(v_ref)
+            if top <= y_ref <= bottom:
+                shapes.append(cv.Line(left, y_ref, plot_end, y_ref, paint=ref_paint))
+                add_profile_text(shapes, plot_end - 12, y_ref - 9, label,
+                                 size=10, color=label_color, align=ft.Alignment.CENTER_RIGHT)
+
+        # Velocity curve
+        elements = [cv.Path.MoveTo(map_x(0), map_y(velocities[0]))]
+        for i in range(1, n):
+            elements.append(cv.Path.LineTo(map_x(i / (n - 1)), map_y(velocities[i])))
+        shapes.append(cv.Path(elements=elements, paint=vel_paint))
+
+        # Labels
+        add_profile_text(shapes, 22, (top + bottom) / 2, "drum velocity",
+                         size=13, color=ft.Colors.WHITE, rotate=-1.5708)
+        add_profile_text(shapes, plot_end - 30, bottom + 18, "master fraction",
+                         size=12, color=ft.Colors.WHITE, max_width=120)
+        add_profile_text(shapes, (x_cs + x_ce) / 2, top + 12, "cut window",
+                         size=12, color="#ffd1c2", max_width=max(60, x_ce - x_cs - 4))
+        add_profile_text(shapes, left - 4, bottom + 14, "0", size=10,
+                         color=ft.Colors.GREY_300, align=ft.Alignment.CENTER_RIGHT)
+        add_profile_text(shapes, plot_end + 4, bottom + 14, "1", size=10,
+                         color=ft.Colors.GREY_300, align=ft.Alignment.CENTER_LEFT)
+        return shapes
+
+    def emit_cam_basic_program(table_values, diag, cut_length, link_axis,
+                                drum_axis, table_start, cutter_op,
+                                values_per_line=10):
+        n_pts = len(table_values)
+        table_end = table_start + n_pts - 1
+        lines = []
+        lines.append(f"' Rotary knife cam table — {n_pts} pts, "
+                     f"{diag['table_resolution_deg']:.4f}°/point on drum")
+        lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
+                     f"{int(diag['cut_segment_counts'])} counts per cut segment")
+        lines.append(f"' Cut zone: {diag['cut_zone_master_mm']:.2f} mm of material "
+                     f"(R={diag['R']:.4f})")
+        lines.append(f"' Inside cut window: ratio={diag['v_cut']:.4f} (tangential match)")
+        lines.append(f"' Outside cut window: ratio={diag['v_out']:.4f}")
+        lines.append("")
+        lines.append(f"link_ax    = {link_axis}")
+        lines.append(f"drum_ax    = {drum_axis}")
+        lines.append(f"cut_length = {cut_length:g}")
+        lines.append(f"cutter_op  = {cutter_op}")
+        lines.append("")
+        lines.append("' Load cam table (encoder counts on drum axis)")
+        for chunk_start in range(0, n_pts, values_per_line):
+            chunk = table_values[chunk_start:chunk_start + values_per_line]
+            idx = table_start + chunk_start
+            lines.append(f"TABLE({idx}, {', '.join(str(v) for v in chunk)})")
+        lines.append("")
+        lines.append("BASE(drum_ax)")
+        lines.append("SERVO = ON")
+        lines.append("DEFPOS(0)")
+        lines.append("")
+        lines.append("' Bit 2 = repeat continuously")
+        lines.append(f"CAMBOX({table_start}, {table_end}, 1, cut_length, link_ax, 4)")
+        return "\n".join(lines)
+
+    def cam_recalc(e=None):
+        try:
+            cut_len   = float(cam_cut_input.value)
+            drum_dia  = float(cam_drum_dia_input.value)
+            n_knives  = int(float(cam_n_knives_input.value))
+            cut_win   = float(cam_cut_window_input.value)
+            cpr       = int(float(cam_cpr_input.value))
+            n_points  = int(float(cam_n_points_input.value))
+            blend     = float(cam_blend_input.value)
+            vline     = float(cam_vline_input.value)
+            table_start = int(float(cam_table_start_input.value))
+        except (TypeError, ValueError):
+            cam_warning_text.value = "✗ Invalid input — enter numeric values"
+            cam_warning_text.color = ERROR_COLOR
+            cam_code_output.value = ""
+            page.update()
+            return
+
+        # Persist
+        for k, v in [("cut", cut_len), ("drum_dia", drum_dia), ("n_knives", n_knives),
+                     ("cut_window", cut_win), ("cpr", cpr), ("n_points", n_points),
+                     ("blend", blend), ("vline", vline), ("table_start", table_start)]:
+            cam_settings[k] = v
+        save_settings(settings)
+
+        # Bounds
+        if cut_len <= 0 or drum_dia <= 0 or n_knives < 1 or cut_win <= 0 \
+                or cpr < 100 or n_points < 10 or vline <= 0 or table_start < 0 \
+                or blend < 0 or blend > 1:
+            cam_warning_text.value = ("✗ Inputs out of range — "
+                                       "cut/drum/cpr/vline must be > 0; "
+                                       "n_knives ≥ 1; n_points ≥ 10; blend ∈ [0,1]")
+            cam_warning_text.color = ERROR_COLOR
+            cam_code_output.value = ""
+            page.update()
+            return
+
+        try:
+            table, diag = generate_rotary_knife_cam_table(
+                cut_length_mm=cut_len, drum_diameter_mm=drum_dia,
+                n_knives=n_knives, cut_window_deg=cut_win,
+                encoder_counts_per_rev=cpr, n_points=n_points,
+                blend_fraction=blend, line_speed_mm_s=vline,
+            )
+        except ValueError as ex:
+            cam_warning_text.value = f"✗ {ex}"
+            cam_warning_text.color = ERROR_COLOR
+            cam_code_output.value = ""
+            cam_profile_canvas.shapes = []
+            for k in cam_result_labels:
+                cam_result_labels[k].value = "—"
+            page.update()
+            return
+
+        # Result cards
+        cam_result_labels["R"].value           = f"{diag['R']:.4f}"
+        cam_result_labels["cut_zone"].value    = f"{diag['cut_zone_master_mm']:.2f} mm"
+        cam_result_labels["rps_cut"].value     = f"{diag['drum_rps_cut']:.3f} rps"
+        cam_result_labels["rps_out"].value     = f"{diag['drum_rps_out']:.3f} rps"
+        cam_result_labels["peak_accel"].value  = f"{diag['peak_ang_accel_rev_s2']:.1f} rev/s²"
+        cam_result_labels["table_res"].value   = f"{diag['table_resolution_deg']:.4f} °/pt"
+
+        # Color-code R against sane band
+        R = diag["R"]
+        cam_result_labels["R"].color = (SUCCESS_COLOR if 0.5 <= R <= 2.0
+                                          else WARNING_COLOR)
+
+        # Profile graph
+        cam_profile_canvas.shapes = build_cam_profile_shapes(table, diag)
+
+        # Warnings
+        warnings = []
+        if R < 0.3 or R > 3.0:
+            warnings.append(f"⚠ R={R:.2f} far from 1 — drum must spin {diag['v_out']/diag['v_cut']:.1f}× cut speed in outside zone")
+        if diag["drum_rps_out"] > 20:
+            warnings.append(f"⚠ Outside-zone drum {diag['drum_rps_out']:.1f} rps = {diag['drum_rps_out']*60:.0f} RPM — verify drum motor max speed")
+        if diag["peak_ang_accel_rev_s2"] > 500:
+            warnings.append(f"⚠ Peak angular accel {diag['peak_ang_accel_rev_s2']:.0f} rev/s² — verify drum drive torque/inertia")
+        if diag["table_resolution_deg"] > 1.5:
+            warnings.append(f"⚠ Coarse table resolution ({diag['table_resolution_deg']:.2f}°/pt) — increase n_points for smoother motion")
+        if blend < 0.1:
+            warnings.append("⚠ Very small blend — sharp velocity transitions, high jerk at cut-window edges")
+        if cam_settings.get("cpr", 0) < 1000:
+            warnings.append(f"⚠ Low encoder resolution ({cpr} counts/rev) — table will quantize visibly")
+
+        if not warnings:
+            cam_warning_text.value = "✓ OK"
+            cam_warning_text.color = SUCCESS_COLOR
+        else:
+            cam_warning_text.value = "  |  ".join(warnings)
+            cam_warning_text.color = WARNING_COLOR
+
+        # Review line + code
+        try:
+            link_ax  = int(axis_m_dropdown.value or "0")
+            drum_ax  = int(axis_s_dropdown.value or "1")
+            cutter_op = int(cutter_output_input.value or "8")
+        except ValueError:
+            link_ax, drum_ax, cutter_op = 0, 1, 8
+
+        cam_review_text.value = (
+            f"Review before running: material/encoder Axis {link_ax}, "
+            f"drum Axis {drum_ax}, knife OP {cutter_op}, "
+            f"{len(table)} table points starting at TABLE({table_start})."
+        )
+
+        cam_code_output.value = emit_cam_basic_program(
+            table_values=table, diag=diag, cut_length=cut_len,
+            link_axis=link_ax, drum_axis=drum_ax,
+            table_start=table_start, cutter_op=cutter_op,
+        )
+        page.update()
+
+    # Hook up handlers
+    for inp in (cam_cut_input, cam_drum_dia_input, cam_n_knives_input,
+                cam_cut_window_input, cam_cpr_input, cam_n_points_input,
+                cam_blend_input, cam_vline_input, cam_table_start_input):
+        inp.on_change = cam_recalc
+        inp.on_blur = save_calc_settings
+
+    def copy_cam_code(e):
+        text = cam_code_output.value
+        CF_UNICODETEXT = 13
+        GMEM_MOVEABLE = 2
+        raw = text.encode("utf-16-le") + b"\x00\x00"
+        k32 = ctypes.windll.kernel32
+        u32 = ctypes.windll.user32
+        k32.GlobalAlloc.restype  = ctypes.c_void_p
+        k32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        k32.GlobalLock.restype   = ctypes.c_void_p
+        k32.GlobalLock.argtypes  = [ctypes.c_void_p]
+        k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        u32.SetClipboardData.restype  = ctypes.c_void_p
+        u32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        u32.OpenClipboard(0)
+        u32.EmptyClipboard()
+        h = k32.GlobalAlloc(GMEM_MOVEABLE, len(raw))
+        p = k32.GlobalLock(h)
+        ctypes.memmove(p, raw, len(raw))
+        k32.GlobalUnlock(h)
+        u32.SetClipboardData(CF_UNICODETEXT, h)
+        u32.CloseClipboard()
+        show_snack("Cam program copied to clipboard.", "success")
+
+    copy_cam_btn = ft.FilledButton(
+        "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_cam_code,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38, tooltip="Copy generated TABLE/CAMBOX program to clipboard",
+    )
+
+    cam_panel_height = 1000
+
+    cam_params_panel = ft.Container(
+        content=ft.Column([
+            section_header("Rotary Knife Cam Generator",
+                            "Generate a CAMBOX position table from drum geometry",
+                            ft.Icons.AUTORENEW),
+            ft.Row([cam_cut_input, cam_drum_dia_input, cam_n_knives_input,
+                    cam_cut_window_input, cam_cpr_input],
+                   wrap=True, spacing=15, run_spacing=12),
+            ft.Row([cam_n_points_input, cam_blend_input, cam_vline_input,
+                    cam_table_start_input],
+                   wrap=True, spacing=15, run_spacing=12),
+            ft.Row([
+                cam_result_card("Natural ratio R",       "R"),
+                cam_result_card("Cut zone (master)",     "cut_zone"),
+                cam_result_card("Drum RPS at cut",       "rps_cut"),
+                cam_result_card("Drum RPS outside",      "rps_out"),
+                cam_result_card("Peak ang. accel",       "peak_accel"),
+                cam_result_card("Table resolution",      "table_res"),
+            ], wrap=True, spacing=10, run_spacing=10),
+            ft.Column([
+                ft.Text("Drum velocity profile (cut window shaded)",
+                        size=12, color=ft.Colors.GREY_400),
+                ft.Container(
+                    content=cam_profile_canvas,
+                    border=ft.Border.all(1, BORDER_COLOR),
+                    border_radius=8,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                ),
+            ], spacing=6),
+            cam_warning_text,
+            cam_review_text,
+            ft.Text("Material axis (above) → CAMBOX link_ax. Shear axis → CAMBOX BASE drum_ax.",
+                    size=12, color=ft.Colors.GREY_400),
+        ], spacing=14, scroll=ft.ScrollMode.AUTO),
+        bgcolor=PANEL_BG, border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8, padding=16, height=cam_panel_height,
+        col={"xs": 12, "xl": 6},
+    )
+
+    cam_basic_panel = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                section_header("Trio BASIC Program", "Generated TABLE + CAMBOX", ft.Icons.CODE),
+                ft.Container(expand=True),
+                copy_cam_btn,
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            cam_code_output,
+        ], expand=True, spacing=12),
+        bgcolor=PANEL_BG, border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8, padding=16, height=cam_panel_height,
+        col={"xs": 12, "xl": 6},
+    )
+
+    cam_calc_container = ft.ResponsiveRow(
+        [cam_params_panel, cam_basic_panel],
+        columns=12, spacing=18, run_spacing=18,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+
+    cam_recalc()
+
     tabs = ft.Tabs(
-        length=4,
+        length=5,
         selected_index=0,
         content=ft.Column([
             ft.TabBar(
@@ -3228,6 +3715,7 @@ def main(page: ft.Page):
                     ft.Tab(label="MoveLink Help", icon=ft.Icons.FUNCTIONS),
                     ft.Tab(label="Connect & Monitor", icon=ft.Icons.ANALYTICS),
                     ft.Tab(label="Setup Axes", icon=ft.Icons.TUNE),
+                    ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
                 ],
                 label_color=ft.Colors.CYAN_200,
                 unselected_label_color=MUTED_TEXT,
@@ -3280,6 +3768,7 @@ def main(page: ft.Page):
                         padding=20,
                         expand=True,
                     ),
+                    ft.Container(content=cam_calc_container, padding=20, expand=True),
                 ],
                 expand=1,
             )
