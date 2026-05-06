@@ -134,7 +134,7 @@ except ImportError:
         sys.exit(1)
 
 def main(page: ft.Page):
-    page.title = "Trio Flying Shear Setup"
+    page.title = "Trio Motion Setup"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
     default_window_width = 1728
@@ -166,6 +166,17 @@ def main(page: ft.Page):
 
     # Load persisted settings
     settings = load_settings()
+
+    def _update_if_mounted(control):
+        try:
+            control.update()
+            return True
+        except AssertionError:
+            return False
+        except RuntimeError as ex:
+            if "must be added to the page first" in str(ex):
+                return False
+            raise
 
     def show_snack(message, type_="info"):
         palette = {
@@ -320,10 +331,7 @@ def main(page: ft.Page):
             if getattr(ctl, "value", None) == value:
                 continue
             ctl.value = value
-            try:
-                ctl.update()
-            except AssertionError:
-                pass
+            _update_if_mounted(ctl)
 
     def on_axis_m_change(e):
         settings["master_axis"] = e.control.value
@@ -397,19 +405,13 @@ def main(page: ft.Page):
                     continue
                 if inp.value != text_value:
                     inp.value = text_value
-                    try:
-                        inp.update()
-                    except AssertionError:
-                        pass
+                    _update_if_mounted(inp)
         if numeric_value is not None:
             for slider in master_speed_sliders:
                 if slider is source:
                     continue
                 slider.value = clamp_conveyor_speed(float(numeric_value), slider.max)
-                try:
-                    slider.update()
-                except AssertionError:
-                    pass
+                _update_if_mounted(slider)
 
     def on_master_speed_change(e):
         settings["master_speed"] = e.control.value
@@ -476,11 +478,8 @@ def main(page: ft.Page):
         settings["master_speed"] = speed_text
         save_settings(settings)
         _sync_master_speed_controls(text_value=speed_text, numeric_value=speed_val)
-        try:
-            master_speed_input.update()
-            master_speed_slider.update()
-        except AssertionError:
-            pass
+        _update_if_mounted(master_speed_input)
+        _update_if_mounted(master_speed_slider)
 
         def _do():
             conn = trio_conn.connection
@@ -539,11 +538,8 @@ def main(page: ft.Page):
         settings["master_speed"] = speed_text
         save_settings(settings)
         _sync_master_speed_controls(text_value=speed_text, numeric_value=speed, source=source)
-        try:
-            master_speed_input.update()
-            master_speed_slider.update()
-        except AssertionError:
-            pass
+        _update_if_mounted(master_speed_input)
+        _update_if_mounted(master_speed_slider)
 
     cutter_output_input = ft.TextField(
         label="Knife OP", value=str(settings.get("cutter_output", "8")),
@@ -818,11 +814,8 @@ def main(page: ft.Page):
         settings["master_speed"] = speed_text
         save_settings(settings)
         _sync_master_speed_controls(text_value=speed_text, numeric_value=speed_val)
-        try:
-            master_speed_input.update()
-            master_speed_slider.update()
-        except AssertionError:
-            pass
+        _update_if_mounted(master_speed_input)
+        _update_if_mounted(master_speed_slider)
 
         def _do():
             conn = trio_conn.connection
@@ -1366,7 +1359,7 @@ def main(page: ft.Page):
         )
 
         if update:
-            shear_conveyor_view.update()
+            _update_if_mounted(shear_conveyor_view)
 
     def on_recenter(e):
         position_zero_m[0] = None
@@ -1384,12 +1377,12 @@ def main(page: ft.Page):
         scale_value_label.value = f"{new_val:g} px/unit"
         try:
             rotary_scale_value_label.value = scale_value_label.value
-            rotary_scale_value_label.update()
-        except (NameError, AssertionError):
+            _update_if_mounted(rotary_scale_value_label)
+        except NameError:
             pass
         settings["scale_px_per_unit"] = new_val
         save_settings(settings)
-        scale_value_label.update()
+        _update_if_mounted(scale_value_label)
 
     def on_scale_step(delta):
         def handler(e):
@@ -1538,17 +1531,11 @@ def main(page: ft.Page):
                 wdog_raw = results.get(("WDOG", "state"))
                 if wdog_raw == "ERR":
                     _set_wdog_button_state(None, error=True)
-                    try:
-                        wdog_btn.update()
-                    except Exception:
-                        pass
+                    _update_if_mounted(wdog_btn)
                 elif isinstance(wdog_raw, bool) and not wdog_state["busy"]:
                     if wdog_state["enabled"] != wdog_raw or wdog_btn.disabled:
                         _set_wdog_button_state(wdog_raw)
-                        try:
-                            wdog_btn.update()
-                        except Exception:
-                            pass
+                        _update_if_mounted(wdog_btn)
 
                 target_blade_extension = BLADE_CUT_EXTENSION if cutter_raw is True else BLADE_IDLE_EXTENSION
                 if abs((blade_body_s.height or 0) - target_blade_extension) > 0.1:
@@ -1653,12 +1640,12 @@ def main(page: ft.Page):
                             pass
 
                 if dirty and frame_counter % ui_update_every == 0:
-                    monitor_container.update()
+                    _update_if_mounted(monitor_container)
                     # params_panel lives outside monitor_container (in the
                     # connection header row), so it needs its own update.
-                    params_panel.update()
+                    _update_if_mounted(params_panel)
                     try:
-                        rotary_sim_container.update()
+                        _update_if_mounted(rotary_sim_container)
                     except NameError:
                         pass
             except Exception as ex:
@@ -4179,8 +4166,8 @@ def main(page: ft.Page):
             update_rotary_units_label()
             redraw_rotary_sim()
             try:
-                rotary_sim_container.update()
-            except AssertionError:
+                _update_if_mounted(rotary_sim_container)
+            except NameError:
                 pass
             return
 
@@ -4188,8 +4175,8 @@ def main(page: ft.Page):
             apply_saved_rotary_units_fallback(axis)
             redraw_rotary_sim()
             try:
-                rotary_sim_container.update()
-            except AssertionError:
+                _update_if_mounted(rotary_sim_container)
+            except NameError:
                 pass
             return
 
@@ -5165,84 +5152,186 @@ def main(page: ft.Page):
         rotary_sim_canvas_holder.width = new_visual_width
         redraw_rotary_sim()
         if update:
-            rotary_sim_canvas_holder.update()
+            _update_if_mounted(rotary_sim_canvas_holder)
 
     apply_saved_rotary_units_fallback(int(axis_s_dropdown.value or "1"))
     redraw_rotary_sim()
     update_rotary_debug_overlay()
 
-    tabs = ft.Tabs(
-        length=6,
-        selected_index=0,
-        content=ft.Column([
-            ft.TabBar(
-                tabs=[
-                    ft.Tab(label="Configure Shear", icon=ft.Icons.CALCULATE),
-                    ft.Tab(label="MoveLink Help", icon=ft.Icons.FUNCTIONS),
-                    ft.Tab(label="Connect & Monitor", icon=ft.Icons.ANALYTICS),
-                    ft.Tab(label="Setup Axes", icon=ft.Icons.TUNE),
+    connection_panel = ft.Container(
+        content=ft.Column(
+            [
+                section_header("Controller Connection", "Connect first, then verify watchdog and saved parameters", ft.Icons.LAN),
+                conn_row,
+            ],
+            spacing=12,
+        ),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        col={"xs": 12, "lg": 7},
+    )
+
+    axis_connection_page = ft.Container(
+        content=ft.Column(
+            [
+                ft.ResponsiveRow(
+                    [connection_panel, params_panel],
+                    columns=12,
+                    spacing=14,
+                    run_spacing=14,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                ),
+                section_header("Axis Configuration", "Tune and save controller parameters per axis", ft.Icons.TUNE),
+                setup_container,
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        padding=20,
+        expand=True,
+    )
+
+    flying_shear_monitor_page = ft.Container(
+        content=ft.Column([monitor_container], spacing=14, scroll=ft.ScrollMode.AUTO),
+        padding=20,
+        expand=True,
+    )
+
+    def build_solution_tabs(solution):
+        if solution == "rotary_knife":
+            tab_specs = [
+                (
+                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
+                    axis_connection_page,
+                ),
+                (
                     ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
+                    ft.Container(content=cam_calc_container, padding=20, expand=True),
+                ),
+                (
                     ft.Tab(label="Rotary Knife Sim", icon=ft.Icons.AUTORENEW),
-                ],
-                label_color=ft.Colors.CYAN_200,
-                unselected_label_color=MUTED_TEXT,
-                indicator_color=ACCENT_COLOR,
-                divider_color=BORDER_COLOR,
-            ),
-            ft.TabBarView(
-                controls=[
+                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
+                ),
+            ]
+        else:
+            tab_specs = [
+                (
+                    ft.Tab(label="Configure Shear", icon=ft.Icons.CALCULATE),
                     ft.Container(
                         content=ft.Column([shear_calc_container], spacing=14, scroll=ft.ScrollMode.AUTO),
                         padding=20,
                         expand=True,
                     ),
-                    movelink_help_list,
-                    ft.Container(
-                        content=ft.Column([
-                            ft.ResponsiveRow(
-                                [
-                                    ft.Container(
-                                        content=ft.Column(
-                                            [
-                                                section_header("Controller Connection", "Connect first, then verify watchdog and saved parameters", ft.Icons.LAN),
-                                                conn_row,
-                                            ],
-                                            spacing=12,
-                                        ),
-                                        bgcolor=PANEL_BG,
-                                        border=ft.Border.all(1, BORDER_COLOR),
-                                        border_radius=8,
-                                        padding=16,
-                                        col={"xs": 12, "lg": 7},
-                                    ),
-                                    params_panel,
-                                ],
-                                columns=12,
-                                spacing=14,
-                                run_spacing=14,
-                                vertical_alignment=ft.CrossAxisAlignment.START,
-                            ),
-                            monitor_container
-                        ], spacing=14, scroll=ft.ScrollMode.AUTO),
-                        padding=20,
-                        expand=True,
+                ),
+                (ft.Tab(label="MoveLink Help", icon=ft.Icons.FUNCTIONS), movelink_help_list),
+                (
+                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
+                    axis_connection_page,
+                ),
+                (ft.Tab(label="Live Monitor", icon=ft.Icons.ANALYTICS), flying_shear_monitor_page),
+            ]
+
+        return ft.Tabs(
+            length=len(tab_specs),
+            selected_index=0,
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[tab for tab, _ in tab_specs],
+                        label_color=ft.Colors.CYAN_200,
+                        unselected_label_color=MUTED_TEXT,
+                        indicator_color=ACCENT_COLOR,
+                        divider_color=BORDER_COLOR,
                     ),
-                    ft.Container(
-                        content=ft.Column([
-                            section_header("Axis Parameter Setup", "Tune and save controller parameters per axis", ft.Icons.TUNE),
-                            setup_container
-                        ], spacing=14, scroll=ft.ScrollMode.AUTO),
-                        padding=20,
-                        expand=True,
+                    ft.TabBarView(
+                        controls=[content for _, content in tab_specs],
+                        expand=1,
                     ),
-                    ft.Container(content=cam_calc_container, padding=20, expand=True),
-                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
                 ],
                 expand=1,
-            )
-        ], expand=1),
-        expand=1,
-    )
+            ),
+            expand=1,
+        )
+
+    app_root = ft.Container(expand=True)
+
+    def set_workspace_appbar(solution_name):
+        page.appbar = ft.AppBar(
+            title=ft.Text(f"Trio {solution_name} Setup", size=18, weight=ft.FontWeight.BOLD),
+            bgcolor=PANEL_BG,
+            color=ft.Colors.WHITE,
+            elevation=0,
+            actions=[
+                ft.TextButton(
+                    "Change solution",
+                    icon=ft.Icons.SWAP_HORIZ,
+                    on_click=lambda e: show_solution_picker(),
+                    style=ft.ButtonStyle(color=ft.Colors.CYAN_200),
+                ),
+                ft.Container(
+                    content=ft.Text(solution_name, size=12, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD),
+                    padding=ft.Padding.only(right=16),
+                    alignment=ft.Alignment.CENTER,
+                ),
+            ],
+        )
+
+    def show_solution_workspace(solution):
+        solution_name = "Rotary Knife" if solution == "rotary_knife" else "Flying Shear"
+        page.title = f"Trio {solution_name} Setup"
+        set_workspace_appbar(solution_name)
+        app_root.content = build_solution_tabs(solution)
+        page.update()
+
+    def solution_button(label, icon, solution):
+        return ft.FilledButton(
+            label,
+            icon=icon,
+            height=74,
+            width=260,
+            on_click=lambda e: show_solution_workspace(solution),
+            style=ft.ButtonStyle(
+                bgcolor=ACCENT_COLOR,
+                color=ft.Colors.WHITE,
+                shape=ft.RoundedRectangleBorder(radius=8),
+                text_style=ft.TextStyle(size=18, weight=ft.FontWeight.BOLD),
+            ),
+        )
+
+    def show_solution_picker():
+        page.title = "Trio Motion Setup"
+        page.appbar = ft.AppBar(
+            title=ft.Text("Trio Motion Setup", size=18, weight=ft.FontWeight.BOLD),
+            bgcolor=PANEL_BG,
+            color=ft.Colors.WHITE,
+            elevation=0,
+        )
+        app_root.content = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Select solution", size=26, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    ft.Row(
+                        [
+                            solution_button("Flying Shear", ft.Icons.CALCULATE, "flying_shear"),
+                            solution_button("Rotary Knife", ft.Icons.AUTORENEW, "rotary_knife"),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=18,
+                        wrap=True,
+                        run_spacing=18,
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=24,
+            ),
+            expand=True,
+            alignment=ft.Alignment.CENTER,
+        )
+        page.update()
 
     # Clean up monitor on window close
     async def on_window_event(e):
@@ -5288,27 +5377,14 @@ def main(page: ft.Page):
 
     page.on_resize = on_page_resize
 
-    # Assemble the main page
-    page.appbar = ft.AppBar(
-        title=ft.Text("Trio Flying Shear Setup", size=18, weight=ft.FontWeight.BOLD),
-        bgcolor=PANEL_BG,
-        color=ft.Colors.WHITE,
-        elevation=0,
-        actions=[
-            ft.Container(
-                content=ft.Text("Flying Shear", size=12, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD),
-                padding=ft.Padding.only(right=16),
-                alignment=ft.Alignment.CENTER,
-            )
-        ],
-    )
     page.add(
         ft.SafeArea(
-            content=ft.Column([tabs], expand=True, spacing=10),
+            content=app_root,
             minimum_padding=ft.Padding.only(left=16, right=16, bottom=16),
             expand=True,
         )
     )
+    show_solution_picker()
 
 if __name__ == "__main__":
     ft.run(main)
