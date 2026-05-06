@@ -1457,6 +1457,14 @@ def main(page: ft.Page):
                     results[("WDOG", "state")] = bool(conn.GetSystemParameter_WDOG())
                 except Exception:
                     results[("WDOG", "state")] = "ERR"
+                method = getattr(conn, "GetAxisParameter_DEMAND_SPEED", None)
+                if method is None:
+                    results[("DEMAND_SPEED", "s")] = None
+                else:
+                    try:
+                        results[("DEMAND_SPEED", "s")] = method(axis_s)
+                    except Exception:
+                        results[("DEMAND_SPEED", "s")] = "ERR"
             for pn, _ in read_params:
                 if pn != "MPOS" and not read_slow_params:
                     continue
@@ -1546,6 +1554,7 @@ def main(page: ft.Page):
                 mpos_val_s = None
                 mspeed_val_m = None
                 mspeed_val_s = None
+                demand_speed_val_s = None
 
                 # Apply results to UI texts
                 for pn, _ in read_params:
@@ -1577,6 +1586,16 @@ def main(page: ft.Page):
                         if txt.value != new_val:
                             txt.value = new_val
                             dirty = True
+
+                if ("DEMAND_SPEED", "s") in results:
+                    demand_speed_raw_s = results.get(("DEMAND_SPEED", "s"))
+                    if demand_speed_raw_s in (None, "ERR"):
+                        demand_speed_val_s = "ERR"
+                    else:
+                        try:
+                            demand_speed_val_s = float(demand_speed_raw_s)
+                        except (TypeError, ValueError):
+                            demand_speed_val_s = "ERR"
 
                 # Update comms lag (rolling average of MPOS read)
                 if comms_lag_samples:
@@ -1617,6 +1636,7 @@ def main(page: ft.Page):
                         mpos_val_s,
                         mspeed_val_m,
                         mspeed_val_s,
+                        demand_speed_val_s,
                         frame_start,
                     ):
                         dirty = True
@@ -3983,6 +4003,8 @@ def main(page: ft.Page):
         "drum_mpos": None,
         "line_mspeed": None,
         "drum_mspeed": None,
+        "drum_demand_speed": None,
+        "drum_tangential_mm_s": None,
         "belt_offset_px": 0.0,
         "drum_angle": 0.0,
         "axis_cpr": None,
@@ -4394,6 +4416,11 @@ def main(page: ft.Page):
             return ft.Paint(color=color, style=ft.PaintingStyle.FILL)
 
         def linear_paint(x0, y0, x1, y1, colors, stops=None):
+            if stops is None:
+                if len(colors) <= 1:
+                    stops = [0.0]
+                else:
+                    stops = [i / (len(colors) - 1) for i in range(len(colors))]
             return ft.Paint(
                 gradient=ft.PaintLinearGradient(
                     begin=ft.Offset(x0, y0),
@@ -4710,12 +4737,13 @@ def main(page: ft.Page):
         kinematics = rotary_sim_state.get("last_kinematics") or {}
         drum_mpos = kinematics.get("drum_mpos", rotary_sim_state.get("drum_mpos"))
         drum_mspeed = kinematics.get("drum_mspeed", rotary_sim_state.get("drum_mspeed"))
+        drum_demand_speed = rotary_sim_state.get("drum_demand_speed")
         effective_mspeed = kinematics.get("effective_drum_mspeed")
         axis_cpr = rotary_sim_state.get("axis_cpr")
         mpos_per_rev = kinematics.get("mpos_per_rev", rotary_sim_state.get("mpos_per_rev"))
         drum_rps = kinematics.get("drum_rps")
         circumference = kinematics.get("drum_circumference_mm")
-        drum_tangential = kinematics.get("drum_tangential_mm_s")
+        drum_tangential = rotary_sim_state.get("drum_tangential_mm_s")
         drum_angle = kinematics.get("drum_angle_rad", rotary_sim_state.get("drum_angle"))
 
         mspeed_text = format_rotary_debug_float(drum_mspeed)
@@ -4732,11 +4760,12 @@ def main(page: ft.Page):
         rotary_debug_text.value = "\n".join([
             f"Drum MPOS:           {format_rotary_debug_float(drum_mpos)} user units",
             f"Drum MSPEED:         {mspeed_text} user units/s",
+            f"Drum DEMAND_SPEED:   {format_rotary_debug_float(drum_demand_speed)}",
             f"Drum CPR:            {format_rotary_debug_float(axis_cpr, 0)} counts/rev",
             f"mpos per rev:        {format_rotary_debug_float(mpos_per_rev, 6)}",
             f"Drum RPS:            {format_rotary_debug_float(drum_rps)}",
             f"Drum circumference:  {format_rotary_debug_float(circumference, 2)} mm",
-            f"Drum tangential:     {format_rotary_debug_float(drum_tangential, 2)} mm/s",
+            f"Drum tangential:     {format_rotary_debug_float(drum_tangential, 2)} mm/s (DEMAND_SPEED x1000)",
             f"Drum angle:          {format_rotary_debug_float(drum_angle)} rad",
         ])
 
@@ -4756,7 +4785,9 @@ def main(page: ft.Page):
         approaching = bool(rotary_sim_state.get("approaching"))
 
         line_mm_s = line_mspeed * link_units_to_mm if line_mspeed is not None else None
-        drum_mm_s = None
+        drum_demand_speed = rotary_sim_state.get("drum_demand_speed")
+        drum_mm_s = drum_demand_speed * 1000.0 if drum_demand_speed is not None else None
+        rotary_sim_state["drum_tangential_mm_s"] = drum_mm_s
         kinematics = None
         if mpos_per_rev and (drum_mpos is not None or drum_mspeed is not None):
             try:
@@ -4767,10 +4798,8 @@ def main(page: ft.Page):
                     drum_diameter,
                     rotary_drum_direction_reversed(),
                 )
-                drum_mm_s = kinematics.get("drum_tangential_mm_s")
                 rotary_sim_state["last_kinematics"] = kinematics
             except ValueError:
-                drum_mm_s = None
                 rotary_sim_state["last_kinematics"] = None
 
         speed_warning = None
@@ -4839,7 +4868,7 @@ def main(page: ft.Page):
             rotary_status_text.value = rotary_sim_state["units_warning"]
             rotary_status_text.color = WARNING_COLOR
         elif trio_conn.is_connected():
-            rotary_status_text.value = "Live MPOS geometry from controller."
+            rotary_status_text.value = "Live MPOS and DEMAND_SPEED from controller."
             rotary_status_text.color = SUCCESS_COLOR
         else:
             rotary_status_text.value = "Not connected; static schematic."
@@ -4849,12 +4878,17 @@ def main(page: ft.Page):
         update_rotary_debug_overlay()
         return True
 
-    def update_rotary_sim_from_reads(line_mpos, drum_mpos, line_mspeed, drum_mspeed, now):
+    def update_rotary_sim_from_reads(line_mpos, drum_mpos, line_mspeed, drum_mspeed, drum_demand_speed, now):
         dirty = False
         if line_mspeed is not None:
             rotary_sim_state["line_mspeed"] = line_mspeed
         if drum_mspeed is not None:
             rotary_sim_state["drum_mspeed"] = drum_mspeed
+        if drum_demand_speed == "ERR":
+            rotary_sim_state["drum_demand_speed"] = None
+            rotary_sim_state["drum_tangential_mm_s"] = None
+        elif drum_demand_speed is not None:
+            rotary_sim_state["drum_demand_speed"] = drum_demand_speed
 
         if line_mpos is not None:
             rotary_sim_state["line_mpos"] = line_mpos
@@ -4898,7 +4932,7 @@ def main(page: ft.Page):
         save_settings(settings)
         drum_mpos = rotary_sim_state.get("drum_mpos")
         if drum_mpos is not None:
-            update_rotary_sim_from_reads(None, drum_mpos, None, None, time.perf_counter())
+            update_rotary_sim_from_reads(None, drum_mpos, None, None, None, time.perf_counter())
         else:
             redraw_rotary_sim()
             update_rotary_diagnostics(time.perf_counter())
@@ -5304,8 +5338,6 @@ def main(page: ft.Page):
     rotary_diag_strip = ft.Row(
         [
             rotary_diag_card("Line speed", rotary_line_speed_label, 230),
-            rotary_diag_card("Drum tangential", rotary_drum_speed_label, 210),
-            rotary_diag_card("Speed match", rotary_match_delta_label, 190),
             rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
             rotary_diag_card(
                 "MPOS cnts per physical rev",
