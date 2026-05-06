@@ -51,6 +51,7 @@ def main():
     compute_mpos_counts = load_function("compute_rotary_mpos_counts_per_physical_rev")
     compute_drum_angle = load_function("compute_rotary_drum_angle_rad")
     compute_drum_tangential = load_function("compute_rotary_drum_tangential_mm_s")
+    compute_drum_kinematics = load_function("compute_rotary_drum_kinematics")
     shortest_angle_distance = load_function("shortest_angle_distance_rad")
     blade_direction = load_function("rotary_blade_direction_for_angle")
 
@@ -73,6 +74,52 @@ def main():
         math.pi * 20.0,
         1e-12,
     )
+    current_setup_mpos_per_rev = compute_mpos_counts(8_388_608, 8_388_608)
+    assert_close("Current setup MPOS counts per physical rev", current_setup_mpos_per_rev, 1.0, 1e-12)
+    assert_close(
+        "Current setup quarter-turn angle",
+        compute_drum_angle(2.25, current_setup_mpos_per_rev),
+        math.pi / 2.0,
+        1e-12,
+    )
+    user_setup_mspeed = 556.0 / (math.pi * 20.0)
+    assert_close(
+        "Current setup tangential speed",
+        compute_drum_tangential(user_setup_mspeed, current_setup_mpos_per_rev, 20.0),
+        556.0,
+        1e-12,
+    )
+    kinematics = compute_drum_kinematics(
+        drum_mpos=2.25,
+        drum_mspeed=user_setup_mspeed,
+        mpos_counts_per_physical_rev=current_setup_mpos_per_rev,
+        drum_diameter_mm=20.0,
+        drum_direction_reversed=False,
+    )
+    assert_close("Shared kinematics RPS", kinematics["drum_rps"], user_setup_mspeed, 1e-12)
+    assert_close("Shared kinematics circumference", kinematics["drum_circumference_mm"], math.pi * 20.0, 1e-12)
+    assert_close("Shared kinematics tangential", kinematics["drum_tangential_mm_s"], 556.0, 1e-12)
+    assert_close("Shared kinematics angle", kinematics["drum_angle_rad"], math.pi / 2.0, 1e-12)
+    reversed_kinematics = compute_drum_kinematics(
+        drum_mpos=0.25,
+        drum_mspeed=1.0,
+        mpos_counts_per_physical_rev=current_setup_mpos_per_rev,
+        drum_diameter_mm=20.0,
+        drum_direction_reversed=True,
+    )
+    assert_near("Reversed kinematics angle", reversed_kinematics["drum_angle_rad"], 1.5 * math.pi, 1e-12)
+    assert_near("Reversed kinematics tangential", reversed_kinematics["drum_tangential_mm_s"], -math.pi * 20.0, 1e-12)
+    try:
+        compute_drum_kinematics(
+            drum_mpos=0.0,
+            drum_mspeed=0.0,
+            mpos_counts_per_physical_rev=0.0,
+            drum_diameter_mm=20.0,
+        )
+    except ValueError as ex:
+        assert "mpos_counts_per_physical_rev must be positive" in str(ex)
+    else:
+        raise AssertionError("Non-positive MPOS/rev should fail validation")
 
     cut_length_mm = 20.0
     drum_diameter_mm = 20.0

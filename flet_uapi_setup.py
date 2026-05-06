@@ -54,7 +54,7 @@ def compute_rotary_mpos_counts_per_physical_rev(encoder_counts_per_rev, drum_axi
 def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
     divisor = float(mpos_counts_per_physical_rev)
     if divisor <= 0:
-        raise ValueError("MPOS counts per physical rev must be > 0")
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
     return ((float(drum_mpos) % divisor) / divisor) * 2.0 * math.pi
 
 def shortest_angle_distance_rad(angle, target):
@@ -72,11 +72,54 @@ def compute_rotary_drum_tangential_mm_s(
     divisor = float(mpos_counts_per_physical_rev)
     diameter = float(drum_diameter_mm)
     if divisor <= 0:
-        raise ValueError("MPOS counts per physical rev must be > 0")
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
     if diameter <= 0:
         raise ValueError("Drum diameter must be > 0")
     drum_rps = float(drum_mspeed) / divisor
     return drum_rps * math.pi * diameter
+
+def compute_rotary_drum_kinematics(
+    drum_mpos,
+    drum_mspeed,
+    mpos_counts_per_physical_rev,
+    drum_diameter_mm,
+    drum_direction_reversed=False,
+):
+    """Return shared rotary drum unit conversions for live diagnostics and drawing."""
+    mpos_per_rev = float(mpos_counts_per_physical_rev)
+    diameter = float(drum_diameter_mm)
+    if mpos_per_rev <= 0:
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
+    if diameter <= 0:
+        raise ValueError("Drum diameter must be > 0")
+
+    direction_sign = -1.0 if drum_direction_reversed else 1.0
+    circumference = math.pi * diameter
+    raw_mpos = None if drum_mpos is None else float(drum_mpos)
+    raw_mspeed = None if drum_mspeed is None else float(drum_mspeed)
+    effective_mspeed = None if raw_mspeed is None else raw_mspeed * direction_sign
+
+    drum_angle_rad = None
+    if raw_mpos is not None:
+        drum_fraction_of_rev = (raw_mpos % mpos_per_rev) / mpos_per_rev
+        drum_angle_rad = (drum_fraction_of_rev * 2.0 * math.pi * direction_sign) % (2.0 * math.pi)
+
+    drum_rps = None
+    drum_tangential_mm_s = None
+    if effective_mspeed is not None:
+        drum_rps = effective_mspeed / mpos_per_rev
+        drum_tangential_mm_s = drum_rps * circumference
+
+    return {
+        "drum_mpos": raw_mpos,
+        "drum_mspeed": raw_mspeed,
+        "effective_drum_mspeed": effective_mspeed,
+        "mpos_per_rev": mpos_per_rev,
+        "drum_rps": drum_rps,
+        "drum_circumference_mm": circumference,
+        "drum_tangential_mm_s": drum_tangential_mm_s,
+        "drum_angle_rad": drum_angle_rad,
+    }
 
 try:
     # Standalone mode: trio_connection.py sits next to this script
@@ -3937,13 +3980,16 @@ def main(page: ft.Page):
     rotary_sim_settings.setdefault("link_units_to_mm", 1.0)
     rotary_sim_settings.setdefault(ROTARY_MPOS_OVERRIDE_KEY, None)
     rotary_sim_settings.setdefault("match_tolerance_pct", 2.0)
+    rotary_sim_settings.setdefault("show_debug", False)
 
     ROTARY_SIM_HEIGHT = 360
+    ROTARY_DEFAULT_AXIS_CPR = 8_388_608.0
     ROTARY_DRUM_RADIUS_PX = 117
     ROTARY_KNIFE_LENGTH_PX = 28
     ROTARY_ACTIVE_KNIFE_EXTENSION_PX = 7
     ROTARY_GUIDE_GAP_PX = ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX
     ROTARY_MATERIAL_CONTACT_ANGLE_RAD = math.pi
+    ROTARY_TANGENTIAL_WARNING_LIMIT_MM_S = 10000.0
 
     rotary_sim_state = {
         "line_mpos": None,
@@ -3952,6 +3998,9 @@ def main(page: ft.Page):
         "drum_mspeed": None,
         "belt_offset_px": 0.0,
         "drum_angle": 0.0,
+        "axis_cpr": None,
+        "cpr_axis": None,
+        "cpr_source": "not read",
         "axis_units": None,
         "units_axis": None,
         "mpos_per_rev": None,
@@ -3960,6 +4009,8 @@ def main(page: ft.Page):
         "units_warning": None,
         "last_diag_update": 0.0,
         "speed_samples": collections.deque(maxlen=8),
+        "last_kinematics": None,
+        "drum_speed_warning": None,
     }
 
     def rotary_setting_float(key, default):
@@ -3998,6 +4049,19 @@ def main(page: ft.Page):
             return f"{val:.1f}"
         return format_rotary_count(val)
 
+    def format_rotary_debug_float(value, digits=4):
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return "--"
+        return f"{val:.{digits}f}"
+
+    def rotary_drum_direction_reversed():
+        try:
+            return bool(rotary_reverse_checkbox.value)
+        except NameError:
+            return bool(rotary_sim_settings.get("drum_direction_reversed", False))
+
     def rotary_override_value():
         raw = rotary_sim_settings.get(ROTARY_MPOS_OVERRIDE_KEY)
         try:
@@ -4015,8 +4079,12 @@ def main(page: ft.Page):
             rotary_sim_state["units_warning"] = None
             return override
 
-        cpr = cam_setting_float("cpr", 8388608)
+        cpr = rotary_sim_state.get("axis_cpr")
         units = rotary_sim_state.get("axis_units")
+        if cpr is None:
+            rotary_sim_state["mpos_per_rev"] = None
+            rotary_sim_state["units_error"] = "Drum axis CPR not read"
+            return None
         if units is None:
             rotary_sim_state["mpos_per_rev"] = None
             rotary_sim_state["units_error"] = "Drum UNITS not read"
@@ -4033,12 +4101,16 @@ def main(page: ft.Page):
         return rotary_sim_state["mpos_per_rev"]
 
     def update_rotary_units_label():
-        cpr = cam_setting_float("cpr", 8388608)
+        cpr = rotary_sim_state.get("axis_cpr")
         units = rotary_sim_state.get("axis_units")
         mpos_per_rev = rotary_recompute_mpos_per_rev()
 
-        rotary_encoder_cpr_label.value = format_rotary_count(cpr)
-        rotary_encoder_cpr_label.color = SUCCESS_COLOR if cpr > 0 else ERROR_COLOR
+        if cpr is None:
+            rotary_encoder_cpr_label.value = "--"
+            rotary_encoder_cpr_label.color = WARNING_COLOR
+        else:
+            rotary_encoder_cpr_label.value = format_rotary_count(cpr)
+            rotary_encoder_cpr_label.color = SUCCESS_COLOR if cpr > 0 else ERROR_COLOR
 
         if units is None:
             rotary_drum_units_label.value = "--"
@@ -4064,7 +4136,9 @@ def main(page: ft.Page):
             rotary_units_source_label.value = "manual override"
             rotary_units_source_label.color = WARNING_COLOR
         else:
-            rotary_units_source_label.value = rotary_sim_state.get("units_source", "auto: cpr / UNITS")
+            cpr_source = rotary_sim_state.get("cpr_source", "CPR not read")
+            units_source = rotary_sim_state.get("units_source", "UNITS not read")
+            rotary_units_source_label.value = f"{cpr_source}; {units_source}"
             rotary_units_source_label.color = MUTED_TEXT
 
     def saved_drum_units_for_axis(axis):
@@ -4076,6 +4150,11 @@ def main(page: ft.Page):
 
     def apply_saved_rotary_units_fallback(axis):
         units = saved_drum_units_for_axis(axis)
+        rotary_sim_state["units_warning"] = None
+        rotary_sim_state["axis_cpr"] = ROTARY_DEFAULT_AXIS_CPR
+        rotary_sim_state["cpr_axis"] = axis
+        rotary_sim_state["cpr_source"] = f"default CPR {format_rotary_count(ROTARY_DEFAULT_AXIS_CPR)}"
+
         if units is None:
             rotary_sim_state["axis_units"] = None
             rotary_sim_state["units_axis"] = axis
@@ -4085,7 +4164,7 @@ def main(page: ft.Page):
             rotary_sim_state["units_axis"] = axis
             rotary_sim_state["units_source"] = f"saved UNITS {units:g}"
         rotary_sim_state["units_error"] = None
-        rotary_sim_state["units_warning"] = None
+        rotary_sim_state["speed_samples"].clear()
         update_rotary_units_label()
 
     def request_rotary_units_refresh():
@@ -4095,6 +4174,7 @@ def main(page: ft.Page):
             axis = 1
 
         if rotary_override_value() is not None:
+            rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["units_axis"] = axis
             update_rotary_units_label()
             redraw_rotary_sim()
@@ -4125,6 +4205,7 @@ def main(page: ft.Page):
             axis = 1
 
         if rotary_override_value() is not None:
+            rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["units_axis"] = axis
             update_rotary_units_label()
             rotary_status_text.value = "Using manual drum MPOS/rev override."
@@ -4143,39 +4224,91 @@ def main(page: ft.Page):
 
         loop = asyncio.get_running_loop()
 
-        def _read_units():
+        def _read_axis_geometry():
             conn = trio_conn.connection
             if not conn or not trio_conn.is_connected():
-                return None
-            method = getattr(conn, "GetAxisParameter_UNITS", None)
-            if method is None:
-                return None
-            return float(method(axis))
+                return {}, {"CPR": "not connected", "UNITS": "not connected"}
+            values = {}
+            errors = {}
+            for param_name in ("CPR", "UNITS"):
+                method = getattr(conn, f"GetAxisParameter_{param_name}", None)
+                if method is None:
+                    errors[param_name] = f"GetAxisParameter_{param_name} unavailable"
+                    continue
+                try:
+                    values[param_name] = float(method(axis))
+                except Exception as ex:
+                    errors[param_name] = str(ex)
+            return values, errors
 
         try:
-            units = await loop.run_in_executor(uapi_executor, _read_units)
+            live_values, read_errors = await loop.run_in_executor(uapi_executor, _read_axis_geometry)
+            cpr = live_values.get("CPR")
+            units = live_values.get("UNITS")
+            warnings = []
+
+            if cpr is None:
+                cpr = ROTARY_DEFAULT_AXIS_CPR
+                rotary_sim_state["cpr_source"] = f"default CPR {format_rotary_count(cpr)}"
+                cpr_error = read_errors.get("CPR", "")
+                if cpr_error and "unavailable" not in cpr_error:
+                    warnings.append(
+                        f"CPR read failed ({read_errors.get('CPR', 'unknown')}); using default axis CPR."
+                    )
+            else:
+                rotary_sim_state["cpr_source"] = f"axis {axis} CPR {format_rotary_count(cpr)}"
+
             if units is None:
-                raise RuntimeError("GetAxisParameter_UNITS unavailable")
+                units = saved_drum_units_for_axis(axis)
+                if units is None:
+                    units = 1.0
+                    rotary_sim_state["units_source"] = "fallback UNITS 1"
+                    warnings.append(
+                        f"UNITS read failed ({read_errors.get('UNITS', 'unknown')}); using fallback UNITS 1."
+                    )
+                else:
+                    rotary_sim_state["units_source"] = f"saved UNITS {format_rotary_count(units)}"
+                    warnings.append(
+                        f"UNITS read failed ({read_errors.get('UNITS', 'unknown')}); using saved UNITS."
+                    )
+            else:
+                rotary_sim_state["units_source"] = f"axis {axis} UNITS {units:g}"
+
+            rotary_sim_state["axis_cpr"] = cpr
+            rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["axis_units"] = units
             rotary_sim_state["units_axis"] = axis
-            rotary_sim_state["units_source"] = f"axis {axis} UNITS {units:g}"
             rotary_sim_state["units_error"] = None
-            rotary_sim_state["units_warning"] = None
-            rotary_status_text.value = f"Drum axis {axis} UNITS read: {units:g}"
-            rotary_status_text.color = SUCCESS_COLOR
+            rotary_sim_state["units_warning"] = " ".join(warnings) if warnings else None
+            rotary_sim_state["speed_samples"].clear()
+            if warnings:
+                rotary_status_text.value = rotary_sim_state["units_warning"]
+                rotary_status_text.color = WARNING_COLOR
+            else:
+                rotary_status_text.value = (
+                    f"Drum axis {axis} CPR/UNITS read: "
+                    f"{format_rotary_count(cpr)} / {format_rotary_count(units)}"
+                )
+                rotary_status_text.color = SUCCESS_COLOR
         except Exception as ex:
+            fallback_cpr = ROTARY_DEFAULT_AXIS_CPR
+            cpr_text = f"default CPR {format_rotary_count(fallback_cpr)}"
             fallback_units = saved_drum_units_for_axis(axis)
             if fallback_units is None:
                 fallback_units = 1.0
                 fallback_text = "fallback UNITS 1"
             else:
                 fallback_text = f"saved UNITS {format_rotary_count(fallback_units)}"
+            rotary_sim_state["axis_cpr"] = fallback_cpr
+            rotary_sim_state["cpr_axis"] = axis
+            rotary_sim_state["cpr_source"] = cpr_text
             rotary_sim_state["axis_units"] = fallback_units
             rotary_sim_state["units_axis"] = axis
             rotary_sim_state["units_source"] = fallback_text
             rotary_sim_state["units_error"] = None
-            rotary_sim_state["units_warning"] = f"UNITS read failed; using {fallback_text}"
-            rotary_status_text.value = f"Drum UNITS read failed: {ex}; using {fallback_text}."
+            rotary_sim_state["units_warning"] = f"CPR/UNITS read failed; using {cpr_text} and {fallback_text}"
+            rotary_sim_state["speed_samples"].clear()
+            rotary_status_text.value = f"Drum CPR/UNITS read failed: {ex}; using {cpr_text} and {fallback_text}."
             rotary_status_text.color = WARNING_COLOR
 
         update_rotary_units_label()
@@ -4371,13 +4504,57 @@ def main(page: ft.Page):
             width=width,
         )
 
+    def update_rotary_debug_overlay():
+        try:
+            show_debug = bool(rotary_debug_checkbox.value)
+            rotary_debug_container.visible = show_debug
+        except NameError:
+            return
+        if not show_debug:
+            return
+
+        kinematics = rotary_sim_state.get("last_kinematics") or {}
+        drum_mpos = kinematics.get("drum_mpos", rotary_sim_state.get("drum_mpos"))
+        drum_mspeed = kinematics.get("drum_mspeed", rotary_sim_state.get("drum_mspeed"))
+        effective_mspeed = kinematics.get("effective_drum_mspeed")
+        axis_cpr = rotary_sim_state.get("axis_cpr")
+        mpos_per_rev = kinematics.get("mpos_per_rev", rotary_sim_state.get("mpos_per_rev"))
+        drum_rps = kinematics.get("drum_rps")
+        circumference = kinematics.get("drum_circumference_mm")
+        drum_tangential = kinematics.get("drum_tangential_mm_s")
+        drum_angle = kinematics.get("drum_angle_rad", rotary_sim_state.get("drum_angle"))
+
+        mspeed_text = format_rotary_debug_float(drum_mspeed)
+        if (
+            drum_mspeed is not None
+            and effective_mspeed is not None
+            and abs(float(drum_mspeed) - float(effective_mspeed)) > 1e-12
+        ):
+            mspeed_text = (
+                f"{format_rotary_debug_float(drum_mspeed)} raw / "
+                f"{format_rotary_debug_float(effective_mspeed)} effective"
+            )
+
+        rotary_debug_text.value = "\n".join([
+            f"Drum MPOS:           {format_rotary_debug_float(drum_mpos)} user units",
+            f"Drum MSPEED:         {mspeed_text} user units/s",
+            f"Drum CPR:            {format_rotary_debug_float(axis_cpr, 0)} counts/rev",
+            f"mpos per rev:        {format_rotary_debug_float(mpos_per_rev, 6)}",
+            f"Drum RPS:            {format_rotary_debug_float(drum_rps)}",
+            f"Drum circumference:  {format_rotary_debug_float(circumference, 2)} mm",
+            f"Drum tangential:     {format_rotary_debug_float(drum_tangential, 2)} mm/s",
+            f"Drum angle:          {format_rotary_debug_float(drum_angle)} rad",
+        ])
+
     def update_rotary_diagnostics(now):
         if now - rotary_sim_state["last_diag_update"] < 0.12:
+            update_rotary_debug_overlay()
             return False
         rotary_sim_state["last_diag_update"] = now
 
         line_mspeed = rotary_sim_state.get("line_mspeed")
         drum_mspeed = rotary_sim_state.get("drum_mspeed")
+        drum_mpos = rotary_sim_state.get("drum_mpos")
         link_units_to_mm = rotary_setting_float("link_units_to_mm", 1.0)
         drum_diameter = cam_setting_float("drum_dia", 200.0)
         mpos_per_rev = rotary_recompute_mpos_per_rev()
@@ -4386,19 +4563,33 @@ def main(page: ft.Page):
 
         line_mm_s = line_mspeed * link_units_to_mm if line_mspeed is not None else None
         drum_mm_s = None
-        if drum_mspeed is not None and mpos_per_rev:
+        kinematics = None
+        if mpos_per_rev and (drum_mpos is not None or drum_mspeed is not None):
             try:
-                drum_mm_s = compute_rotary_drum_tangential_mm_s(
+                kinematics = compute_rotary_drum_kinematics(
+                    drum_mpos,
                     drum_mspeed,
                     mpos_per_rev,
                     drum_diameter,
+                    rotary_drum_direction_reversed(),
                 )
+                drum_mm_s = kinematics.get("drum_tangential_mm_s")
+                rotary_sim_state["last_kinematics"] = kinematics
             except ValueError:
                 drum_mm_s = None
+                rotary_sim_state["last_kinematics"] = None
 
-        if line_mm_s is not None and drum_mm_s is not None:
+        speed_warning = None
+        if drum_mm_s is not None and abs(drum_mm_s) > ROTARY_TANGENTIAL_WARNING_LIMIT_MM_S:
+            speed_warning = (
+                "Drum tangential exceeds 10000 mm/s; check MPOS/rev, drum diameter, "
+                "or selected drum axis."
+            )
+        rotary_sim_state["drum_speed_warning"] = speed_warning
+
+        if line_mm_s is not None and drum_mm_s is not None and not speed_warning:
             rotary_sim_state["speed_samples"].append((line_mm_s, drum_mm_s))
-        if rotary_sim_state["speed_samples"]:
+        if rotary_sim_state["speed_samples"] and not speed_warning:
             line_mm_s = sum(s[0] for s in rotary_sim_state["speed_samples"]) / len(rotary_sim_state["speed_samples"])
             drum_mm_s = sum(s[1] for s in rotary_sim_state["speed_samples"]) / len(rotary_sim_state["speed_samples"])
 
@@ -4409,8 +4600,13 @@ def main(page: ft.Page):
 
         if drum_mm_s is None:
             rotary_drum_speed_label.value = "--"
+            rotary_drum_speed_label.color = MUTED_TEXT
+        elif speed_warning:
+            rotary_drum_speed_label.value = f"WARN {drum_mm_s:.0f} mm/s"
+            rotary_drum_speed_label.color = ERROR_COLOR
         else:
             rotary_drum_speed_label.value = f"{drum_mm_s:.3f} mm/s"
+            rotary_drum_speed_label.color = ft.Colors.ORANGE_200
 
         if in_cut:
             rotary_cut_status_label.value = "In cut"
@@ -4422,7 +4618,7 @@ def main(page: ft.Page):
             rotary_cut_status_label.value = "Outside"
             rotary_cut_status_label.color = MUTED_TEXT
 
-        if in_cut and line_mm_s is not None and drum_mm_s is not None:
+        if in_cut and line_mm_s is not None and drum_mm_s is not None and not speed_warning:
             delta = line_mm_s - drum_mm_s
             denom = abs(line_mm_s) if abs(line_mm_s) > 1e-9 else 1.0
             pct = abs(delta) / denom * 100.0
@@ -4442,6 +4638,9 @@ def main(page: ft.Page):
         if rotary_sim_state.get("units_error"):
             rotary_status_text.value = rotary_sim_state["units_error"]
             rotary_status_text.color = ERROR_COLOR
+        elif speed_warning:
+            rotary_status_text.value = speed_warning
+            rotary_status_text.color = WARNING_COLOR
         elif rotary_sim_state.get("units_warning"):
             rotary_status_text.value = rotary_sim_state["units_warning"]
             rotary_status_text.color = WARNING_COLOR
@@ -4453,6 +4652,7 @@ def main(page: ft.Page):
             rotary_status_text.color = MUTED_TEXT
 
         update_rotary_units_label()
+        update_rotary_debug_overlay()
         return True
 
     def update_rotary_sim_from_reads(line_mpos, drum_mpos, line_mspeed, drum_mspeed, now):
@@ -4476,10 +4676,20 @@ def main(page: ft.Page):
         if drum_mpos is not None:
             rotary_sim_state["drum_mpos"] = drum_mpos
             if mpos_per_rev and mpos_per_rev != 0:
-                angle = compute_rotary_drum_angle_rad(drum_mpos, mpos_per_rev)
-                if rotary_reverse_checkbox.value:
-                    angle = -angle
-                rotary_sim_state["drum_angle"] = angle % (2 * math.pi)
+                try:
+                    kinematics = compute_rotary_drum_kinematics(
+                        drum_mpos,
+                        rotary_sim_state.get("drum_mspeed"),
+                        mpos_per_rev,
+                        cam_setting_float("drum_dia", 200.0),
+                        rotary_drum_direction_reversed(),
+                    )
+                    rotary_sim_state["last_kinematics"] = kinematics
+                    angle = kinematics.get("drum_angle_rad")
+                    if angle is not None:
+                        rotary_sim_state["drum_angle"] = angle
+                except ValueError:
+                    rotary_sim_state["last_kinematics"] = None
             dirty = True
 
         if dirty:
@@ -4490,8 +4700,14 @@ def main(page: ft.Page):
 
     def on_rotary_reverse_change(e):
         rotary_sim_settings["drum_direction_reversed"] = bool(e.control.value)
+        rotary_sim_state["speed_samples"].clear()
         save_settings(settings)
-        redraw_rotary_sim()
+        drum_mpos = rotary_sim_state.get("drum_mpos")
+        if drum_mpos is not None:
+            update_rotary_sim_from_reads(None, drum_mpos, None, None, time.perf_counter())
+        else:
+            redraw_rotary_sim()
+            update_rotary_diagnostics(time.perf_counter())
         page.update()
 
     def on_rotary_link_units_change(e):
@@ -4511,11 +4727,7 @@ def main(page: ft.Page):
         text = (e.control.value or "").strip()
         if text == "":
             rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = None
-            try:
-                axis = int(axis_s_dropdown.value or "1")
-            except ValueError:
-                axis = 1
-            apply_saved_rotary_units_fallback(axis)
+            request_rotary_units_refresh()
         else:
             try:
                 val = float(text)
@@ -4523,6 +4735,7 @@ def main(page: ft.Page):
                     raise ValueError
                 rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = val
                 rotary_recompute_mpos_per_rev()
+                rotary_sim_state["speed_samples"].clear()
             except ValueError:
                 rotary_status_text.value = "Drum MPOS/rev override must be blank or > 0."
                 rotary_status_text.color = ERROR_COLOR
@@ -4531,6 +4744,12 @@ def main(page: ft.Page):
         save_settings(settings)
         update_rotary_units_label()
         redraw_rotary_sim()
+        page.update()
+
+    def on_rotary_debug_change(e):
+        rotary_sim_settings["show_debug"] = bool(e.control.value)
+        save_settings(settings)
+        update_rotary_debug_overlay()
         page.update()
 
     def on_rotary_tolerance_change(e):
@@ -4772,7 +4991,7 @@ def main(page: ft.Page):
         text_size=12,
         on_blur=on_rotary_override_change,
         on_submit=on_rotary_override_change,
-        tooltip="Blank = auto from encoder counts/rev / drum axis UNITS",
+        tooltip="Blank = auto from drum axis CPR / drum axis UNITS",
     )
     rotary_tolerance_input = ft.TextField(
         label="Match green tol",
@@ -4795,7 +5014,15 @@ def main(page: ft.Page):
         icon=ft.Icons.REFRESH,
         height=38,
         on_click=refresh_rotary_drum_units,
-        tooltip="Read drum axis UNITS and recompute MPOS per revolution",
+        tooltip="Read drum axis CPR and UNITS, then recompute MPOS per revolution",
+    )
+    rotary_debug_checkbox = ft.Checkbox(
+        label="Show debug",
+        value=bool(rotary_sim_settings.get("show_debug", False)),
+        fill_color=ft.Colors.BLUE_700,
+        check_color=ft.Colors.WHITE,
+        on_change=on_rotary_debug_change,
+        tooltip="Show raw drum MPOS/MSPEED conversion values",
     )
 
     rotary_comms_lag_label = ft.Text("MPOS read: -- ms (avg 100)", size=10, color=ft.Colors.GREY_500)
@@ -4809,6 +5036,21 @@ def main(page: ft.Page):
     rotary_drum_units_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
     rotary_mpos_per_rev_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
     rotary_units_source_label = ft.Text("not read", size=10, color=MUTED_TEXT)
+    rotary_debug_text = ft.Text(
+        "",
+        size=12,
+        color=ft.Colors.GREY_300,
+        font_family="Consolas",
+        selectable=True,
+    )
+    rotary_debug_container = ft.Container(
+        content=rotary_debug_text,
+        visible=bool(rotary_sim_settings.get("show_debug", False)),
+        bgcolor=DARKER_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+    )
 
     rotary_sim_canvas = cv.Canvas(
         width=visual_width,
@@ -4845,7 +5087,7 @@ def main(page: ft.Page):
                 "Simulation setup",
                 [rotary_reverse_checkbox, rotary_link_units_input,
                  rotary_mpos_override_input, rotary_tolerance_input,
-                 rotary_refresh_units_btn],
+                 rotary_refresh_units_btn, rotary_debug_checkbox],
                 icon=ft.Icons.SETTINGS,
                 col={"xs": 12, "xl": 8},
             ),
@@ -4868,15 +5110,7 @@ def main(page: ft.Page):
     rotary_diag_strip = ft.Row(
         [
             rotary_diag_card("Line speed", rotary_line_speed_label, 230),
-            rotary_diag_card("Drum tangential", rotary_drum_speed_label, 205),
-            rotary_diag_card("Match delta", rotary_match_delta_label, 215),
             rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
-            rotary_diag_card("Encoder cnts/rev (drive)", rotary_encoder_cpr_label, 230),
-            rotary_diag_card(
-                "Drum axis UNITS",
-                ft.Column([rotary_drum_units_label, rotary_units_source_label], spacing=1, tight=True),
-                210,
-            ),
             rotary_diag_card(
                 "MPOS cnts per physical rev",
                 rotary_mpos_per_rev_label,
@@ -4913,6 +5147,7 @@ def main(page: ft.Page):
                 ),
                 rotary_controls_grid,
                 rotary_diag_strip,
+                rotary_debug_container,
                 rotary_sim_canvas_holder,
             ],
             spacing=14,
@@ -4934,6 +5169,7 @@ def main(page: ft.Page):
 
     apply_saved_rotary_units_fallback(int(axis_s_dropdown.value or "1"))
     redraw_rotary_sim()
+    update_rotary_debug_overlay()
 
     tabs = ft.Tabs(
         length=6,
