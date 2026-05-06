@@ -9,16 +9,20 @@ import textwrap
 APP_FILE = Path(__file__).with_name("flet_uapi_setup.py")
 
 
-def load_generator():
+def load_function(function_name):
     source = APP_FILE.read_text(encoding="utf-8")
     tree = ast.parse(source)
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "generate_rotary_knife_cam_table":
+        if isinstance(node, ast.FunctionDef) and node.name == function_name:
             function_source = ast.get_source_segment(source, node)
             namespace = {"math": math}
             exec(textwrap.dedent(function_source), namespace)
-            return namespace["generate_rotary_knife_cam_table"]
-    raise RuntimeError("generate_rotary_knife_cam_table not found")
+            return namespace[function_name]
+    raise RuntimeError(f"{function_name} not found")
+
+
+def load_generator():
+    return load_function("generate_rotary_knife_cam_table")
 
 
 def slope_counts_per_mm(table, index, cut_length_mm):
@@ -34,8 +38,41 @@ def assert_close(name, actual, expected, relative_tolerance):
     )
 
 
+def assert_near(name, actual, expected, tolerance):
+    error = abs(actual - expected)
+    assert error < tolerance, (
+        f"{name} {actual} should match {expected} "
+        f"(absolute error {error:.6g})"
+    )
+
+
 def main():
     generate_rotary_knife_cam_table = load_generator()
+    compute_mpos_counts = load_function("compute_rotary_mpos_counts_per_physical_rev")
+    compute_drum_angle = load_function("compute_rotary_drum_angle_rad")
+    compute_drum_tangential = load_function("compute_rotary_drum_tangential_mm_s")
+    shortest_angle_distance = load_function("shortest_angle_distance_rad")
+    blade_direction = load_function("rotary_blade_direction_for_angle")
+
+    mpos_counts_per_rev = compute_mpos_counts(8_388_608, 2_097_152)
+    assert_close("MPOS counts per physical rev", mpos_counts_per_rev, 4.0, 1e-12)
+    assert_close("Quarter-turn angle", compute_drum_angle(1.0, mpos_counts_per_rev), math.pi / 2.0, 1e-12)
+    assert_near("Zero-count angle", compute_drum_angle(0.0, mpos_counts_per_rev), 0.0, 1e-12)
+    assert_close("Half-turn angle", compute_drum_angle(2.0, mpos_counts_per_rev), math.pi, 1e-12)
+    zero_dx, zero_dy = blade_direction(0.0)
+    half_dx, half_dy = blade_direction(math.pi)
+    assert_near("Blade zero x", zero_dx, 0.0, 1e-12)
+    assert_near("Blade zero y points top", zero_dy, -1.0, 1e-12)
+    assert_near("Blade half-turn x", half_dx, 0.0, 1e-12)
+    assert_near("Blade half-turn y points material", half_dy, 1.0, 1e-12)
+    assert_close("Material contact distance at top", shortest_angle_distance(0.0, math.pi), math.pi, 1e-12)
+    assert_near("Material contact distance at bottom", shortest_angle_distance(math.pi, math.pi), 0.0, 1e-12)
+    assert_close(
+        "One-rps drum tangential speed",
+        compute_drum_tangential(4.0, mpos_counts_per_rev, 20.0),
+        math.pi * 20.0,
+        1e-12,
+    )
 
     cut_length_mm = 20.0
     drum_diameter_mm = 20.0

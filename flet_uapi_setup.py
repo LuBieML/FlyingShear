@@ -41,6 +41,43 @@ def save_settings(settings):
     except IOError as e:
         print(f"Warning: Could not save settings: {e}")
 
+def compute_rotary_mpos_counts_per_physical_rev(encoder_counts_per_rev, drum_axis_units):
+    """Convert drive encoder CPR and Trio UNITS into MPOS units per drum turn."""
+    cpr = float(encoder_counts_per_rev)
+    units = float(drum_axis_units)
+    if cpr <= 0:
+        raise ValueError("Encoder counts/rev must be > 0")
+    if units <= 0:
+        raise ValueError("Drum axis UNITS must be > 0")
+    return cpr / units
+
+def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
+    divisor = float(mpos_counts_per_physical_rev)
+    if divisor <= 0:
+        raise ValueError("MPOS counts per physical rev must be > 0")
+    return ((float(drum_mpos) % divisor) / divisor) * 2.0 * math.pi
+
+def shortest_angle_distance_rad(angle, target):
+    return abs(((float(angle) - float(target) + math.pi) % (2.0 * math.pi)) - math.pi)
+
+def rotary_blade_direction_for_angle(drum_angle):
+    angle = float(drum_angle)
+    return math.sin(angle), -math.cos(angle)
+
+def compute_rotary_drum_tangential_mm_s(
+    drum_mspeed,
+    mpos_counts_per_physical_rev,
+    drum_diameter_mm,
+):
+    divisor = float(mpos_counts_per_physical_rev)
+    diameter = float(drum_diameter_mm)
+    if divisor <= 0:
+        raise ValueError("MPOS counts per physical rev must be > 0")
+    if diameter <= 0:
+        raise ValueError("Drum diameter must be > 0")
+    drum_rps = float(drum_mspeed) / divisor
+    return drum_rps * math.pi * diameter
+
 try:
     # Standalone mode: trio_connection.py sits next to this script
     from trio_connection import TrioConnection
@@ -224,9 +261,30 @@ def main(page: ft.Page):
     VALUE_STYLE_M = {"size": 14, "color": ft.Colors.CYAN_200, "weight": ft.FontWeight.BOLD, "width": 120}
     VALUE_STYLE_S = {"size": 14, "color": ft.Colors.ORANGE_200, "weight": ft.FontWeight.BOLD, "width": 120}
 
-    # Axis Selectors
+    # Axis Selectors. Duplicate controls in other tabs are registered in these
+    # lists so Flet never has to mount the same control in two parents.
+    axis_m_bound_controls = []
+    axis_s_bound_controls = []
+    master_speed_inputs = []
+    master_speed_sliders = []
+    cutter_output_inputs = []
+    rotary_motion_buttons = []
+
+    def _sync_bound_value(controls, value, source=None):
+        for ctl in controls:
+            if ctl is source:
+                continue
+            if getattr(ctl, "value", None) == value:
+                continue
+            ctl.value = value
+            try:
+                ctl.update()
+            except AssertionError:
+                pass
+
     def on_axis_m_change(e):
         settings["master_axis"] = e.control.value
+        _sync_bound_value(axis_m_bound_controls, e.control.value, e.control)
         save_settings(settings)
         try:
             recalc()
@@ -235,7 +293,12 @@ def main(page: ft.Page):
 
     def on_axis_s_change(e):
         settings["slave_axis"] = e.control.value
+        _sync_bound_value(axis_s_bound_controls, e.control.value, e.control)
         save_settings(settings)
+        try:
+            request_rotary_units_refresh()
+        except NameError:
+            pass
         try:
             recalc()
         except NameError:
@@ -249,6 +312,7 @@ def main(page: ft.Page):
         focused_border_color=ACCENT_COLOR,
         text_size=12, on_select=on_axis_m_change
     )
+    axis_m_bound_controls.append(axis_m_dropdown)
 
     axis_s_dropdown = ft.Dropdown(
         label="Shear carriage axis", width=155, height=45,
@@ -258,6 +322,7 @@ def main(page: ft.Page):
         focused_border_color=ACCENT_COLOR,
         text_size=12, on_select=on_axis_s_change
     )
+    axis_s_bound_controls.append(axis_s_dropdown)
 
     def get_conveyor_speed_max(default=10.0):
         try:
@@ -282,37 +347,65 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             return 10.0
 
+    def _sync_master_speed_controls(text_value=None, numeric_value=None, source=None):
+        if text_value is not None:
+            for inp in master_speed_inputs:
+                if inp is source:
+                    continue
+                if inp.value != text_value:
+                    inp.value = text_value
+                    try:
+                        inp.update()
+                    except AssertionError:
+                        pass
+        if numeric_value is not None:
+            for slider in master_speed_sliders:
+                if slider is source:
+                    continue
+                slider.value = clamp_conveyor_speed(float(numeric_value), slider.max)
+                try:
+                    slider.update()
+                except AssertionError:
+                    pass
+
     def on_master_speed_change(e):
         settings["master_speed"] = e.control.value
         save_settings(settings)
+        _sync_master_speed_controls(text_value=e.control.value, source=e.control)
         try:
-            master_speed_slider.value = clamp_conveyor_speed(float(e.control.value or "0"), master_speed_slider.max)
-            master_speed_slider.update()
+            _sync_master_speed_controls(
+                numeric_value=float(e.control.value or "0"),
+                source=e.control,
+            )
         except (NameError, TypeError, ValueError):
             pass
 
     def on_master_speed_slider_change(e):
         speed = float(e.control.value or 0)
-        master_speed_input.value = format_conveyor_speed(speed)
-        settings["master_speed"] = master_speed_input.value
+        speed_text = format_conveyor_speed(speed)
+        master_speed_input.value = speed_text
+        settings["master_speed"] = speed_text
         save_settings(settings)
-        master_speed_input.update()
+        _sync_master_speed_controls(text_value=speed_text, numeric_value=speed, source=e.control)
 
     def refresh_conveyor_speed_limit(max_speed):
         max_speed = max(0.0, max_speed)
         current = clamp_conveyor_speed(get_saved_conveyor_speed(), max_speed)
-        old_max = master_speed_slider.max or 0
-        if max_speed >= old_max:
-            master_speed_slider.max = max_speed
-            master_speed_slider.value = current
-        else:
-            master_speed_slider.value = current
-            master_speed_slider.max = max_speed
-        master_speed_input.value = format_conveyor_speed(current)
-        settings["master_speed"] = master_speed_input.value
+        for slider in master_speed_sliders:
+            old_max = slider.max or 0
+            if max_speed >= old_max:
+                slider.max = max_speed
+                slider.value = current
+            else:
+                slider.value = current
+                slider.max = max_speed
+        for inp in master_speed_inputs:
+            inp.value = format_conveyor_speed(current)
+        settings["master_speed"] = format_conveyor_speed(current)
 
     def on_cutter_output_change(e):
         settings["cutter_output"] = e.control.value
+        _sync_bound_value(cutter_output_inputs, e.control.value, e.control)
         save_settings(settings)
         try:
             recalc()
@@ -334,10 +427,12 @@ def main(page: ft.Page):
             page.update()
             return
         speed_val = clamp_conveyor_speed(speed_val, master_speed_slider.max)
-        master_speed_input.value = format_conveyor_speed(speed_val)
+        speed_text = format_conveyor_speed(speed_val)
+        master_speed_input.value = speed_text
         master_speed_slider.value = speed_val
-        settings["master_speed"] = master_speed_input.value
+        settings["master_speed"] = speed_text
         save_settings(settings)
+        _sync_master_speed_controls(text_value=speed_text, numeric_value=speed_val)
         try:
             master_speed_input.update()
             master_speed_slider.update()
@@ -370,6 +465,7 @@ def main(page: ft.Page):
         on_submit=lambda e: _send_master_speed(),
         tooltip="Conveyor axis SPEED set before Forward/Reverse",
     )
+    master_speed_inputs.append(master_speed_input)
     master_speed_slider = ft.Slider(
         min=0,
         max=get_conveyor_speed_max(),
@@ -384,17 +480,22 @@ def main(page: ft.Page):
         on_change_end=lambda e: _send_master_speed(),
         tooltip="Limited by the calculator MAX line speed",
     )
+    master_speed_sliders.append(master_speed_slider)
 
-    def normalize_conveyor_speed_input():
+    def normalize_conveyor_speed_input(source=None):
         try:
-            speed = float(master_speed_input.value or "0")
+            speed = float((source or master_speed_input).value or "0")
         except (TypeError, ValueError):
             return
         speed = clamp_conveyor_speed(speed, master_speed_slider.max)
-        master_speed_input.value = format_conveyor_speed(speed)
+        speed_text = format_conveyor_speed(speed)
+        master_speed_input.value = speed_text
+        if source is not None:
+            source.value = speed_text
         master_speed_slider.value = speed
-        settings["master_speed"] = master_speed_input.value
+        settings["master_speed"] = speed_text
         save_settings(settings)
+        _sync_master_speed_controls(text_value=speed_text, numeric_value=speed, source=source)
         try:
             master_speed_input.update()
             master_speed_slider.update()
@@ -410,6 +511,7 @@ def main(page: ft.Page):
         text_size=12, on_change=on_cutter_output_change,
         tooltip="Controller digital output number used for knife OP() and live output-state read",
     )
+    cutter_output_inputs.append(cutter_output_input)
 
     cutter_lamp_op_text = ft.Text(
         "OP --",
@@ -477,6 +579,7 @@ def main(page: ft.Page):
         border=ft.Border.all(1, "#263b2f"),
     )
     cutter_lamp_state = {"output": None, "state": None}
+    extra_cutter_lamp_widgets = []
 
     def _set_cutter_output_lamp(output, state):
         if cutter_lamp_state["output"] == output and cutter_lamp_state["state"] == state:
@@ -538,6 +641,27 @@ def main(page: ft.Page):
         ]
         cutter_lamp.border = ft.Border.all(1, housing_border)
         cutter_lamp.tooltip = f"Knife output OP {output}: {label}"
+        for widgets in extra_cutter_lamp_widgets:
+            widgets["op_text"].value = f"OP {output}"
+            widgets["caption_text"].value = caption
+            widgets["caption_text"].color = caption_color
+            widgets["bulb"].gradient = ft.RadialGradient(
+                center=ft.Alignment(-0.38, -0.42),
+                radius=0.9,
+                colors=bulb_colors,
+                stops=[0.0, 0.58, 1.0],
+            )
+            widgets["bulb"].border = ft.Border.all(1, bulb_border)
+            widgets["bulb"].shadow = [
+                ft.BoxShadow(
+                    spread_radius=1 if state == "ON" else 0,
+                    blur_radius=20 if state == "ON" else 8,
+                    color=glow,
+                    offset=ft.Offset(0, 0),
+                )
+            ]
+            widgets["lamp"].border = ft.Border.all(1, housing_border)
+            widgets["lamp"].tooltip = f"Knife output OP {output}: {label}"
         return True
 
     wdog_state = {"enabled": None, "busy": False}
@@ -645,10 +769,12 @@ def main(page: ft.Page):
         except ValueError:
             speed_val = 10.0
         speed_val = clamp_conveyor_speed(speed_val, master_speed_slider.max)
-        master_speed_input.value = format_conveyor_speed(speed_val)
+        speed_text = format_conveyor_speed(speed_val)
+        master_speed_input.value = speed_text
         master_speed_slider.value = speed_val
-        settings["master_speed"] = master_speed_input.value
+        settings["master_speed"] = speed_text
         save_settings(settings)
+        _sync_master_speed_controls(text_value=speed_text, numeric_value=speed_val)
         try:
             master_speed_input.update()
             master_speed_slider.update()
@@ -676,7 +802,7 @@ def main(page: ft.Page):
         uapi_executor.submit(_do)
 
     def _set_motion_controls_enabled(enabled):
-        for btn in (master_fwd_btn, master_rev_btn, master_stop_btn):
+        for btn in (master_fwd_btn, master_rev_btn, master_stop_btn, *rotary_motion_buttons):
             btn.disabled = not enabled
 
     master_fwd_btn = ft.FilledButton(
@@ -1213,6 +1339,11 @@ def main(page: ft.Page):
         new_val = max(SCALE_MIN, min(SCALE_MAX, float(new_val)))
         scale_px_per_unit[0] = new_val
         scale_value_label.value = f"{new_val:g} px/unit"
+        try:
+            rotary_scale_value_label.value = scale_value_label.value
+            rotary_scale_value_label.update()
+        except (NameError, AssertionError):
+            pass
         settings["scale_px_per_unit"] = new_val
         save_settings(settings)
         scale_value_label.update()
@@ -1383,6 +1514,8 @@ def main(page: ft.Page):
 
                 mpos_val_m = None
                 mpos_val_s = None
+                mspeed_val_m = None
+                mspeed_val_s = None
 
                 # Apply results to UI texts
                 for pn, _ in read_params:
@@ -1405,6 +1538,11 @@ def main(page: ft.Page):
                                     mpos_val_m = raw
                                 else:
                                     mpos_val_s = raw
+                            elif pn == "MSPEED":
+                                if side == "m":
+                                    mspeed_val_m = raw
+                                else:
+                                    mspeed_val_s = raw
                         txt = mon_vals[pn]
                         if txt.value != new_val:
                             txt.value = new_val
@@ -1417,6 +1555,12 @@ def main(page: ft.Page):
                     if comms_lag_label.value != lag_str:
                         comms_lag_label.value = lag_str
                         dirty = True
+                    try:
+                        if rotary_comms_lag_label.value != lag_str:
+                            rotary_comms_lag_label.value = lag_str
+                            dirty = True
+                    except NameError:
+                        pass
 
                 # Update Master visualizer
                 if mpos_val_m is not None:
@@ -1437,6 +1581,18 @@ def main(page: ft.Page):
                         shear_position_spacer.width = new_left
                         dirty = True
 
+                try:
+                    if update_rotary_sim_from_reads(
+                        mpos_val_m,
+                        mpos_val_s,
+                        mspeed_val_m,
+                        mspeed_val_s,
+                        frame_start,
+                    ):
+                        dirty = True
+                except NameError:
+                    pass
+
                 # Update FPS display
                 if len(fps_timestamps) >= 2:
                     span = fps_timestamps[-1] - fps_timestamps[0]
@@ -1446,12 +1602,22 @@ def main(page: ft.Page):
                         if fps_label.value != fps_str:
                             fps_label.value = fps_str
                             dirty = True
+                        try:
+                            if rotary_fps_label.value != fps_str:
+                                rotary_fps_label.value = fps_str
+                                dirty = True
+                        except NameError:
+                            pass
 
                 if dirty and frame_counter % ui_update_every == 0:
                     monitor_container.update()
                     # params_panel lives outside monitor_container (in the
                     # connection header row), so it needs its own update.
                     params_panel.update()
+                    try:
+                        rotary_sim_container.update()
+                    except NameError:
+                        pass
             except Exception as ex:
                 print(f"Monitor error: {ex}")
 
@@ -1587,6 +1753,10 @@ def main(page: ft.Page):
             show_snack("Controller connected. Live monitor is starting.", "success")
 
             await refresh_wdog_state()
+            try:
+                await refresh_rotary_drum_units()
+            except NameError:
+                pass
             start_monitor()
             saved_sets = get_saved_axis_param_sets()
             if saved_sets:
@@ -3502,6 +3672,7 @@ def main(page: ft.Page):
                      f"{diag['table_resolution_deg']:.4f}°/point on drum")
         lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
                      f"{int(diag['cut_segment_counts'])} counts per cut segment")
+        lines.append("' Drum zero: blade at top. Material contact/cut is 180 deg from zero.")
         lines.append(f"' Cut zone: {diag['cut_zone_master_mm']:.2f} mm of material "
                      f"(R={diag['R']:.4f})")
         lines.append(f"' Inside cut window: ratio={diag['v_cut']:.4f} center, "
@@ -3522,6 +3693,7 @@ def main(page: ft.Page):
         lines.append("")
         lines.append("BASE(drum_ax)")
         lines.append("SERVO = ON")
+        lines.append("' Jog/home the blade to the top before this line; that is drum position 0.")
         lines.append("DEFPOS(0)")
         lines.append("")
         lines.append("' Bit 2 = repeat continuously")
@@ -3640,6 +3812,11 @@ def main(page: ft.Page):
             link_axis=link_ax, drum_axis=drum_ax,
             table_start=table_start, cutter_op=cutter_op,
         )
+        try:
+            update_rotary_units_label()
+            redraw_rotary_sim()
+        except NameError:
+            pass
         page.update()
 
     # Hook up handlers
@@ -3743,8 +3920,1023 @@ def main(page: ft.Page):
 
     cam_recalc()
 
+    # ============================================================
+    # === Rotary Knife Live Simulation ===========================
+    # ============================================================
+    rotary_sim_settings = settings.setdefault("rotary_sim", {})
+    ROTARY_MPOS_OVERRIDE_KEY = "mpos_counts_per_rev_override"
+    ROTARY_LEGACY_MPOS_OVERRIDE_KEY = "drum_mpos_units_override"
+    if ROTARY_MPOS_OVERRIDE_KEY not in rotary_sim_settings:
+        rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = rotary_sim_settings.pop(
+            ROTARY_LEGACY_MPOS_OVERRIDE_KEY,
+            None,
+        )
+    else:
+        rotary_sim_settings.pop(ROTARY_LEGACY_MPOS_OVERRIDE_KEY, None)
+    rotary_sim_settings.setdefault("drum_direction_reversed", False)
+    rotary_sim_settings.setdefault("link_units_to_mm", 1.0)
+    rotary_sim_settings.setdefault(ROTARY_MPOS_OVERRIDE_KEY, None)
+    rotary_sim_settings.setdefault("match_tolerance_pct", 2.0)
+
+    ROTARY_SIM_HEIGHT = 360
+    ROTARY_DRUM_RADIUS_PX = 117
+    ROTARY_KNIFE_LENGTH_PX = 28
+    ROTARY_ACTIVE_KNIFE_EXTENSION_PX = 7
+    ROTARY_GUIDE_GAP_PX = ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX
+    ROTARY_MATERIAL_CONTACT_ANGLE_RAD = math.pi
+
+    rotary_sim_state = {
+        "line_mpos": None,
+        "drum_mpos": None,
+        "line_mspeed": None,
+        "drum_mspeed": None,
+        "belt_offset_px": 0.0,
+        "drum_angle": 0.0,
+        "axis_units": None,
+        "units_axis": None,
+        "mpos_per_rev": None,
+        "units_source": "not read",
+        "units_error": None,
+        "units_warning": None,
+        "last_diag_update": 0.0,
+        "speed_samples": collections.deque(maxlen=8),
+    }
+
+    def rotary_setting_float(key, default):
+        try:
+            return float(rotary_sim_settings.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def cam_setting_float(key, default):
+        try:
+            return float(cam_settings.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def cam_setting_int(key, default):
+        try:
+            return max(1, int(float(cam_settings.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    def format_rotary_count(value):
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return "--"
+        if abs(val - round(val)) < 1e-9:
+            return f"{int(round(val)):,}"
+        return f"{val:,.6g}"
+
+    def format_rotary_mpos_rev(value):
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return "--"
+        if abs(val - round(val)) < 1e-9 and abs(val) < 1000:
+            return f"{val:.1f}"
+        return format_rotary_count(val)
+
+    def rotary_override_value():
+        raw = rotary_sim_settings.get(ROTARY_MPOS_OVERRIDE_KEY)
+        try:
+            val = float(raw)
+            return val if val > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def rotary_recompute_mpos_per_rev():
+        override = rotary_override_value()
+        if override is not None:
+            rotary_sim_state["mpos_per_rev"] = override
+            rotary_sim_state["units_source"] = "manual override"
+            rotary_sim_state["units_error"] = None
+            rotary_sim_state["units_warning"] = None
+            return override
+
+        cpr = cam_setting_float("cpr", 8388608)
+        units = rotary_sim_state.get("axis_units")
+        if units is None:
+            rotary_sim_state["mpos_per_rev"] = None
+            rotary_sim_state["units_error"] = "Drum UNITS not read"
+            return None
+
+        try:
+            rotary_sim_state["mpos_per_rev"] = compute_rotary_mpos_counts_per_physical_rev(cpr, units)
+        except ValueError as ex:
+            rotary_sim_state["mpos_per_rev"] = None
+            rotary_sim_state["units_error"] = str(ex)
+            return None
+
+        rotary_sim_state["units_error"] = None
+        return rotary_sim_state["mpos_per_rev"]
+
+    def update_rotary_units_label():
+        cpr = cam_setting_float("cpr", 8388608)
+        units = rotary_sim_state.get("axis_units")
+        mpos_per_rev = rotary_recompute_mpos_per_rev()
+
+        rotary_encoder_cpr_label.value = format_rotary_count(cpr)
+        rotary_encoder_cpr_label.color = SUCCESS_COLOR if cpr > 0 else ERROR_COLOR
+
+        if units is None:
+            rotary_drum_units_label.value = "--"
+            rotary_drum_units_label.color = WARNING_COLOR
+        else:
+            rotary_drum_units_label.value = format_rotary_count(units)
+            rotary_drum_units_label.color = SUCCESS_COLOR
+
+        if mpos_per_rev:
+            rotary_mpos_per_rev_label.value = format_rotary_mpos_rev(mpos_per_rev)
+            rotary_mpos_per_rev_label.color = SUCCESS_COLOR
+        else:
+            rotary_mpos_per_rev_label.value = "--"
+            rotary_mpos_per_rev_label.color = ERROR_COLOR
+
+        if rotary_sim_state.get("units_error"):
+            rotary_units_source_label.value = rotary_sim_state["units_error"]
+            rotary_units_source_label.color = ERROR_COLOR
+        elif rotary_sim_state.get("units_warning"):
+            rotary_units_source_label.value = rotary_sim_state["units_warning"]
+            rotary_units_source_label.color = WARNING_COLOR
+        elif rotary_override_value() is not None:
+            rotary_units_source_label.value = "manual override"
+            rotary_units_source_label.color = WARNING_COLOR
+        else:
+            rotary_units_source_label.value = rotary_sim_state.get("units_source", "auto: cpr / UNITS")
+            rotary_units_source_label.color = MUTED_TEXT
+
+    def saved_drum_units_for_axis(axis):
+        axis_params = settings.get("axis_params", {}).get(str(axis), {})
+        try:
+            return float(axis_params.get("UNITS"))
+        except (TypeError, ValueError):
+            return None
+
+    def apply_saved_rotary_units_fallback(axis):
+        units = saved_drum_units_for_axis(axis)
+        if units is None:
+            rotary_sim_state["axis_units"] = None
+            rotary_sim_state["units_axis"] = axis
+            rotary_sim_state["units_source"] = "not connected"
+        else:
+            rotary_sim_state["axis_units"] = units
+            rotary_sim_state["units_axis"] = axis
+            rotary_sim_state["units_source"] = f"saved UNITS {units:g}"
+        rotary_sim_state["units_error"] = None
+        rotary_sim_state["units_warning"] = None
+        update_rotary_units_label()
+
+    def request_rotary_units_refresh():
+        try:
+            axis = int(axis_s_dropdown.value or "1")
+        except ValueError:
+            axis = 1
+
+        if rotary_override_value() is not None:
+            rotary_sim_state["units_axis"] = axis
+            update_rotary_units_label()
+            redraw_rotary_sim()
+            try:
+                rotary_sim_container.update()
+            except AssertionError:
+                pass
+            return
+
+        if not trio_conn.is_connected():
+            apply_saved_rotary_units_fallback(axis)
+            redraw_rotary_sim()
+            try:
+                rotary_sim_container.update()
+            except AssertionError:
+                pass
+            return
+
+        try:
+            asyncio.create_task(refresh_rotary_drum_units())
+        except RuntimeError:
+            pass
+
+    async def refresh_rotary_drum_units(e=None):
+        try:
+            axis = int(axis_s_dropdown.value or "1")
+        except ValueError:
+            axis = 1
+
+        if rotary_override_value() is not None:
+            rotary_sim_state["units_axis"] = axis
+            update_rotary_units_label()
+            rotary_status_text.value = "Using manual drum MPOS/rev override."
+            rotary_status_text.color = WARNING_COLOR
+            redraw_rotary_sim()
+            page.update()
+            return
+
+        if not trio_conn.is_connected():
+            apply_saved_rotary_units_fallback(axis)
+            rotary_status_text.value = "Controller not connected; using saved axis UNITS if available."
+            rotary_status_text.color = MUTED_TEXT
+            redraw_rotary_sim()
+            page.update()
+            return
+
+        loop = asyncio.get_running_loop()
+
+        def _read_units():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                return None
+            method = getattr(conn, "GetAxisParameter_UNITS", None)
+            if method is None:
+                return None
+            return float(method(axis))
+
+        try:
+            units = await loop.run_in_executor(uapi_executor, _read_units)
+            if units is None:
+                raise RuntimeError("GetAxisParameter_UNITS unavailable")
+            rotary_sim_state["axis_units"] = units
+            rotary_sim_state["units_axis"] = axis
+            rotary_sim_state["units_source"] = f"axis {axis} UNITS {units:g}"
+            rotary_sim_state["units_error"] = None
+            rotary_sim_state["units_warning"] = None
+            rotary_status_text.value = f"Drum axis {axis} UNITS read: {units:g}"
+            rotary_status_text.color = SUCCESS_COLOR
+        except Exception as ex:
+            fallback_units = saved_drum_units_for_axis(axis)
+            if fallback_units is None:
+                fallback_units = 1.0
+                fallback_text = "fallback UNITS 1"
+            else:
+                fallback_text = f"saved UNITS {format_rotary_count(fallback_units)}"
+            rotary_sim_state["axis_units"] = fallback_units
+            rotary_sim_state["units_axis"] = axis
+            rotary_sim_state["units_source"] = fallback_text
+            rotary_sim_state["units_error"] = None
+            rotary_sim_state["units_warning"] = f"UNITS read failed; using {fallback_text}"
+            rotary_status_text.value = f"Drum UNITS read failed: {ex}; using {fallback_text}."
+            rotary_status_text.color = WARNING_COLOR
+
+        update_rotary_units_label()
+        redraw_rotary_sim()
+        page.update()
+
+    def rotary_draw_conveyor(shapes, width, belt_offset_px):
+        rail_color = "#4a4f55"
+        belt_left = PULLEY_SIZE
+        belt_right = width - PULLEY_SIZE
+        belt_width_px = max(120, belt_right - belt_left)
+        pulley_y = ROTARY_SIM_HEIGHT - 58
+        belt_y = pulley_y + (PULLEY_SIZE - BELT_HEIGHT) / 2
+        belt_center_y = belt_y + BELT_HEIGHT / 2
+
+        shapes.extend([
+            cv.Rect(0, 0, width, ROTARY_SIM_HEIGHT,
+                    paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
+            cv.Rect(0, belt_y - RAIL_HEIGHT - 2, width, RAIL_HEIGHT,
+                    paint=ft.Paint(color=rail_color, style=ft.PaintingStyle.FILL)),
+            cv.Rect(0, belt_y + BELT_HEIGHT + 2, width, RAIL_HEIGHT,
+                    paint=ft.Paint(color=rail_color, style=ft.PaintingStyle.FILL)),
+            cv.Rect(belt_left, belt_y, belt_width_px, BELT_HEIGHT,
+                    border_radius=ft.BorderRadius.all(BELT_HEIGHT / 2),
+                    paint=ft.Paint(
+                        gradient=ft.PaintLinearGradient(
+                            begin=ft.Offset(belt_left, belt_y),
+                            end=ft.Offset(belt_left, belt_y + BELT_HEIGHT),
+                            colors=["#262626", "#070707", "#262626"],
+                            color_stops=[0.0, 0.5, 1.0],
+                        ),
+                        style=ft.PaintingStyle.FILL,
+                    )),
+            cv.Circle(PULLEY_SIZE / 2, belt_center_y, PULLEY_SIZE / 2,
+                      paint=ft.Paint(color="#6f7478", style=ft.PaintingStyle.FILL)),
+            cv.Circle(width - PULLEY_SIZE / 2, belt_center_y, PULLEY_SIZE / 2,
+                      paint=ft.Paint(color="#6f7478", style=ft.PaintingStyle.FILL)),
+            cv.Circle(PULLEY_SIZE / 2, belt_center_y, PULLEY_SIZE * 0.16,
+                      paint=ft.Paint(color="#151515", style=ft.PaintingStyle.FILL)),
+            cv.Circle(width - PULLEY_SIZE / 2, belt_center_y, PULLEY_SIZE * 0.16,
+                      paint=ft.Paint(color="#151515", style=ft.PaintingStyle.FILL)),
+        ])
+
+        x = belt_left - BELT_SPACING + (belt_offset_px % BELT_SPACING)
+        cleat_paint = ft.Paint(
+            gradient=ft.PaintLinearGradient(
+                begin=ft.Offset(0, belt_y),
+                end=ft.Offset(0, belt_y + BELT_HEIGHT),
+                colors=[ft.Colors.GREY_400, ft.Colors.GREY_700, "#050505"],
+                color_stops=[0.0, 0.45, 1.0],
+            ),
+            style=ft.PaintingStyle.FILL,
+        )
+        while x < belt_right + BELT_SPACING:
+            if belt_left - CLEAT_WIDTH <= x <= belt_right:
+                shapes.append(
+                    cv.Rect(x, belt_y + (BELT_HEIGHT - CLEAT_HEIGHT) / 2,
+                            CLEAT_WIDTH, CLEAT_HEIGHT,
+                            border_radius=ft.BorderRadius.all(2),
+                            paint=cleat_paint)
+                )
+            x += BELT_SPACING
+        return belt_y
+
+    def rotary_cut_state_for_angle(drum_angle, n_knives, cut_window_deg):
+        spacing = 2 * math.pi / max(1, n_knives)
+        knife_angles = [(drum_angle + i * spacing) % (2 * math.pi) for i in range(n_knives)]
+        distances = [
+            shortest_angle_distance_rad(a, ROTARY_MATERIAL_CONTACT_ANGLE_RAD)
+            for a in knife_angles
+        ]
+        closest = min(distances) if distances else 0.0
+        closest_index = distances.index(closest) if distances else 0
+        half_window = math.radians(cut_window_deg / 2.0)
+        in_cut = closest <= half_window
+        approach_band = max(half_window * 2.0, half_window + math.radians(10))
+        approaching = not in_cut and closest <= approach_band
+        return knife_angles, closest_index, closest, in_cut, approaching
+
+    def draw_rotary_drum(shapes, width, belt_y, drum_angle):
+        n_knives = cam_setting_int("n_knives", 1)
+        cut_window = max(0.1, cam_setting_float("cut_window", 30.0))
+        r = ROTARY_DRUM_RADIUS_PX
+        horizontal_margin = r + ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX + 20
+        if width >= horizontal_margin * 2:
+            cx = max(horizontal_margin, min(width - horizontal_margin, width * 0.30))
+        else:
+            cx = width / 2
+        cy = belt_y - ROTARY_GUIDE_GAP_PX - r
+        half_window = math.radians(cut_window / 2.0)
+        knife_angles, closest_index, closest, in_cut, approaching = rotary_cut_state_for_angle(
+            drum_angle, n_knives, cut_window
+        )
+
+        guideline_paint = canvas_paint("#59636d", 1.2, dash=[5, 5])
+        shapes.append(cv.Line(cx, cy, cx, belt_y + BELT_HEIGHT + 10, paint=guideline_paint))
+
+        shapes.extend([
+            cv.Circle(cx, cy, r,
+                      paint=ft.Paint(
+                          gradient=ft.PaintRadialGradient(
+                              center=ft.Offset(cx - r * 0.35, cy - r * 0.38),
+                              radius=r * 1.35,
+                              colors=["#c3c8cc", "#707982", "#252a30"],
+                              color_stops=[0.0, 0.58, 1.0],
+                          ),
+                          style=ft.PaintingStyle.FILL,
+                      )),
+            cv.Circle(cx, cy, r,
+                      paint=canvas_paint("#111111", 1.5)),
+            cv.Arc(cx - r, cy - r, 2 * r, 2 * r,
+                   start_angle=math.pi / 2 - half_window,
+                   sweep_angle=2 * half_window,
+                   paint=canvas_paint("#ccd24a35", 10)),
+            cv.Circle(cx, cy, 22,
+                      paint=ft.Paint(color="#252a30", style=ft.PaintingStyle.FILL)),
+            cv.Circle(cx, cy, 8,
+                      paint=ft.Paint(color="#0a0d10", style=ft.PaintingStyle.FILL)),
+        ])
+
+        blade_fill = ft.Paint(color="#e7ecef", style=ft.PaintingStyle.FILL)
+        blade_stroke = canvas_paint("#252a30", 1.2)
+        blade_hot_fill = ft.Paint(color="#ffe082", style=ft.PaintingStyle.FILL)
+        for i, theta in enumerate(knife_angles):
+            dx, dy = rotary_blade_direction_for_angle(theta)
+            tx = math.cos(theta)
+            ty = math.sin(theta)
+            is_hot = i == closest_index and in_cut
+            blade_len = ROTARY_KNIFE_LENGTH_PX + (ROTARY_ACTIVE_KNIFE_EXTENSION_PX if is_hot else 0)
+            blade_w = 18 + (6 if is_hot else 0)
+            tip_x = cx + (r + blade_len) * dx
+            tip_y = cy + (r + blade_len) * dy
+            base_x = cx + (r - 2) * dx
+            base_y = cy + (r - 2) * dy
+            p1 = (tip_x, tip_y)
+            p2 = (base_x + tx * blade_w / 2, base_y + ty * blade_w / 2)
+            p3 = (base_x - tx * blade_w / 2, base_y - ty * blade_w / 2)
+            if is_hot:
+                shapes.append(
+                    cv.Circle(tip_x, tip_y, 13,
+                              paint=ft.Paint(color="#55ffd54f", style=ft.PaintingStyle.FILL))
+                )
+            path = cv.Path(
+                elements=[
+                    cv.Path.MoveTo(*p1),
+                    cv.Path.LineTo(*p2),
+                    cv.Path.LineTo(*p3),
+                    cv.Path.Close(),
+                ],
+                paint=blade_hot_fill if is_hot else blade_fill,
+            )
+            shapes.append(path)
+            shapes.append(
+                cv.Path(
+                    elements=[
+                        cv.Path.MoveTo(*p1),
+                        cv.Path.LineTo(*p2),
+                        cv.Path.LineTo(*p3),
+                        cv.Path.Close(),
+                    ],
+                    paint=blade_stroke,
+                )
+            )
+
+        return in_cut, approaching, closest
+
+    def redraw_rotary_sim():
+        width = float(rotary_sim_canvas.width or visual_width)
+        shapes = []
+        belt_y = rotary_draw_conveyor(shapes, width, rotary_sim_state["belt_offset_px"])
+        in_cut, approaching, closest = draw_rotary_drum(
+            shapes,
+            width,
+            belt_y,
+            rotary_sim_state.get("drum_angle", 0.0),
+        )
+        rotary_sim_state["in_cut"] = in_cut
+        rotary_sim_state["approaching"] = approaching
+        rotary_sim_state["closest_knife_rad"] = closest
+        rotary_sim_canvas.shapes = shapes
+        return True
+
+    def rotary_diag_card(label, value_control, width=185):
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(label, size=11, color=ft.Colors.GREY_400),
+                value_control,
+            ], spacing=4, tight=True),
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=10,
+            width=width,
+        )
+
+    def update_rotary_diagnostics(now):
+        if now - rotary_sim_state["last_diag_update"] < 0.12:
+            return False
+        rotary_sim_state["last_diag_update"] = now
+
+        line_mspeed = rotary_sim_state.get("line_mspeed")
+        drum_mspeed = rotary_sim_state.get("drum_mspeed")
+        link_units_to_mm = rotary_setting_float("link_units_to_mm", 1.0)
+        drum_diameter = cam_setting_float("drum_dia", 200.0)
+        mpos_per_rev = rotary_recompute_mpos_per_rev()
+        in_cut = bool(rotary_sim_state.get("in_cut"))
+        approaching = bool(rotary_sim_state.get("approaching"))
+
+        line_mm_s = line_mspeed * link_units_to_mm if line_mspeed is not None else None
+        drum_mm_s = None
+        if drum_mspeed is not None and mpos_per_rev:
+            try:
+                drum_mm_s = compute_rotary_drum_tangential_mm_s(
+                    drum_mspeed,
+                    mpos_per_rev,
+                    drum_diameter,
+                )
+            except ValueError:
+                drum_mm_s = None
+
+        if line_mm_s is not None and drum_mm_s is not None:
+            rotary_sim_state["speed_samples"].append((line_mm_s, drum_mm_s))
+        if rotary_sim_state["speed_samples"]:
+            line_mm_s = sum(s[0] for s in rotary_sim_state["speed_samples"]) / len(rotary_sim_state["speed_samples"])
+            drum_mm_s = sum(s[1] for s in rotary_sim_state["speed_samples"]) / len(rotary_sim_state["speed_samples"])
+
+        if line_mspeed is None:
+            rotary_line_speed_label.value = "--"
+        else:
+            rotary_line_speed_label.value = f"{line_mspeed:.3f} u/s -> {line_mspeed * link_units_to_mm:.3f} mm/s"
+
+        if drum_mm_s is None:
+            rotary_drum_speed_label.value = "--"
+        else:
+            rotary_drum_speed_label.value = f"{drum_mm_s:.3f} mm/s"
+
+        if in_cut:
+            rotary_cut_status_label.value = "In cut"
+            rotary_cut_status_label.color = SUCCESS_COLOR
+        elif approaching:
+            rotary_cut_status_label.value = "Approaching"
+            rotary_cut_status_label.color = WARNING_COLOR
+        else:
+            rotary_cut_status_label.value = "Outside"
+            rotary_cut_status_label.color = MUTED_TEXT
+
+        if in_cut and line_mm_s is not None and drum_mm_s is not None:
+            delta = line_mm_s - drum_mm_s
+            denom = abs(line_mm_s) if abs(line_mm_s) > 1e-9 else 1.0
+            pct = abs(delta) / denom * 100.0
+            green_pct = max(0.1, rotary_setting_float("match_tolerance_pct", 2.0))
+            amber_pct = max(5.0, green_pct * 2.5)
+            rotary_match_delta_label.value = f"{delta:+.3f} mm/s ({pct:.1f}%)"
+            if pct < green_pct:
+                rotary_match_delta_label.color = SUCCESS_COLOR
+            elif pct < amber_pct:
+                rotary_match_delta_label.color = WARNING_COLOR
+            else:
+                rotary_match_delta_label.color = ERROR_COLOR
+        else:
+            rotary_match_delta_label.value = "--"
+            rotary_match_delta_label.color = MUTED_TEXT
+
+        if rotary_sim_state.get("units_error"):
+            rotary_status_text.value = rotary_sim_state["units_error"]
+            rotary_status_text.color = ERROR_COLOR
+        elif rotary_sim_state.get("units_warning"):
+            rotary_status_text.value = rotary_sim_state["units_warning"]
+            rotary_status_text.color = WARNING_COLOR
+        elif trio_conn.is_connected():
+            rotary_status_text.value = "Live MPOS geometry from controller."
+            rotary_status_text.color = SUCCESS_COLOR
+        else:
+            rotary_status_text.value = "Not connected; static schematic."
+            rotary_status_text.color = MUTED_TEXT
+
+        update_rotary_units_label()
+        return True
+
+    def update_rotary_sim_from_reads(line_mpos, drum_mpos, line_mspeed, drum_mspeed, now):
+        dirty = False
+        if line_mspeed is not None:
+            rotary_sim_state["line_mspeed"] = line_mspeed
+        if drum_mspeed is not None:
+            rotary_sim_state["drum_mspeed"] = drum_mspeed
+
+        if line_mpos is not None:
+            rotary_sim_state["line_mpos"] = line_mpos
+            if position_zero_m[0] is None:
+                position_zero_m[0] = line_mpos
+            delta = line_mpos - position_zero_m[0]
+            rotary_sim_state["belt_offset_px"] = (
+                CONVEYOR_VISUAL_DIRECTION * delta * scale_px_per_unit[0]
+            ) % BELT_SPACING
+            dirty = True
+
+        mpos_per_rev = rotary_recompute_mpos_per_rev()
+        if drum_mpos is not None:
+            rotary_sim_state["drum_mpos"] = drum_mpos
+            if mpos_per_rev and mpos_per_rev != 0:
+                angle = compute_rotary_drum_angle_rad(drum_mpos, mpos_per_rev)
+                if rotary_reverse_checkbox.value:
+                    angle = -angle
+                rotary_sim_state["drum_angle"] = angle % (2 * math.pi)
+            dirty = True
+
+        if dirty:
+            redraw_rotary_sim()
+        if update_rotary_diagnostics(now):
+            dirty = True
+        return dirty
+
+    def on_rotary_reverse_change(e):
+        rotary_sim_settings["drum_direction_reversed"] = bool(e.control.value)
+        save_settings(settings)
+        redraw_rotary_sim()
+        page.update()
+
+    def on_rotary_link_units_change(e):
+        try:
+            val = float(e.control.value or "1.0")
+            if val <= 0:
+                raise ValueError
+            rotary_sim_settings["link_units_to_mm"] = val
+            save_settings(settings)
+        except ValueError:
+            rotary_status_text.value = "Link units to mm must be > 0."
+            rotary_status_text.color = ERROR_COLOR
+        update_rotary_diagnostics(time.perf_counter())
+        page.update()
+
+    def on_rotary_override_change(e):
+        text = (e.control.value or "").strip()
+        if text == "":
+            rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = None
+            try:
+                axis = int(axis_s_dropdown.value or "1")
+            except ValueError:
+                axis = 1
+            apply_saved_rotary_units_fallback(axis)
+        else:
+            try:
+                val = float(text)
+                if val <= 0:
+                    raise ValueError
+                rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = val
+                rotary_recompute_mpos_per_rev()
+            except ValueError:
+                rotary_status_text.value = "Drum MPOS/rev override must be blank or > 0."
+                rotary_status_text.color = ERROR_COLOR
+                page.update()
+                return
+        save_settings(settings)
+        update_rotary_units_label()
+        redraw_rotary_sim()
+        page.update()
+
+    def on_rotary_tolerance_change(e):
+        try:
+            val = float(e.control.value or "2.0")
+            if val <= 0:
+                raise ValueError
+            rotary_sim_settings["match_tolerance_pct"] = val
+            save_settings(settings)
+        except ValueError:
+            rotary_status_text.value = "Match tolerance must be > 0%."
+            rotary_status_text.color = ERROR_COLOR
+        update_rotary_diagnostics(time.perf_counter())
+        page.update()
+
+    def make_rotary_axis_dropdown(label, value, handler, width):
+        dd = ft.Dropdown(
+            label=label, width=width, height=45,
+            options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
+            value=value,
+            bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
+            focused_border_color=ACCENT_COLOR,
+            text_size=12, on_select=handler,
+        )
+        return dd
+
+    def make_rotary_motion_button(text, icon, color, command, tooltip):
+        return ft.FilledButton(
+            text,
+            icon=icon,
+            on_click=lambda e: _send_master_cmd(command),
+            disabled=not trio_conn.is_connected(),
+            style=ft.ButtonStyle(bgcolor=color, color=ft.Colors.WHITE),
+            height=38,
+            tooltip=tooltip,
+        )
+
+    def make_cutter_lamp_panel_clone():
+        op_text = ft.Text("OP --", size=11, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+        caption_text = ft.Text("NO DATA", size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+        bulb = ft.Container(
+            width=36,
+            height=36,
+            border_radius=18,
+            gradient=ft.RadialGradient(
+                center=ft.Alignment(-0.38, -0.42),
+                radius=0.9,
+                colors=["#515a55", "#26302b", "#111615"],
+                stops=[0.0, 0.58, 1.0],
+            ),
+            border=ft.Border.all(1, "#48534e"),
+            shadow=[ft.BoxShadow(spread_radius=0, blur_radius=8, color="#30323a36", offset=ft.Offset(0, 0))],
+        )
+        lamp = ft.Container(
+            width=54,
+            height=54,
+            padding=5,
+            bgcolor="#0b1110",
+            border_radius=27,
+            border=ft.Border.all(1, "#2c3a34"),
+            content=bulb,
+            alignment=ft.Alignment(0, 0),
+            tooltip="Knife output state unavailable",
+        )
+        extra_cutter_lamp_widgets.append({
+            "op_text": op_text,
+            "caption_text": caption_text,
+            "bulb": bulb,
+            "lamp": lamp,
+        })
+        return ft.Container(
+            content=ft.Row(
+                [
+                    lamp,
+                    ft.Column([op_text, caption_text], spacing=1, tight=True,
+                              alignment=ft.MainAxisAlignment.CENTER),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding(8, 6, 10, 6),
+            border_radius=8,
+            bgcolor="#121a16",
+            border=ft.Border.all(1, "#263b2f"),
+        )
+
+    rotary_axis_m_dropdown = make_rotary_axis_dropdown(
+        "Material / encoder axis",
+        settings.get("master_axis", "0"),
+        on_axis_m_change,
+        165,
+    )
+    axis_m_bound_controls.append(rotary_axis_m_dropdown)
+
+    rotary_axis_s_dropdown = make_rotary_axis_dropdown(
+        "Drum axis",
+        settings.get("slave_axis", "1"),
+        on_axis_s_change,
+        135,
+    )
+    axis_s_bound_controls.append(rotary_axis_s_dropdown)
+
+    rotary_cutter_output_input = ft.TextField(
+        label="Knife OP",
+        value=str(settings.get("cutter_output", "8")),
+        width=110,
+        height=45,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        text_size=12,
+        on_change=on_cutter_output_change,
+        tooltip="Controller digital output number used for knife OP() and live output-state read",
+    )
+    cutter_output_inputs.append(rotary_cutter_output_input)
+
+    rotary_master_speed_input = ft.TextField(
+        label="Conveyor speed",
+        value=format_conveyor_speed(clamp_conveyor_speed(get_saved_conveyor_speed())),
+        width=140,
+        height=45,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        suffix="u/s",
+        text_size=12,
+        on_change=on_master_speed_change,
+        on_blur=lambda e: normalize_conveyor_speed_input(e.control),
+        on_submit=lambda e: _send_master_speed(),
+        tooltip="Conveyor axis SPEED set before Forward/Reverse",
+    )
+    master_speed_inputs.append(rotary_master_speed_input)
+
+    rotary_master_speed_slider = ft.Slider(
+        min=0,
+        max=get_conveyor_speed_max(),
+        value=clamp_conveyor_speed(float(rotary_master_speed_input.value or 0)),
+        width=230,
+        label="{value} u/s",
+        round=1,
+        active_color=ft.Colors.CYAN_300,
+        inactive_color=ft.Colors.GREY_700,
+        thumb_color=ft.Colors.CYAN_200,
+        on_change=on_master_speed_slider_change,
+        on_change_end=lambda e: _send_master_speed(),
+        tooltip="Limited by the calculator MAX line speed",
+    )
+    master_speed_sliders.append(rotary_master_speed_slider)
+
+    rotary_master_fwd_btn = make_rotary_motion_button(
+        "Forward", ft.Icons.PLAY_ARROW, ft.Colors.GREEN_700,
+        "forward", "Forward(master) - continuous move forward",
+    )
+    rotary_master_rev_btn = make_rotary_motion_button(
+        "Reverse", ft.Icons.ARROW_BACK, ft.Colors.BLUE_GREY_700,
+        "reverse", "Reverse(master) - continuous move reverse",
+    )
+    rotary_master_stop_btn = make_rotary_motion_button(
+        "Stop", ft.Icons.STOP, ft.Colors.RED_700,
+        "cancel", "Cancel(2, master) - stop buffered + current move",
+    )
+    rotary_motion_buttons.extend([rotary_master_fwd_btn, rotary_master_rev_btn, rotary_master_stop_btn])
+
+    rotary_scale_value_label = ft.Text(
+        f"{scale_px_per_unit[0]:g} px/unit",
+        size=12,
+        color=ft.Colors.CYAN_200,
+        weight=ft.FontWeight.BOLD,
+        width=90,
+    )
+    rotary_recenter_btn = ft.IconButton(
+        icon=ft.Icons.CENTER_FOCUS_STRONG,
+        tooltip="Re-center on current position",
+        on_click=on_recenter,
+    )
+    rotary_scale_minus_btn = ft.IconButton(
+        icon=ft.Icons.REMOVE,
+        icon_size=18,
+        tooltip="Decrease scale by 1",
+        on_click=on_scale_step(-1),
+    )
+    rotary_scale_plus_btn = ft.IconButton(
+        icon=ft.Icons.ADD,
+        icon_size=18,
+        tooltip="Increase scale by 1",
+        on_click=on_scale_step(1),
+    )
+    rotary_scale_minus10_btn = ft.IconButton(
+        icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT,
+        icon_size=18,
+        tooltip="Decrease scale by 10",
+        on_click=on_scale_step(-10),
+    )
+    rotary_scale_plus10_btn = ft.IconButton(
+        icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT,
+        icon_size=18,
+        tooltip="Increase scale by 10",
+        on_click=on_scale_step(10),
+    )
+
+    rotary_reverse_checkbox = ft.Checkbox(
+        label="Reverse drum direction",
+        value=bool(rotary_sim_settings.get("drum_direction_reversed", False)),
+        fill_color=ft.Colors.BLUE_700,
+        check_color=ft.Colors.WHITE,
+        on_change=on_rotary_reverse_change,
+        tooltip="Flip MPOS-to-angle sign if encoder polarity is opposite to the visual",
+    )
+    rotary_link_units_input = ft.TextField(
+        label="Link units to mm",
+        value=str(rotary_sim_settings.get("link_units_to_mm", 1.0)),
+        width=145,
+        height=45,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        suffix="mm/u",
+        text_size=12,
+        on_blur=on_rotary_link_units_change,
+        on_submit=on_rotary_link_units_change,
+        tooltip="Multiplier from material-axis user units to millimeters",
+    )
+    rotary_mpos_override_input = ft.TextField(
+        label="MPOS counts/rev override",
+        value="" if rotary_sim_settings.get(ROTARY_MPOS_OVERRIDE_KEY) is None else str(rotary_sim_settings.get(ROTARY_MPOS_OVERRIDE_KEY)),
+        width=190,
+        height=45,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        text_size=12,
+        on_blur=on_rotary_override_change,
+        on_submit=on_rotary_override_change,
+        tooltip="Blank = auto from encoder counts/rev / drum axis UNITS",
+    )
+    rotary_tolerance_input = ft.TextField(
+        label="Match green tol",
+        value=str(rotary_sim_settings.get("match_tolerance_pct", 2.0)),
+        width=135,
+        height=45,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        suffix="%",
+        text_size=12,
+        on_blur=on_rotary_tolerance_change,
+        on_submit=on_rotary_tolerance_change,
+        tooltip="Green tangential-speed match tolerance while knife is in the cut window",
+    )
+    rotary_refresh_units_btn = ft.OutlinedButton(
+        "Refresh",
+        icon=ft.Icons.REFRESH,
+        height=38,
+        on_click=refresh_rotary_drum_units,
+        tooltip="Read drum axis UNITS and recompute MPOS per revolution",
+    )
+
+    rotary_comms_lag_label = ft.Text("MPOS read: -- ms (avg 100)", size=10, color=ft.Colors.GREY_500)
+    rotary_fps_label = ft.Text("0 FPS", size=10, color=ft.Colors.GREY_500)
+    rotary_status_text = ft.Text("Not connected; static schematic.", size=13, color=MUTED_TEXT, width=520)
+    rotary_line_speed_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
+    rotary_drum_speed_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
+    rotary_match_delta_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    rotary_cut_status_label = ft.Text("Outside", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    rotary_encoder_cpr_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    rotary_drum_units_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    rotary_mpos_per_rev_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    rotary_units_source_label = ft.Text("not read", size=10, color=MUTED_TEXT)
+
+    rotary_sim_canvas = cv.Canvas(
+        width=visual_width,
+        height=ROTARY_SIM_HEIGHT,
+        shapes=[],
+    )
+    rotary_sim_canvas_holder = ft.Container(
+        content=rotary_sim_canvas,
+        width=visual_width,
+        height=ROTARY_SIM_HEIGHT,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        bgcolor=DARKER_BG,
+    )
+
+    rotary_controls_grid = ft.ResponsiveRow(
+        [
+            control_cluster(
+                "Axes & knife",
+                [rotary_axis_m_dropdown, rotary_axis_s_dropdown,
+                 rotary_cutter_output_input, make_cutter_lamp_panel_clone()],
+                icon=ft.Icons.ACCOUNT_TREE,
+                col={"xs": 12, "xl": 5},
+            ),
+            control_cluster(
+                "Conveyor jog",
+                [rotary_master_rev_btn, rotary_master_fwd_btn, rotary_master_stop_btn,
+                 rotary_master_speed_input, rotary_master_speed_slider],
+                icon=ft.Icons.PLAY_ARROW,
+                col={"xs": 12, "xl": 7},
+            ),
+            control_cluster(
+                "Simulation setup",
+                [rotary_reverse_checkbox, rotary_link_units_input,
+                 rotary_mpos_override_input, rotary_tolerance_input,
+                 rotary_refresh_units_btn],
+                icon=ft.Icons.SETTINGS,
+                col={"xs": 12, "xl": 8},
+            ),
+            control_cluster(
+                "Visual scale",
+                [rotary_recenter_btn,
+                 ft.Text("Scale:", size=12, color=ft.Colors.GREY_400),
+                 rotary_scale_minus10_btn, rotary_scale_minus_btn,
+                 rotary_scale_plus_btn, rotary_scale_plus10_btn,
+                 rotary_scale_value_label],
+                icon=ft.Icons.ZOOM_OUT_MAP,
+                col={"xs": 12, "xl": 4},
+            ),
+        ],
+        columns=12,
+        spacing=10,
+        run_spacing=10,
+    )
+
+    rotary_diag_strip = ft.Row(
+        [
+            rotary_diag_card("Line speed", rotary_line_speed_label, 230),
+            rotary_diag_card("Drum tangential", rotary_drum_speed_label, 205),
+            rotary_diag_card("Match delta", rotary_match_delta_label, 215),
+            rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
+            rotary_diag_card("Encoder cnts/rev (drive)", rotary_encoder_cpr_label, 230),
+            rotary_diag_card(
+                "Drum axis UNITS",
+                ft.Column([rotary_drum_units_label, rotary_units_source_label], spacing=1, tight=True),
+                210,
+            ),
+            rotary_diag_card(
+                "MPOS cnts per physical rev",
+                rotary_mpos_per_rev_label,
+                245,
+            ),
+        ],
+        wrap=True,
+        spacing=10,
+        run_spacing=10,
+    )
+
+    rotary_sim_container = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        section_header("Rotary Knife Simulation",
+                                       "Live drum geometry from CAMBOX axes",
+                                       ft.Icons.AUTORENEW),
+                        ft.Row(
+                            [rotary_status_text,
+                             ft.Text("|", size=10, color=ft.Colors.GREY_700),
+                             rotary_comms_lag_label,
+                             ft.Text("|", size=10, color=ft.Colors.GREY_700),
+                             rotary_fps_label],
+                            wrap=True,
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=12,
+                ),
+                rotary_controls_grid,
+                rotary_diag_strip,
+                rotary_sim_canvas_holder,
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=20,
+    )
+
+    def resize_rotary_sim_visual(update=False):
+        new_visual_width = _available_visual_width()
+        rotary_sim_canvas.width = new_visual_width
+        rotary_sim_canvas_holder.width = new_visual_width
+        redraw_rotary_sim()
+        if update:
+            rotary_sim_canvas_holder.update()
+
+    apply_saved_rotary_units_fallback(int(axis_s_dropdown.value or "1"))
+    redraw_rotary_sim()
+
     tabs = ft.Tabs(
-        length=5,
+        length=6,
         selected_index=0,
         content=ft.Column([
             ft.TabBar(
@@ -3754,6 +4946,7 @@ def main(page: ft.Page):
                     ft.Tab(label="Connect & Monitor", icon=ft.Icons.ANALYTICS),
                     ft.Tab(label="Setup Axes", icon=ft.Icons.TUNE),
                     ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
+                    ft.Tab(label="Rotary Knife Sim", icon=ft.Icons.AUTORENEW),
                 ],
                 label_color=ft.Colors.CYAN_200,
                 unselected_label_color=MUTED_TEXT,
@@ -3807,6 +5000,7 @@ def main(page: ft.Page):
                         expand=True,
                     ),
                     ft.Container(content=cam_calc_container, padding=20, expand=True),
+                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
                 ],
                 expand=1,
             )
@@ -3854,6 +5048,7 @@ def main(page: ft.Page):
 
     def on_page_resize(e):
         resize_shear_visual(update=True)
+        resize_rotary_sim_visual(update=True)
 
     page.on_resize = on_page_resize
 

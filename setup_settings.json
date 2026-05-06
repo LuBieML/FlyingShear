@@ -15,7 +15,7 @@
   "master_axis": "3",
   "slave_axis": "0",
   "cutter_output": "8",
-  "scale_px_per_unit": 15.0,
+  "scale_px_per_unit": 25.0,
   "axis_params": {
     "1": {
       "UNITS": "2097152.0",
@@ -31,7 +31,7 @@
       "FS_LIMIT": "10000"
     },
     "0": {
-      "UNITS": "2097152.0",
+      "UNITS": "133510",
       "SPEED": "10",
       "ACCEL": "1000",
       "DECEL": "1000",
@@ -70,7 +70,7 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "7.08",
+  "master_speed": "6.83",
   "shear_calc": {
     "cut": 60.0,
     "vline": 50.0,
@@ -88,14 +88,20 @@
     "use_base_dist": false
   },
   "cam_calc": {
-    "cut": 20.0,
+    "cut": 10.0,
     "drum_dia": 20.0,
     "n_knives": 1,
     "cut_window": 30.0,
     "cpr": 8388608,
-    "n_points": 1000,
+    "n_points": 10000,
     "blend": 1.0,
     "vline": 10.0,
     "table_start": 1000
+  },
+  "rotary_sim": {
+    "drum_direction_reversed": true,
+    "link_units_to_mm": 1.0,
+    "mpos_counts_per_rev_override": null,
+    "match_tolerance_pct": 2.0
   }
 }
