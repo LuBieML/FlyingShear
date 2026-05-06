@@ -3969,12 +3969,12 @@ def main(page: ft.Page):
     rotary_sim_settings.setdefault("match_tolerance_pct", 2.0)
     rotary_sim_settings.setdefault("show_debug", False)
 
-    ROTARY_SIM_HEIGHT = 360
+    ROTARY_SIM_HEIGHT = 390
     ROTARY_DEFAULT_AXIS_CPR = 8_388_608.0
-    ROTARY_DRUM_RADIUS_PX = 117
-    ROTARY_KNIFE_LENGTH_PX = 28
-    ROTARY_ACTIVE_KNIFE_EXTENSION_PX = 7
-    ROTARY_GUIDE_GAP_PX = ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX
+    ROTARY_DRUM_RADIUS_PX = 118
+    ROTARY_KNIFE_LENGTH_PX = 38
+    ROTARY_ACTIVE_KNIFE_EXTENSION_PX = 9
+    ROTARY_GUIDE_GAP_PX = ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX + 2
     ROTARY_MATERIAL_CONTACT_ANGLE_RAD = math.pi
     ROTARY_TANGENTIAL_WARNING_LIMIT_MM_S = 10000.0
 
@@ -4379,9 +4379,9 @@ def main(page: ft.Page):
         n_knives = cam_setting_int("n_knives", 1)
         cut_window = max(0.1, cam_setting_float("cut_window", 30.0))
         r = ROTARY_DRUM_RADIUS_PX
-        horizontal_margin = r + ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX + 20
+        horizontal_margin = r + ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX + 42
         if width >= horizontal_margin * 2:
-            cx = max(horizontal_margin, min(width - horizontal_margin, width * 0.30))
+            cx = max(horizontal_margin, min(width - horizontal_margin, width * 0.32))
         else:
             cx = width / 2
         cy = belt_y - ROTARY_GUIDE_GAP_PX - r
@@ -4390,75 +4390,282 @@ def main(page: ft.Page):
             drum_angle, n_knives, cut_window
         )
 
-        guideline_paint = canvas_paint("#59636d", 1.2, dash=[5, 5])
-        shapes.append(cv.Line(cx, cy, cx, belt_y + BELT_HEIGHT + 10, paint=guideline_paint))
+        def fill_paint(color):
+            return ft.Paint(color=color, style=ft.PaintingStyle.FILL)
+
+        def linear_paint(x0, y0, x1, y1, colors, stops=None):
+            return ft.Paint(
+                gradient=ft.PaintLinearGradient(
+                    begin=ft.Offset(x0, y0),
+                    end=ft.Offset(x1, y1),
+                    colors=colors,
+                    color_stops=stops,
+                ),
+                style=ft.PaintingStyle.FILL,
+            )
+
+        def point_for(angle, radius):
+            dx, dy = rotary_blade_direction_for_angle(angle)
+            return cx + radius * dx, cy + radius * dy
+
+        def add_polygon(points, fill, stroke="#111316", stroke_width=1.1):
+            if not points:
+                return
+            elements = [cv.Path.MoveTo(*points[0])]
+            elements.extend(cv.Path.LineTo(*point) for point in points[1:])
+            elements.append(cv.Path.Close())
+            shapes.append(cv.Path(elements=elements, paint=fill_paint(fill)))
+            if stroke:
+                shapes.append(
+                    cv.Path(
+                        elements=elements,
+                        paint=canvas_paint(stroke, stroke_width),
+                    )
+                )
+
+        def oriented_box(angle, radius_inner, radius_outer, width_px, fill, stroke="#111316", stroke_width=1.0):
+            dx, dy = rotary_blade_direction_for_angle(angle)
+            tx = math.cos(angle)
+            ty = math.sin(angle)
+            inner_x, inner_y = cx + radius_inner * dx, cy + radius_inner * dy
+            outer_x, outer_y = cx + radius_outer * dx, cy + radius_outer * dy
+            points = [
+                (inner_x - tx * width_px / 2, inner_y - ty * width_px / 2),
+                (outer_x - tx * width_px / 2, outer_y - ty * width_px / 2),
+                (outer_x + tx * width_px / 2, outer_y + ty * width_px / 2),
+                (inner_x + tx * width_px / 2, inner_y + ty * width_px / 2),
+            ]
+            add_polygon(points, fill, stroke, stroke_width)
+
+        contact_color = SUCCESS_COLOR if in_cut else WARNING_COLOR if approaching else "#7f8a94"
+        guideline_paint = canvas_paint(ft.Colors.with_opacity(0.55, "#8fa1b3"), 1.2, dash=[6, 7])
+        shapes.append(cv.Line(cx, cy - r - 26, cx, belt_y + BELT_HEIGHT + 10, paint=guideline_paint))
+
+        bed_y = belt_y - 12
+        block_w = 82
+        block_h = 72
+        left_block_x = max(12, cx - r - 112)
+        right_block_x = min(width - block_w - 12, cx + r + 30)
+        block_y = cy - block_h / 2
+        shaft_left = left_block_x + block_w - 8
+        shaft_right = right_block_x + 8
+
+        # Fixed machine hardware behind the rotating drum.
+        shapes.extend([
+            cv.Rect(cx - r - 86, bed_y - 6, 2 * (r + 86), 8,
+                    border_radius=ft.BorderRadius.all(3),
+                    paint=linear_paint(cx, bed_y - 6, cx, bed_y + 2,
+                                       ["#5f6871", "#262d33", "#101418"])),
+            cv.Rect(left_block_x + 14, block_y + block_h - 2,
+                    16, max(18, bed_y - block_y - block_h + 3),
+                    border_radius=ft.BorderRadius.all(2),
+                    paint=linear_paint(left_block_x, block_y, left_block_x, bed_y,
+                                       ["#68727b", "#303840", "#13171b"])),
+            cv.Rect(right_block_x + block_w - 30, block_y + block_h - 2,
+                    16, max(18, bed_y - block_y - block_h + 3),
+                    border_radius=ft.BorderRadius.all(2),
+                    paint=linear_paint(right_block_x, block_y, right_block_x, bed_y,
+                                       ["#68727b", "#303840", "#13171b"])),
+            cv.Rect(left_block_x, block_y, block_w, block_h,
+                    border_radius=ft.BorderRadius.all(7),
+                    paint=linear_paint(left_block_x, block_y, left_block_x, block_y + block_h,
+                                       ["#74808a", "#303942", "#151a1f"])),
+            cv.Rect(right_block_x, block_y, block_w, block_h,
+                    border_radius=ft.BorderRadius.all(7),
+                    paint=linear_paint(right_block_x, block_y, right_block_x, block_y + block_h,
+                                       ["#74808a", "#303942", "#151a1f"])),
+            cv.Rect(shaft_left, cy - 7, max(0, shaft_right - shaft_left), 14,
+                    border_radius=ft.BorderRadius.all(7),
+                    paint=linear_paint(cx, cy - 7, cx, cy + 7,
+                                       ["#b7c0c7", "#69737c", "#20272d"],
+                                       [0.0, 0.46, 1.0])),
+            cv.Circle(left_block_x + block_w / 2, cy, 23,
+                      paint=fill_paint("#151b20")),
+            cv.Circle(left_block_x + block_w / 2, cy, 15,
+                      paint=fill_paint("#56616b")),
+            cv.Circle(right_block_x + block_w / 2, cy, 23,
+                      paint=fill_paint("#151b20")),
+            cv.Circle(right_block_x + block_w / 2, cy, 15,
+                      paint=fill_paint("#56616b")),
+        ])
+
+        for bolt_x in (left_block_x + 13, left_block_x + block_w - 13, right_block_x + 13, right_block_x + block_w - 13):
+            for bolt_y in (block_y + 13, block_y + block_h - 13):
+                shapes.append(cv.Circle(bolt_x, bolt_y, 3.3, paint=fill_paint("#111418")))
+                shapes.append(cv.Circle(bolt_x - 0.9, bolt_y - 0.9, 1.0, paint=fill_paint("#aab2b9")))
+
+        cut_window_color = SUCCESS_COLOR if in_cut else WARNING_COLOR if approaching else "#ccd24a"
+        shapes.extend([
+            cv.Arc(cx - r - 18, cy - r - 18, 2 * (r + 18), 2 * (r + 18),
+                   start_angle=math.pi / 2 - half_window,
+                   sweep_angle=2 * half_window,
+                   paint=canvas_paint(ft.Colors.with_opacity(0.42, cut_window_color), 14)),
+            cv.Arc(cx - r - 34, cy - r - 34, 2 * (r + 34), 2 * (r + 34),
+                   start_angle=math.pi + math.radians(12),
+                   sweep_angle=math.pi - math.radians(24),
+                   paint=canvas_paint(ft.Colors.with_opacity(0.20, "#4fc3f7"), 11)),
+            cv.Arc(cx - r - 34, cy - r - 34, 2 * (r + 34), 2 * (r + 34),
+                   start_angle=math.pi + math.radians(12),
+                   sweep_angle=math.pi - math.radians(24),
+                   paint=canvas_paint(ft.Colors.with_opacity(0.58, "#8fb6c7"), 1.4, dash=[12, 7])),
+            cv.Oval(cx - r - 22, cy + r - 14, 2 * (r + 22), 34,
+                    paint=fill_paint(ft.Colors.with_opacity(0.22, "#000000"))),
+        ])
+
+        marker_count = 7
+        for idx in range(marker_count):
+            offset = -half_window + (2 * half_window * idx / max(1, marker_count - 1))
+            mx, my = point_for(ROTARY_MATERIAL_CONTACT_ANGLE_RAD + offset, r + ROTARY_KNIFE_LENGTH_PX + 2)
+            shapes.append(cv.Circle(mx, my, 2.2, paint=fill_paint(ft.Colors.with_opacity(0.72, cut_window_color))))
 
         shapes.extend([
+            cv.Circle(cx, cy, r + 4,
+                      paint=fill_paint("#0b0f13")),
             cv.Circle(cx, cy, r,
                       paint=ft.Paint(
+                          gradient=ft.PaintSweepGradient(
+                              center=ft.Offset(cx, cy),
+                              colors=["#5d6871", "#d4dade", "#76808a", "#242b31", "#aab2b9", "#5d6871"],
+                              color_stops=[0.0, 0.16, 0.32, 0.56, 0.78, 1.0],
+                              rotation=drum_angle,
+                          ),
+                          style=ft.PaintingStyle.FILL,
+                      )),
+            cv.Circle(cx, cy, r - 8,
+                      paint=ft.Paint(
                           gradient=ft.PaintRadialGradient(
-                              center=ft.Offset(cx - r * 0.35, cy - r * 0.38),
-                              radius=r * 1.35,
-                              colors=["#c3c8cc", "#707982", "#252a30"],
-                              color_stops=[0.0, 0.58, 1.0],
+                              center=ft.Offset(cx - r * 0.36, cy - r * 0.40),
+                              radius=r * 1.28,
+                              colors=[
+                                  ft.Colors.with_opacity(0.40, ft.Colors.WHITE),
+                                  ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
+                                  ft.Colors.with_opacity(0.28, ft.Colors.BLACK),
+                              ],
+                              color_stops=[0.0, 0.54, 1.0],
                           ),
                           style=ft.PaintingStyle.FILL,
                       )),
             cv.Circle(cx, cy, r,
-                      paint=canvas_paint("#111111", 1.5)),
-            cv.Arc(cx - r, cy - r, 2 * r, 2 * r,
-                   start_angle=math.pi / 2 - half_window,
-                   sweep_angle=2 * half_window,
-                   paint=canvas_paint("#ccd24a35", 10)),
-            cv.Circle(cx, cy, 22,
-                      paint=ft.Paint(color="#252a30", style=ft.PaintingStyle.FILL)),
-            cv.Circle(cx, cy, 8,
-                      paint=ft.Paint(color="#0a0d10", style=ft.PaintingStyle.FILL)),
+                      paint=canvas_paint("#07090c", 2.2)),
+            cv.Circle(cx, cy, r - 23,
+                      paint=canvas_paint(ft.Colors.with_opacity(0.34, ft.Colors.WHITE), 0.9)),
         ])
 
-        blade_fill = ft.Paint(color="#e7ecef", style=ft.PaintingStyle.FILL)
-        blade_stroke = canvas_paint("#252a30", 1.2)
-        blade_hot_fill = ft.Paint(color="#ffe082", style=ft.PaintingStyle.FILL)
-        for i, theta in enumerate(knife_angles):
+        for slot_idx in range(24):
+            theta = drum_angle + slot_idx * 2.0 * math.pi / 24.0
+            sx0, sy0 = point_for(theta, r - 24)
+            sx1, sy1 = point_for(theta, r - 9)
+            line_color = ft.Colors.with_opacity(0.28 if slot_idx % 2 == 0 else 0.14, ft.Colors.WHITE)
+            shapes.append(cv.Line(sx0, sy0, sx1, sy1, paint=canvas_paint(line_color, 1.0)))
+
+        for spoke_idx in range(6):
+            theta = drum_angle + spoke_idx * 2.0 * math.pi / 6.0
+            oriented_box(theta, 36, r - 34, 15, ft.Colors.with_opacity(0.26, "#0d1116"),
+                         stroke=ft.Colors.with_opacity(0.16, ft.Colors.WHITE), stroke_width=0.8)
+
+        for bolt_idx in range(12):
+            theta = drum_angle + bolt_idx * 2.0 * math.pi / 12.0
+            bx, by = point_for(theta, 74)
+            shapes.append(cv.Circle(bx, by, 4.6, paint=fill_paint("#12161a")))
+            shapes.append(cv.Circle(bx - 1.2, by - 1.2, 1.3, paint=fill_paint("#b9c0c6")))
+
+        shapes.extend([
+            cv.Circle(cx, cy, 33,
+                      paint=ft.Paint(
+                          gradient=ft.PaintRadialGradient(
+                              center=ft.Offset(cx - 11, cy - 13),
+                              radius=46,
+                              colors=["#d2d8dc", "#69747d", "#171d22"],
+                              color_stops=[0.0, 0.55, 1.0],
+                          ),
+                          style=ft.PaintingStyle.FILL,
+                      )),
+            cv.Circle(cx, cy, 33, paint=canvas_paint("#090b0e", 1.2)),
+            cv.Circle(cx, cy, 13, paint=fill_paint("#161c22")),
+            cv.Circle(cx, cy, 5, paint=fill_paint("#050607")),
+        ])
+
+        blade_order = sorted(
+            enumerate(knife_angles),
+            key=lambda item: rotary_blade_direction_for_angle(item[1])[1],
+        )
+        for i, theta in blade_order:
             dx, dy = rotary_blade_direction_for_angle(theta)
             tx = math.cos(theta)
             ty = math.sin(theta)
             is_hot = i == closest_index and in_cut
-            blade_len = ROTARY_KNIFE_LENGTH_PX + (ROTARY_ACTIVE_KNIFE_EXTENSION_PX if is_hot else 0)
-            blade_w = 18 + (6 if is_hot else 0)
-            tip_x = cx + (r + blade_len) * dx
-            tip_y = cy + (r + blade_len) * dy
-            base_x = cx + (r - 2) * dx
-            base_y = cy + (r - 2) * dy
-            p1 = (tip_x, tip_y)
-            p2 = (base_x + tx * blade_w / 2, base_y + ty * blade_w / 2)
-            p3 = (base_x - tx * blade_w / 2, base_y - ty * blade_w / 2)
+            is_near = i == closest_index and (in_cut or approaching)
+            active_extension = ROTARY_ACTIVE_KNIFE_EXTENSION_PX if is_hot else 0
+            blade_tip_radius = r + ROTARY_KNIFE_LENGTH_PX + active_extension
+
+            oriented_box(theta, r - 17, r + 8, 44, "#46515a", "#11161a", 1.0)
+            oriented_box(theta, r - 8, r + 5, 34, "#85909a", "#263039", 0.8)
+
+            base_radius = r + 4
+            shoulder_radius = r + ROTARY_KNIFE_LENGTH_PX * 0.72
+            tip_radius = blade_tip_radius
+            root_w = 31 + (4 if is_hot else 0)
+            shoulder_w = 17 + (3 if is_hot else 0)
+            tip_w = 4
+            root_l = (cx + base_radius * dx - tx * root_w / 2, cy + base_radius * dy - ty * root_w / 2)
+            shoulder_l = (cx + shoulder_radius * dx - tx * shoulder_w / 2, cy + shoulder_radius * dy - ty * shoulder_w / 2)
+            tip_l = (cx + (tip_radius - 3) * dx - tx * tip_w / 2, cy + (tip_radius - 3) * dy - ty * tip_w / 2)
+            tip = (cx + tip_radius * dx, cy + tip_radius * dy)
+            tip_r = (cx + (tip_radius - 3) * dx + tx * tip_w / 2, cy + (tip_radius - 3) * dy + ty * tip_w / 2)
+            shoulder_r = (cx + shoulder_radius * dx + tx * shoulder_w / 2, cy + shoulder_radius * dy + ty * shoulder_w / 2)
+            root_r = (cx + base_radius * dx + tx * root_w / 2, cy + base_radius * dy + ty * root_w / 2)
+            blade_fill = "#ffe082" if is_hot else "#dfe7eb"
+            blade_stroke = "#5f4d16" if is_hot else "#1e252b"
+            add_polygon([root_l, shoulder_l, tip_l, tip, tip_r, shoulder_r, root_r],
+                        blade_fill, blade_stroke, 1.25 if is_near else 1.0)
+
+            bevel_mid = (cx + (base_radius + 12) * dx - tx * 5, cy + (base_radius + 12) * dy - ty * 5)
+            bevel_tip = (cx + (tip_radius - 5) * dx - tx * 1.5, cy + (tip_radius - 5) * dy - ty * 1.5)
+            shapes.append(cv.Line(bevel_mid[0], bevel_mid[1], bevel_tip[0], bevel_tip[1],
+                                  paint=canvas_paint(ft.Colors.with_opacity(0.72, ft.Colors.WHITE), 1.1)))
+            shapes.append(cv.Line(tip[0], tip[1], shoulder_r[0], shoulder_r[1],
+                                  paint=canvas_paint("#7d858c", 0.9)))
+
+            for bolt_offset in (-12, 12):
+                bolt_x = cx + (r - 3) * dx + tx * bolt_offset
+                bolt_y = cy + (r - 3) * dy + ty * bolt_offset
+                shapes.append(cv.Circle(bolt_x, bolt_y, 2.6, paint=fill_paint("#111418")))
+                shapes.append(cv.Circle(bolt_x - 0.7, bolt_y - 0.7, 0.8, paint=fill_paint("#d6dde2")))
+
             if is_hot:
-                shapes.append(
-                    cv.Circle(tip_x, tip_y, 13,
-                              paint=ft.Paint(color="#55ffd54f", style=ft.PaintingStyle.FILL))
-                )
-            path = cv.Path(
-                elements=[
-                    cv.Path.MoveTo(*p1),
-                    cv.Path.LineTo(*p2),
-                    cv.Path.LineTo(*p3),
-                    cv.Path.Close(),
-                ],
-                paint=blade_hot_fill if is_hot else blade_fill,
-            )
-            shapes.append(path)
-            shapes.append(
-                cv.Path(
-                    elements=[
-                        cv.Path.MoveTo(*p1),
-                        cv.Path.LineTo(*p2),
-                        cv.Path.LineTo(*p3),
-                        cv.Path.Close(),
-                    ],
-                    paint=blade_stroke,
-                )
-            )
+                shapes.extend([
+                    cv.Oval(tip[0] - 39, tip[1] - 10, 78, 20,
+                            paint=fill_paint(ft.Colors.with_opacity(0.30, "#ffd54f"))),
+                    cv.Line(tip[0] - 18, belt_y - 2, tip[0] - 5, belt_y + 8,
+                            paint=canvas_paint("#ffecb3", 1.2)),
+                    cv.Line(tip[0] + 12, belt_y - 3, tip[0] + 25, belt_y + 7,
+                            paint=canvas_paint("#ffb74d", 1.1)),
+                ])
+            elif is_near:
+                shapes.append(cv.Circle(tip[0], tip[1], 8,
+                                        paint=fill_paint(ft.Colors.with_opacity(0.18, "#ffcc80"))))
+
+        anvil_y = belt_y - 7
+        shapes.extend([
+            cv.Rect(cx - 62, anvil_y, 124, 7,
+                    border_radius=ft.BorderRadius.all(2),
+                    paint=linear_paint(cx, anvil_y, cx, anvil_y + 7,
+                                       ["#c5ced5", "#68737d", "#222a31"])),
+            cv.Rect(cx - 50, anvil_y - 4, 100, 3,
+                    border_radius=ft.BorderRadius.all(1.5),
+                    paint=fill_paint(ft.Colors.with_opacity(0.68, contact_color))),
+        ])
+
+        add_profile_text(
+            shapes,
+            cx + r + 42,
+            cy - r + 14,
+            f"{math.degrees(drum_angle) % 360.0:05.1f} deg",
+            size=11,
+            color=ft.Colors.GREY_400,
+            align=ft.Alignment.TOP_LEFT,
+            max_width=130,
+        )
 
         return in_cut, approaching, closest
 
@@ -5097,6 +5304,8 @@ def main(page: ft.Page):
     rotary_diag_strip = ft.Row(
         [
             rotary_diag_card("Line speed", rotary_line_speed_label, 230),
+            rotary_diag_card("Drum tangential", rotary_drum_speed_label, 210),
+            rotary_diag_card("Speed match", rotary_match_delta_label, 190),
             rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
             rotary_diag_card(
                 "MPOS cnts per physical rev",
@@ -5132,10 +5341,10 @@ def main(page: ft.Page):
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=12,
                 ),
+                rotary_sim_canvas_holder,
                 rotary_controls_grid,
                 rotary_diag_strip,
                 rotary_debug_container,
-                rotary_sim_canvas_holder,
             ],
             spacing=14,
             scroll=ft.ScrollMode.AUTO,
@@ -5203,16 +5412,16 @@ def main(page: ft.Page):
         if solution == "rotary_knife":
             tab_specs = [
                 (
-                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
-                    axis_connection_page,
+                    ft.Tab(label="Rotary Knife Sim", icon=ft.Icons.AUTORENEW),
+                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
                 ),
                 (
                     ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
                     ft.Container(content=cam_calc_container, padding=20, expand=True),
                 ),
                 (
-                    ft.Tab(label="Rotary Knife Sim", icon=ft.Icons.AUTORENEW),
-                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
+                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
+                    axis_connection_page,
                 ),
             ]
         else:
