@@ -3239,10 +3239,11 @@ def main(page: ft.Page):
         "vline":      "Line speed for diagnostic peak-RPS and peak-angular-accel calculations. Does not affect the table itself.",
         "table_start":"Starting TABLE() index where the cam profile is loaded into controller memory.",
         "R":          "Natural ratio = (drum_segment_per_cut) / cut_length. R=1 → constant 1:1, R<1 → slow cut/fast outside, R>1 → fast cut/slow outside.",
-        "cut_zone":   "Master/material distance during the cut window (when drum is at exact tangential match).",
-        "rps_cut":    "Drum revolutions per second during the cut window. Equal to line_speed / drum_circumference by definition.",
+        "cut_zone":   "Master/material distance during the cut window. This is the knife's horizontal chord travel, not drum arc length.",
+        "rps_cut":    "Drum revolutions per second at cut center. Cut-window edges are higher by the cosine correction.",
         "rps_out":    "Drum revolutions per second in the slow/fast zone outside the cut window. Check against drum motor max RPM.",
-        "peak_accel": "Peak drum angular acceleration during the sinusoidal blend transitions. Check against drum motor torque/inertia limits.",
+        "cosine_corr":"Velocity boost at the cut-window edges. The drum speeds up by 1/cos(alpha) so the knife's horizontal speed still matches the material.",
+        "peak_accel": "Peak drum angular acceleration from the corrected cut profile or sinusoidal blend transitions. Check against drum motor torque/inertia limits.",
         "table_res":  "Angular resolution of the cam table on the drum.",
         "code":       "Generated Trio BASIC TABLE() loader and CAMBOX() call. Copy this into the controller.",
     }
@@ -3269,7 +3270,7 @@ def main(page: ft.Page):
 
     cam_result_labels = {
         k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
-        for k in ("R", "cut_zone", "rps_cut", "rps_out", "peak_accel", "table_res")
+        for k in ("R", "cut_zone", "rps_cut", "rps_out", "cosine_corr", "peak_accel", "table_res")
     }
     cam_warning_text = ft.Text("", size=13, color=ft.Colors.AMBER_300)
     cam_review_text  = ft.Text("", size=12, color=ft.Colors.GREY_300)
@@ -3294,21 +3295,33 @@ def main(page: ft.Page):
         expand=True, tooltip=CAM_TOOLTIPS["code"],
     )
 
-    # --- Cam table math (sinusoidal blend, returns int counts + diagnostics) ---
+    # --- Cam table math (1/cos cut correction + sinusoidal blend) ---
     def generate_rotary_knife_cam_table(cut_length_mm, drum_diameter_mm, n_knives,
                                          cut_window_deg, encoder_counts_per_rev,
                                          n_points=720, blend_fraction=0.4,
                                          line_speed_mm_s=500):
+        drum_radius = drum_diameter_mm / 2.0
         drum_circumference = math.pi * drum_diameter_mm
         cut_segment_counts = encoder_counts_per_rev / n_knives
+        alpha_max = math.radians(cut_window_deg / 2.0)
 
         if cut_window_deg >= 360.0 / n_knives:
             raise ValueError(f"Cut window {cut_window_deg}° too large; must be < {360.0/n_knives:.1f}° for {n_knives}-knife drum")
+        if alpha_max >= math.pi / 2:
+            raise ValueError("Cut window too wide: half-window angle must be < 90° for cosine correction")
 
-        cut_zone_master_mm = cut_window_deg * drum_circumference / 360.0
+        cut_zone_master_mm = 2.0 * drum_radius * math.sin(alpha_max)
         w_cut = cut_zone_master_mm / cut_length_mm
         if w_cut >= 1.0:
             raise ValueError(f"Cut zone ({cut_zone_master_mm:.2f} mm) exceeds cut length ({cut_length_mm} mm)")
+        max_x_offset = (cut_length_mm * w_cut) / 2.0
+        if max_x_offset >= drum_radius:
+            raise ValueError(
+                f"Cut window too wide for drum radius: would require "
+                f"knife horizontal travel of {max_x_offset:.2f} mm exceeding "
+                f"drum radius {drum_radius:.2f} mm. Reduce cut_window_deg or "
+                f"increase drum_diameter."
+            )
 
         w_blend = blend_fraction * (1.0 - w_cut) / 2.0
         w_outside = 1.0 - w_cut - 2.0 * w_blend
@@ -3317,7 +3330,9 @@ def main(page: ft.Page):
 
         R = n_knives * cut_length_mm / drum_circumference
         v_cut = R
-        v_out = (1.0 - v_cut * (w_cut + w_blend)) / (w_outside + w_blend)
+        v_cut_at_edge = v_cut / math.cos(alpha_max)
+        f_slave_cut = n_knives * cut_window_deg / 360.0
+        v_out = (1.0 - f_slave_cut - v_cut_at_edge * w_blend) / (w_outside + w_blend)
         if v_out < 0:
             raise ValueError(f"Outside velocity would be negative ({v_out:.3f}); drum cannot reverse — increase cut_length or reduce drum dia")
 
@@ -3325,16 +3340,26 @@ def main(page: ft.Page):
         u2 = u1 + w_blend
         u3 = u2 + w_cut
         u4 = u3 + w_blend
+        u_cut_center = (u2 + u3) / 2.0
 
         def velocity(u):
             if u < u1: return v_out
             if u < u2:
                 t = (u - u1) / w_blend
-                return v_out + (v_cut - v_out) * 0.5 * (1.0 - math.cos(math.pi * t))
-            if u < u3: return v_cut
+                return v_out + (v_cut_at_edge - v_out) * 0.5 * (1.0 - math.cos(math.pi * t))
+            if u < u3:
+                # Compensate for the knife's circular path so its horizontal
+                # velocity component matches the line speed across the cut.
+                x = (u - u_cut_center) * cut_length_mm
+                raw_ratio = x / drum_radius
+                if abs(raw_ratio) > 1.0 + 1e-12:
+                    raise ValueError("Cut-window geometry produced an invalid arcsin argument")
+                ratio = max(-1.0, min(1.0, raw_ratio))
+                alpha = math.asin(ratio)
+                return v_cut / math.cos(alpha)
             if u < u4:
                 t = (u - u3) / w_blend
-                return v_cut + (v_out - v_cut) * 0.5 * (1.0 - math.cos(math.pi * t))
+                return v_cut_at_edge + (v_out - v_cut_at_edge) * 0.5 * (1.0 - math.cos(math.pi * t))
             return v_out
 
         n_fine = max(n_points * 8, 8000)
@@ -3345,7 +3370,9 @@ def main(page: ft.Page):
             v_curr = velocity(i * du_fine)
             theta_fine.append(theta_fine[-1] + 0.5 * (v_prev + v_curr) * du_fine)
             v_prev = v_curr
-        scale = 1.0 / theta_fine[-1]
+        theta_total = theta_fine[-1]
+        integration_error = abs(theta_total - 1.0)
+        scale = 1.0 / theta_total
         theta_fine = [t * scale for t in theta_fine]
 
         table_int = []
@@ -3360,17 +3387,24 @@ def main(page: ft.Page):
         line_period_s = cut_length_mm / line_speed_mm_s if line_speed_mm_s > 0 else 1.0
         drum_rps_cut = line_speed_mm_s / drum_circumference if drum_circumference > 0 else 0
         drum_rps_out = v_out / n_knives * line_speed_mm_s / cut_length_mm if cut_length_mm > 0 else 0
-        peak_ang_accel = (abs(v_cut - v_out) * math.pi / (2 * w_blend) / n_knives / line_period_s ** 2) if w_blend > 0 else 0.0
+        blend_peak_dv_du = abs(v_cut_at_edge - v_out) * math.pi / (2 * w_blend) if w_blend > 0 else 0.0
+        cut_peak_dv_du = v_cut * math.sin(alpha_max) / (math.cos(alpha_max) ** 3) * cut_length_mm / drum_radius
+        peak_ang_accel = max(blend_peak_dv_du, cut_peak_dv_du) / n_knives / line_period_s ** 2
 
         diag = {
             "R": R, "cut_zone_master_mm": cut_zone_master_mm,
             "w_cut": w_cut, "w_blend": w_blend, "w_outside": w_outside,
             "v_cut": v_cut, "v_out": v_out,
+            "alpha_max_deg": math.degrees(alpha_max),
+            "v_cut_at_edge_normalized": v_cut_at_edge,
+            "cosine_correction_at_edge": 1.0 / math.cos(alpha_max),
+            "drum_radius": drum_radius,
             "drum_circumference": drum_circumference, "cut_segment_counts": cut_segment_counts,
             "drum_rps_cut": drum_rps_cut, "drum_rps_out": drum_rps_out,
             "peak_drum_rps": max(drum_rps_cut, drum_rps_out),
             "peak_ang_accel_rev_s2": peak_ang_accel,
             "table_resolution_deg": (360.0 / n_knives) / n_points,
+            "integration_error": integration_error,
         }
         return table_int, diag
 
@@ -3470,7 +3504,9 @@ def main(page: ft.Page):
                      f"{int(diag['cut_segment_counts'])} counts per cut segment")
         lines.append(f"' Cut zone: {diag['cut_zone_master_mm']:.2f} mm of material "
                      f"(R={diag['R']:.4f})")
-        lines.append(f"' Inside cut window: ratio={diag['v_cut']:.4f} (tangential match)")
+        lines.append(f"' Inside cut window: ratio={diag['v_cut']:.4f} center, "
+                     f"{diag['v_cut_at_edge_normalized']:.4f} at edges "
+                     f"({diag['cosine_correction_at_edge']:.4f}x cosine correction)")
         lines.append(f"' Outside cut window: ratio={diag['v_out']:.4f}")
         lines.append("")
         lines.append(f"link_ax    = {link_axis}")
@@ -3551,6 +3587,7 @@ def main(page: ft.Page):
         cam_result_labels["cut_zone"].value    = f"{diag['cut_zone_master_mm']:.2f} mm"
         cam_result_labels["rps_cut"].value     = f"{diag['drum_rps_cut']:.3f} rps"
         cam_result_labels["rps_out"].value     = f"{diag['drum_rps_out']:.3f} rps"
+        cam_result_labels["cosine_corr"].value = f"{diag['cosine_correction_at_edge']:.3f}× boost"
         cam_result_labels["peak_accel"].value  = f"{diag['peak_ang_accel_rev_s2']:.1f} rev/s²"
         cam_result_labels["table_res"].value   = f"{diag['table_resolution_deg']:.4f} °/pt"
 
@@ -3658,8 +3695,9 @@ def main(page: ft.Page):
             ft.Row([
                 cam_result_card("Natural ratio R",       "R"),
                 cam_result_card("Cut zone (master)",     "cut_zone"),
-                cam_result_card("Drum RPS at cut",       "rps_cut"),
+                cam_result_card("Drum RPS cut center",   "rps_cut"),
                 cam_result_card("Drum RPS outside",      "rps_out"),
+                cam_result_card("Cosine correction",     "cosine_corr"),
                 cam_result_card("Peak ang. accel",       "peak_accel"),
                 cam_result_card("Table resolution",      "table_res"),
             ], wrap=True, spacing=10, run_spacing=10),
