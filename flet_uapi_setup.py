@@ -543,11 +543,12 @@ def main(page: ft.Page):
 
     cutter_output_input = ft.TextField(
         label="Knife OP", value=str(settings.get("cutter_output", "8")),
-        width=125, height=45,
+        width=140, height=45,
         bgcolor=DARKER_BG, color=TEXT_COLOR, border_color=BORDER_COLOR,
         focused_border_color=ACCENT_COLOR,
         keyboard_type=ft.KeyboardType.NUMBER,
-        text_size=12, on_change=on_cutter_output_change,
+        text_size=13, on_change=on_cutter_output_change,
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         tooltip="Controller digital output number used for knife OP() and live output-state read",
     )
     cutter_output_inputs.append(cutter_output_input)
@@ -2446,7 +2447,41 @@ def main(page: ft.Page):
     warning_text = ft.Text(
         "", size=13, color=ft.Colors.AMBER_300,
         tooltip=CALC_TOOLTIPS["warnings"],
+        selectable=True,
+        expand=True,
     )
+    warning_icon = ft.Icon(ft.Icons.INFO_OUTLINE, size=18, color=ft.Colors.GREY_400)
+    warning_banner = ft.Container(
+        content=ft.Row(
+            [warning_icon, warning_text],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        visible=False,
+    )
+
+    _WARNING_PALETTE = {
+        "ok":      ("#0f2517", "#1f4d2e", ft.Icons.CHECK_CIRCLE,    ft.Colors.GREEN_300),
+        "error":   ("#2a1313", "#5a2222", ft.Icons.ERROR_OUTLINE,   ft.Colors.RED_300),
+        "warning": ("#2a200c", "#5a4014", ft.Icons.WARNING_AMBER,   ft.Colors.AMBER_300),
+    }
+
+    def _apply_warning_severity(severity):
+        if severity not in _WARNING_PALETTE:
+            warning_banner.visible = False
+            return
+        bg, border, icon_name, fg = _WARNING_PALETTE[severity]
+        warning_banner.bgcolor = bg
+        warning_banner.border = ft.Border.all(1, border)
+        warning_icon.name = icon_name
+        warning_icon.color = fg
+        warning_text.color = fg
+        warning_banner.visible = True
+
     review_text = ft.Text("", size=12, color=ft.Colors.GREY_300)
     profile_canvas = cv.Canvas(width=660, height=218, shapes=[])
 
@@ -2725,14 +2760,14 @@ def main(page: ft.Page):
             base_dist = float(base_dist_input.value or 0)
         except (TypeError, ValueError):
             warning_text.value = "Invalid inputs: enter numeric values for the shear calculator."
-            warning_text.color = ft.Colors.RED_300
+            _apply_warning_severity("error")
             code_output.value = ""
             page.update()
             return
 
         if L <= 0 or v < 0 or vmax <= 0 or a <= 0 or tsync < 0 or sf <= 0:
             warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; MAX line speed and sync time must be >= 0"
-            warning_text.color = ft.Colors.RED_300
+            _apply_warning_severity("error")
             code_output.value = ""
             page.update()
             return
@@ -2840,14 +2875,14 @@ def main(page: ft.Page):
             warnings.append("⚠ MOVELINK repeat bit is intended for simple repeating links; verify multi-phase shear behavior")
 
         if not warnings:
-            warning_text.value = "✓ OK"
-            warning_text.color = ft.Colors.GREEN_300
+            warning_text.value = "All checks pass"
+            _apply_warning_severity("ok")
         elif any(w.startswith("✗") for w in warnings):
             warning_text.value = "  |  ".join(warnings)
-            warning_text.color = ft.Colors.RED_300
+            _apply_warning_severity("error")
         else:
             warning_text.value = "  |  ".join(warnings)
-            warning_text.color = ft.Colors.AMBER_300
+            _apply_warning_severity("warning")
 
         try:
             link_ax  = int(axis_m_dropdown.value or "0")
@@ -2981,12 +3016,36 @@ def main(page: ft.Page):
                 base_dist_input,
             ], wrap=True, spacing=15, run_spacing=12,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Row([
-                result_card("Stroke needed", "stroke"),
-                result_card("Retract peak speed", "vpeak"),
-            ], wrap=True, spacing=10, run_spacing=10),
+            ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.INSIGHTS, size=14, color=MUTED_TEXT),
+                            ft.Text(
+                                "COMPUTED METRICS",
+                                size=10,
+                                color=MUTED_TEXT,
+                                weight=ft.FontWeight.BOLD,
+                            ),
+                        ],
+                        spacing=6,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Row(
+                        [
+                            result_card("Stroke needed", "stroke"),
+                            result_card("Retract peak speed", "vpeak"),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                        run_spacing=10,
+                    ),
+                ],
+                spacing=8,
+                tight=True,
+            ),
             phase_bar,
-            warning_text,
+            warning_banner,
             review_text,
             ft.Text("Material axis = MOVELINK link axis. Shear axis = generated BASIC BASE axis.",
                     size=12, color=ft.Colors.GREY_400),
@@ -5057,18 +5116,20 @@ def main(page: ft.Page):
                 ],
                 spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
             ),
             padding=ft.Padding(8, 6, 10, 6),
             border_radius=8,
             bgcolor="#121a16",
             border=ft.Border.all(1, "#263b2f"),
+            width=170,
         )
 
     rotary_axis_m_dropdown = make_rotary_axis_dropdown(
         "Material / encoder axis",
         settings.get("master_axis", "0"),
         on_axis_m_change,
-        165,
+        150,
     )
     axis_m_bound_controls.append(rotary_axis_m_dropdown)
 
@@ -5076,22 +5137,23 @@ def main(page: ft.Page):
         "Drum axis",
         settings.get("slave_axis", "1"),
         on_axis_s_change,
-        135,
+        125,
     )
     axis_s_bound_controls.append(rotary_axis_s_dropdown)
 
     rotary_cutter_output_input = ft.TextField(
         label="Knife OP",
         value=str(settings.get("cutter_output", "8")),
-        width=110,
+        width=125,
         height=45,
         bgcolor=DARKER_BG,
         color=TEXT_COLOR,
         border_color=BORDER_COLOR,
         focused_border_color=ACCENT_COLOR,
         keyboard_type=ft.KeyboardType.NUMBER,
-        text_size=12,
+        text_size=13,
         on_change=on_cutter_output_change,
+        content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         tooltip="Controller digital output number used for knife OP() and live output-state read",
     )
     cutter_output_inputs.append(rotary_cutter_output_input)
@@ -5302,22 +5364,14 @@ def main(page: ft.Page):
                 [rotary_axis_m_dropdown, rotary_axis_s_dropdown,
                  rotary_cutter_output_input, make_cutter_lamp_panel_clone()],
                 icon=ft.Icons.ACCOUNT_TREE,
-                col={"xs": 12, "xl": 5},
+                col={"xs": 12, "lg": 5},
             ),
             control_cluster(
                 "Conveyor jog",
                 [rotary_master_rev_btn, rotary_master_fwd_btn, rotary_master_stop_btn,
                  rotary_master_speed_input, rotary_master_speed_slider],
                 icon=ft.Icons.PLAY_ARROW,
-                col={"xs": 12, "xl": 7},
-            ),
-            control_cluster(
-                "Simulation setup",
-                [rotary_reverse_checkbox, rotary_link_units_input,
-                 rotary_mpos_override_input, rotary_tolerance_input,
-                 rotary_refresh_units_btn, rotary_debug_checkbox],
-                icon=ft.Icons.SETTINGS,
-                col={"xs": 12, "xl": 8},
+                col={"xs": 12, "lg": 7},
             ),
             control_cluster(
                 "Visual scale",
@@ -5327,27 +5381,55 @@ def main(page: ft.Page):
                  rotary_scale_plus_btn, rotary_scale_plus10_btn,
                  rotary_scale_value_label],
                 icon=ft.Icons.ZOOM_OUT_MAP,
-                col={"xs": 12, "xl": 4},
+                col={"xs": 12, "lg": 5},
+            ),
+            control_cluster(
+                "Simulation setup",
+                [rotary_reverse_checkbox, rotary_link_units_input,
+                 rotary_mpos_override_input, rotary_tolerance_input,
+                 rotary_refresh_units_btn, rotary_debug_checkbox],
+                icon=ft.Icons.SETTINGS,
+                col={"xs": 12, "lg": 7},
             ),
         ],
         columns=12,
         spacing=10,
         run_spacing=10,
+        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
-    rotary_diag_strip = ft.Row(
+    rotary_diag_strip = ft.Column(
         [
-            rotary_diag_card("Line speed", rotary_line_speed_label, 230),
-            rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
-            rotary_diag_card(
-                "MPOS cnts per physical rev",
-                rotary_mpos_per_rev_label,
-                245,
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.SHOW_CHART, size=14, color=MUTED_TEXT),
+                    ft.Text(
+                        "LIVE READINGS",
+                        size=10,
+                        color=MUTED_TEXT,
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Row(
+                [
+                    rotary_diag_card("Line speed", rotary_line_speed_label, 230),
+                    rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
+                    rotary_diag_card(
+                        "MPOS cnts per physical rev",
+                        rotary_mpos_per_rev_label,
+                        245,
+                    ),
+                ],
+                wrap=True,
+                spacing=10,
+                run_spacing=10,
             ),
         ],
-        wrap=True,
-        spacing=10,
-        run_spacing=10,
+        spacing=8,
+        tight=True,
     )
 
     rotary_sim_container = ft.Container(
@@ -5526,51 +5608,118 @@ def main(page: ft.Page):
         app_root.content = build_solution_tabs(solution)
         page.update()
 
-    def solution_button(label, icon, solution):
-        return ft.FilledButton(
-            label,
-            icon=icon,
-            height=74,
-            width=260,
-            on_click=lambda e: show_solution_workspace(solution),
-            style=ft.ButtonStyle(
-                bgcolor=ACCENT_COLOR,
-                color=ft.Colors.WHITE,
-                shape=ft.RoundedRectangleBorder(radius=8),
-                text_style=ft.TextStyle(size=18, weight=ft.FontWeight.BOLD),
-            ),
+    def solution_card(label, subtitle, icon, solution):
+        base_bg = PANEL_BG
+        base_border = BORDER_COLOR
+        hover_bg = "#262b32"
+        hover_border = ACCENT_COLOR
+
+        icon_badge = ft.Container(
+            content=ft.Icon(icon, size=30, color=ft.Colors.CYAN_200),
+            width=58,
+            height=58,
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=14,
+            alignment=ft.Alignment.CENTER,
         )
+
+        cta = ft.Row(
+            [
+                ft.Text("Configure", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_200),
+                ft.Icon(ft.Icons.ARROW_FORWARD, size=14, color=ft.Colors.CYAN_200),
+            ],
+            spacing=6,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+        card = ft.Container(
+            content=ft.Column(
+                [
+                    icon_badge,
+                    ft.Container(height=2),
+                    ft.Text(label, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                    ft.Text(subtitle, size=13, color=MUTED_TEXT, max_lines=3),
+                    ft.Container(expand=True),
+                    cta,
+                ],
+                spacing=8,
+                expand=True,
+            ),
+            width=320,
+            height=270,
+            padding=ft.Padding.all(22),
+            bgcolor=base_bg,
+            border=ft.Border.all(1, base_border),
+            border_radius=14,
+            on_click=lambda e: show_solution_workspace(solution),
+            ink=True,
+            animate=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
+        )
+
+        def _on_hover(e):
+            hovered = e.data == "true"
+            card.bgcolor = hover_bg if hovered else base_bg
+            card.border = ft.Border.all(1, hover_border if hovered else base_border)
+            card.update()
+
+        card.on_hover = _on_hover
+        return card
 
     def show_solution_picker():
         page.title = "Trio Motion Setup"
-        page.appbar = ft.AppBar(
-            title=ft.Text("Trio Motion Setup", size=18, weight=ft.FontWeight.BOLD),
-            bgcolor=PANEL_BG,
-            color=ft.Colors.WHITE,
-            elevation=0,
+        page.appbar = None
+
+        hero = ft.Column(
+            [
+                ft.Text(
+                    "Trio Motion Setup",
+                    size=34,
+                    weight=ft.FontWeight.BOLD,
+                    color=ft.Colors.WHITE,
+                ),
+                ft.Text(
+                    "Choose a motion solution to begin configuring the controller.",
+                    size=14,
+                    color=MUTED_TEXT,
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=8,
         )
+
+        cards = ft.Row(
+            [
+                solution_card(
+                    "Flying Shear",
+                    "Linear cut-on-the-fly with a matched-speed shear axis driven by a MOVELINK profile.",
+                    ft.Icons.CONTENT_CUT,
+                    "flying_shear",
+                ),
+                solution_card(
+                    "Rotary Knife",
+                    "Continuous rotary drum knife synchronised to the line via CAMBOX.",
+                    ft.Icons.AUTORENEW,
+                    "rotary_knife",
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=20,
+            wrap=True,
+            run_spacing=20,
+        )
+
         app_root.content = ft.Container(
             content=ft.Column(
-                [
-                    ft.Text("Select solution", size=26, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                    ft.Row(
-                        [
-                            solution_button("Flying Shear", ft.Icons.CALCULATE, "flying_shear"),
-                            solution_button("Rotary Knife", ft.Icons.AUTORENEW, "rotary_knife"),
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=18,
-                        wrap=True,
-                        run_spacing=18,
-                    ),
-                ],
+                [hero, cards],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 alignment=ft.MainAxisAlignment.CENTER,
-                spacing=24,
+                spacing=32,
             ),
             expand=True,
             alignment=ft.Alignment.CENTER,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=24),
         )
         page.update()
 

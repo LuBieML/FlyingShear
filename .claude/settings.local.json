@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" \"e:/SynologySynchro/Projects/FlyingShear/flet_uapi_setup.py\")"
+    ]
+  }
+}
