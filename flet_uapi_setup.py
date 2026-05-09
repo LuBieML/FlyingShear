@@ -4029,6 +4029,200 @@ def main(page: ft.Page):
 
     cam_recalc()
 
+    rotary_cam_math_help_list = ft.ListView(
+        controls=[
+            section_header(
+                "Rotary Knife Cam Math",
+                "How the generated CAMBOX profile is calculated and scaled",
+                ft.Icons.FUNCTIONS,
+            ),
+            ft.ResponsiveRow(
+                [
+                    help_card(
+                        "What CAMBOX Uses",
+                        [
+                            help_text(
+                                "CAMBOX links drum-axis position to the measured motion of the material axis. "
+                                "The app writes a TABLE profile, then calls CAMBOX with the material cut length as link_distance."
+                            ),
+                            formula_block(
+                                [
+                                    "CAMBOX(start_point, end_point, table_multiplier, link_distance, link_axis, link_options)",
+                                    "this app: CAMBOX(table_start, table_end, 1, cut_length, material_axis, 4)",
+                                    "bit 2 / value 4 = repeat continuously",
+                                ]
+                            ),
+                            help_text(
+                                "CAMBOX subtracts the first TABLE value, multiplies the remaining values by table_multiplier, "
+                                "and treats the result as absolute slave-axis positions over one link_distance."
+                            ),
+                        ],
+                        icon=ft.Icons.CODE,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                    help_card(
+                        "Count Scale Requirement",
+                        [
+                            help_text(
+                                "The drum encoder counts field must be the raw encoder counts for one physical drum revolution. "
+                                "Do not enter Trio UNITS, MPOS/rev, mm, degrees, or a gearbox ratio-adjusted user unit."
+                            ),
+                            formula_block(
+                                [
+                                    "drum_counts_per_cut = drum_encoder_counts_per_rev / number_of_knives",
+                                    "table_value[i] = round(normalized_drum_angle[i] * drum_counts_per_cut)",
+                                    "final table value must equal drum_counts_per_cut",
+                                ]
+                            ),
+                            help_text(
+                                "This matters because CAMBOX TABLE values do not use UNITS. "
+                                "If the count value is wrong, the controller receives a correctly shaped profile at the wrong scale."
+                            ),
+                        ],
+                        icon=ft.Icons.WARNING_AMBER,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                ],
+                columns=12,
+                spacing=18,
+                run_spacing=18,
+            ),
+            ft.ResponsiveRow(
+                [
+                    help_card(
+                        "Normalized Profile",
+                        [
+                            help_text(
+                                "The calculator works in normalized master distance u from 0 to 1, where one full cam cycle "
+                                "corresponds to one requested cut length of material travel."
+                            ),
+                            formula_block(
+                                [
+                                    "u = material_distance / cut_length",
+                                    "drum_radius = drum_diameter / 2",
+                                    "drum_circumference = pi * drum_diameter",
+                                    "R = number_of_knives * cut_length / drum_circumference",
+                                ]
+                            ),
+                            help_text(
+                                "R is the cut-center velocity ratio. R = 1 means a constant one-to-one surface speed is natural. "
+                                "Values far from 1 mean the drum must slow down or speed up outside the cut window."
+                            ),
+                        ],
+                        icon=ft.Icons.CALCULATE,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                    help_card(
+                        "Cut Window Geometry",
+                        [
+                            help_text(
+                                "Inside the cut window, the blade moves on a circle. The table boosts angular velocity at the window edges "
+                                "so the blade horizontal velocity still matches the material."
+                            ),
+                            formula_block(
+                                [
+                                    "alpha_max = cut_window_deg / 2",
+                                    "cut_zone_master = 2 * drum_radius * sin(alpha_max)",
+                                    "x = (u - cut_center_u) * cut_length",
+                                    "alpha = asin(x / drum_radius)",
+                                    "v_cut(u) = R / cos(alpha)",
+                                ]
+                            ),
+                            help_text(
+                                "The generated diagnostics show the cosine correction at the edge of the cut window. "
+                                "A wider cut window increases that correction and the required drum acceleration."
+                            ),
+                        ],
+                        icon=ft.Icons.SHOW_CHART,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                ],
+                columns=12,
+                spacing=18,
+                run_spacing=18,
+            ),
+            ft.ResponsiveRow(
+                [
+                    help_card(
+                        "Blend And Integration",
+                        [
+                            help_text(
+                                "Outside the cut window, the calculator solves the remaining drum travel and inserts sinusoidal blends "
+                                "between outside speed and corrected cut-window speed."
+                            ),
+                            formula_block(
+                                [
+                                    "w_cut = cut_zone_master / cut_length",
+                                    "w_blend = blend_fraction * (1 - w_cut) / 2",
+                                    "w_outside = 1 - w_cut - 2 * w_blend",
+                                    "integrate v(u) over 0..1, then scale total area back to exactly 1.0",
+                                ]
+                            ),
+                            help_text(
+                                "After integration, the normalized drum position is converted to integer encoder counts for the TABLE data."
+                            ),
+                        ],
+                        icon=ft.Icons.TIMELINE,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                    help_card(
+                        "CAMBOX Reference",
+                        [
+                            help_text(
+                                "From CAMBOX.md: TABLE values define the slave motion profile, while link_distance is the positive "
+                                "distance the linked material axis must travel to complete that profile."
+                            ),
+                            mini_table(
+                                ["CAMBOX parameter", "Rotary knife value"],
+                                [
+                                    ("start_point", "TABLE start index"),
+                                    ("end_point", "TABLE end index"),
+                                    ("table_multiplier", "1, because table is already in counts"),
+                                    ("link_distance", "cut length in material-axis units"),
+                                    ("link_axis", "material encoder axis"),
+                                    ("link_options", "4 for continuous repeat"),
+                                ],
+                                [150, 330],
+                            ),
+                            help_text(
+                                "The drum axis is selected with BASE before CAMBOX. The material axis is the CAMBOX link axis."
+                            ),
+                        ],
+                        icon=ft.Icons.MENU_BOOK,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                ],
+                columns=12,
+                spacing=18,
+                run_spacing=18,
+            ),
+            help_card(
+                "Practical Checks Before Running",
+                [
+                    help_text(
+                        "Confirm the drum encoder counts per revolution against the real drive/encoder setup. "
+                        "For a one-knife drum, the generated table should end at one full revolution of raw counts. "
+                        "For an N-knife drum, it should end at one Nth of a revolution."
+                    ),
+                    formula_block(
+                        [
+                            "one knife: table[-1] = encoder_counts_per_rev",
+                            "two knives: table[-1] = encoder_counts_per_rev / 2",
+                            "N knives: table[-1] = encoder_counts_per_rev / N",
+                        ]
+                    ),
+                    help_text(
+                        "Also check table resolution, outside-zone RPS, and peak angular acceleration against the real drive limits."
+                    ),
+                ],
+                icon=ft.Icons.TUNE,
+            ),
+        ],
+        spacing=18,
+        padding=20,
+        expand=True,
+    )
+
     # ============================================================
     # === Rotary Knife Live Simulation ===========================
     # ============================================================
@@ -5532,6 +5726,10 @@ def main(page: ft.Page):
                 (
                     ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
                     ft.Container(content=cam_calc_container, padding=20, expand=True),
+                ),
+                (
+                    ft.Tab(label="Cam Math Help", icon=ft.Icons.FUNCTIONS),
+                    rotary_cam_math_help_list,
                 ),
                 (
                     ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
