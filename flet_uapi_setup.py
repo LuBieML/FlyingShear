@@ -168,6 +168,8 @@ def main(page: ft.Page):
     settings = load_settings()
 
     def _update_if_mounted(control):
+        if getattr(control, "parent", None) is None:
+            return False
         try:
             control.update()
             return True
@@ -425,14 +427,6 @@ def main(page: ft.Page):
         except (NameError, TypeError, ValueError):
             pass
 
-    def on_master_speed_slider_change(e):
-        speed = float(e.control.value or 0)
-        speed_text = format_conveyor_speed(speed)
-        master_speed_input.value = speed_text
-        settings["master_speed"] = speed_text
-        save_settings(settings)
-        _sync_master_speed_controls(text_value=speed_text, numeric_value=speed, source=e.control)
-
     def refresh_conveyor_speed_limit(max_speed):
         max_speed = max(0.0, max_speed)
         current = clamp_conveyor_speed(get_saved_conveyor_speed(), max_speed)
@@ -457,21 +451,22 @@ def main(page: ft.Page):
         except NameError:
             pass
 
-    def _send_master_speed():
+    def _send_master_speed(source=None):
         try:
             axis_m_val = int(axis_m_dropdown.value or "0")
         except ValueError:
             return
 
+        speed_source = source or master_speed_input
         try:
-            speed_val = float(master_speed_input.value or "10.0")
+            speed_val = float(speed_source.value or "10.0")
         except ValueError:
             status_text.value = "Invalid conveyor speed"
             status_text.color = ERROR_COLOR
             show_snack("Conveyor speed must be a number.", "error")
             page.update()
             return
-        speed_val = clamp_conveyor_speed(speed_val, master_speed_slider.max)
+        speed_val = clamp_conveyor_speed(speed_val, getattr(speed_source, "max", master_speed_slider.max))
         speed_text = format_conveyor_speed(speed_val)
         master_speed_input.value = speed_text
         master_speed_slider.value = speed_val
@@ -504,7 +499,7 @@ def main(page: ft.Page):
         suffix="u/s",
         text_size=12, on_change=on_master_speed_change,
         on_blur=lambda e: normalize_conveyor_speed_input(),
-        on_submit=lambda e: _send_master_speed(),
+        on_submit=lambda e: _send_master_speed(e.control),
         tooltip="Conveyor axis SPEED set before Forward/Reverse",
     )
     master_speed_inputs.append(master_speed_input)
@@ -518,8 +513,7 @@ def main(page: ft.Page):
         active_color=ft.Colors.CYAN_300,
         inactive_color=ft.Colors.GREY_700,
         thumb_color=ft.Colors.CYAN_200,
-        on_change=on_master_speed_slider_change,
-        on_change_end=lambda e: _send_master_speed(),
+        on_change_end=lambda e: _send_master_speed(e.control),
         tooltip="Limited by the calculator MAX line speed",
     )
     master_speed_sliders.append(master_speed_slider)
@@ -5376,7 +5370,7 @@ def main(page: ft.Page):
         text_size=12,
         on_change=on_master_speed_change,
         on_blur=lambda e: normalize_conveyor_speed_input(e.control),
-        on_submit=lambda e: _send_master_speed(),
+        on_submit=lambda e: _send_master_speed(e.control),
         tooltip="Conveyor axis SPEED set before Forward/Reverse",
     )
     master_speed_inputs.append(rotary_master_speed_input)
@@ -5391,8 +5385,7 @@ def main(page: ft.Page):
         active_color=ft.Colors.CYAN_300,
         inactive_color=ft.Colors.GREY_700,
         thumb_color=ft.Colors.CYAN_200,
-        on_change=on_master_speed_slider_change,
-        on_change_end=lambda e: _send_master_speed(),
+        on_change_end=lambda e: _send_master_speed(e.control),
         tooltip="Limited by the calculator MAX line speed",
     )
     master_speed_sliders.append(rotary_master_speed_slider)
