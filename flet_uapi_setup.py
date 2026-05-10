@@ -3822,6 +3822,15 @@ def main(page: ft.Page):
         "drum_diameter_mm": 0.0,
         "n_knives": 1,
         "line_speed_mm_s": 0.0,
+        # Profile-point cache — keyed by signature of inputs + metric so
+        # zoom/pan operations reuse the heavy computation.
+        "cached_points": [],
+        "cached_signature": None,
+        # Plot layout written by build_rotary_profile_view_shapes; used by
+        # the pointer/scroll handlers to map cursor X to drum angle.
+        "plot_left": 0.0,
+        "plot_right_edge": 0.0,
+        "plot_w": 0.0,
     }
 
     PROFILE_VIEW_HEIGHT = 560
@@ -4031,8 +4040,38 @@ def main(page: ft.Page):
             profile_view_labels["min"].value = "--"
             profile_view_labels["max"].value = "--"
         unit_text = profile_view_metric_label(metric)
-        profile_view_status.value = f"X axis is drum angle; Y axis is {unit_text} from the generated CAMBOX table."
+        profile_view_status.value = (
+            f"X axis is drum angle; Y axis is {unit_text} from the generated CAMBOX table.  "
+            "Tip: scroll to zoom around the cursor, drag horizontally to pan, double-click to reset."
+        )
         profile_view_status.color = MUTED_TEXT
+
+    def get_cached_profile_points(metric):
+        """Return profile points for ``metric``, recomputing only when an input
+        affecting the curve has changed. Zoom/pan never invalidates the cache."""
+        table = rotary_profile_view_state.get("table") or []
+        n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
+        signature = (
+            id(table),
+            len(table),
+            n_knives,
+            float(rotary_profile_view_state.get("cut_length_mm") or 0.0),
+            float(rotary_profile_view_state.get("drum_diameter_mm") or 0.0),
+            float(rotary_profile_view_state.get("line_speed_mm_s") or 0.0),
+            metric,
+        )
+        if rotary_profile_view_state.get("cached_signature") != signature:
+            rotary_profile_view_state["cached_points"] = build_rotary_speed_profile_points(
+                table,
+                rotary_profile_view_state.get("diag") or {},
+                float(rotary_profile_view_state.get("cut_length_mm") or 0.0),
+                float(rotary_profile_view_state.get("drum_diameter_mm") or 0.0),
+                n_knives,
+                float(rotary_profile_view_state.get("line_speed_mm_s") or 0.0),
+                metric,
+            )
+            rotary_profile_view_state["cached_signature"] = signature
+        return rotary_profile_view_state["cached_points"]
 
     def build_rotary_profile_view_shapes(points, visible_points, diag, start_deg,
                                          end_deg, metric, n_knives):
@@ -4045,6 +4084,11 @@ def main(page: ft.Page):
         plot_end = width - right
         plot_w = max(1.0, plot_end - left)
         plot_h = max(1.0, bottom - top)
+        # Record plot geometry so cursor X can be mapped to drum angle by the
+        # gesture handlers below the canvas.
+        rotary_profile_view_state["plot_left"] = float(left)
+        rotary_profile_view_state["plot_right_edge"] = float(plot_end)
+        rotary_profile_view_state["plot_w"] = float(plot_w)
         axis_paint = canvas_paint("#b8a80f", 2.5)
         grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
         profile_paint = canvas_paint("#4fc3f7", 2.5)
@@ -4248,15 +4292,7 @@ def main(page: ft.Page):
             save_settings(settings)
 
         n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
-        points = build_rotary_speed_profile_points(
-            table,
-            diag,
-            float(rotary_profile_view_state.get("cut_length_mm") or 0.0),
-            float(rotary_profile_view_state.get("drum_diameter_mm") or 0.0),
-            n_knives,
-            float(rotary_profile_view_state.get("line_speed_mm_s") or 0.0),
-            metric,
-        )
+        points = get_cached_profile_points(metric)
         current_visible_points = visible_profile_points(points, start_deg, end_deg)
         update_profile_view_stats(start_deg, end_deg, current_visible_points, metric)
 
@@ -4351,6 +4387,99 @@ def main(page: ft.Page):
     profile_angle_end_input.on_blur = on_profile_angle_submit
     profile_metric_dropdown.on_select = on_profile_metric_change
 
+    # --- Direct chart gestures (mouse-wheel zoom, drag pan, double-click reset) ---
+    # Drag state lives in a closure dict so handlers can read/write it.
+    _profile_pan_state = {"start": 0.0, "end": 360.0, "anchor_x": 0.0, "active": False}
+
+    def _current_profile_range():
+        try:
+            s = float(profile_angle_start_input.value)
+            ed = float(profile_angle_end_input.value)
+        except (TypeError, ValueError):
+            s, ed = 0.0, 360.0
+        return normalize_profile_angle_range(s, ed)
+
+    def _shift_into_bounds(start_deg, end_deg):
+        if start_deg < 0.0:
+            end_deg -= start_deg
+            start_deg = 0.0
+        if end_deg > 360.0:
+            start_deg -= end_deg - 360.0
+            end_deg = 360.0
+        return max(0.0, start_deg), min(360.0, end_deg)
+
+    def on_profile_chart_scroll(e):
+        # Mouse-wheel zoom anchored at the cursor — points are cached, so the
+        # only per-event work is filtering visible points and rebuilding shapes.
+        dy = float(getattr(e.scroll_delta, "y", 0.0) or 0.0)
+        if dy == 0.0:
+            return
+        start_deg, end_deg = _current_profile_range()
+        span = end_deg - start_deg
+        if span <= 0:
+            return
+        # 1 wheel notch (~100 units) → 1.2× zoom step.
+        factor = 1.2 ** (dy / 100.0)
+        new_span = max(1.0, min(360.0, span * factor))
+        if abs(new_span - span) < 1e-6:
+            return
+
+        plot_left = float(rotary_profile_view_state.get("plot_left") or 0.0)
+        plot_w = float(rotary_profile_view_state.get("plot_w") or 0.0)
+        if plot_w > 0:
+            rel = (float(e.local_position.x) - plot_left) / plot_w
+            rel = max(0.0, min(1.0, rel))
+        else:
+            rel = 0.5
+        anchor_angle = start_deg + rel * span
+
+        new_start = anchor_angle - rel * new_span
+        new_end = new_start + new_span
+        new_start, new_end = _shift_into_bounds(new_start, new_end)
+        set_profile_view_range(new_start, new_end)
+
+    def on_profile_chart_drag_start(e):
+        s, ed = _current_profile_range()
+        _profile_pan_state["start"] = s
+        _profile_pan_state["end"] = ed
+        _profile_pan_state["anchor_x"] = float(e.local_position.x)
+        _profile_pan_state["active"] = True
+
+    def on_profile_chart_drag_update(e):
+        if not _profile_pan_state["active"]:
+            return
+        plot_w = float(rotary_profile_view_state.get("plot_w") or 0.0)
+        if plot_w <= 0:
+            return
+        span = _profile_pan_state["end"] - _profile_pan_state["start"]
+        if span <= 0 or span >= 360.0:
+            return  # nothing to pan when fully zoomed out
+        dx = float(e.local_position.x) - _profile_pan_state["anchor_x"]
+        # Drag right shifts the visible window left (lower angles).
+        angle_shift = -(dx / plot_w) * span
+        new_start = _profile_pan_state["start"] + angle_shift
+        new_end = _profile_pan_state["end"] + angle_shift
+        new_start, new_end = _shift_into_bounds(new_start, new_end)
+        set_profile_view_range(new_start, new_end, persist=False)
+
+    def on_profile_chart_drag_end(e):
+        if not _profile_pan_state["active"]:
+            return
+        _profile_pan_state["active"] = False
+        # Persist final range only once the drag has settled.
+        refresh_rotary_profile_view(update=True, persist=True)
+
+    rotary_profile_view_gestures = ft.GestureDetector(
+        content=rotary_profile_view_holder,
+        on_scroll=on_profile_chart_scroll,
+        on_horizontal_drag_start=on_profile_chart_drag_start,
+        on_horizontal_drag_update=on_profile_chart_drag_update,
+        on_horizontal_drag_end=on_profile_chart_drag_end,
+        on_double_tap=lambda e: set_profile_view_range(0.0, 360.0),
+        drag_interval=16,
+        mouse_cursor=ft.MouseCursor.GRAB,
+    )
+
     profile_full_btn = ft.OutlinedButton(
         "Full",
         icon=ft.Icons.FULLSCREEN,
@@ -4414,7 +4543,7 @@ def main(page: ft.Page):
                     run_spacing=10,
                 ),
                 profile_angle_range,
-                rotary_profile_view_holder,
+                rotary_profile_view_gestures,
                 ft.Row(
                     [
                         profile_view_stat_card("Visible angle range", "range", 210),

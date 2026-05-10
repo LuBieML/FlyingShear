@@ -9,7 +9,9 @@
       "Bash(python -c \"import flet.canvas as cv; help\\(cv.Canvas.__init__\\)\")",
       "Bash(python -c ' *)",
       "Bash(python -c \"import flet as ft; help\\(ft.RangeSlider.__init__\\)\")",
-      "Bash(timeout 8 python flet_uapi_setup.py)"
+      "Bash(timeout 8 python flet_uapi_setup.py)",
+      "Bash(python -c \"import flet; print\\(flet.__version__\\)\")",
+      "Bash(python -c \"import flet as ft; print\\([a for a in dir\\(ft.ScrollEvent\\) if not a.startswith\\('_'\\)]\\)\")"
     ]
   }
 }
