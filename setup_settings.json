@@ -70,7 +70,7 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "9.85",
+  "master_speed": "4.08",
   "shear_calc": {
     "cut": 20.0,
     "vline": 50.0,
@@ -88,12 +88,12 @@
     "use_base_dist": false
   },
   "cam_calc": {
-    "cut": 20.0,
+    "cut": 5.0,
     "drum_dia": 20.0,
     "n_knives": 2,
     "cut_window": 10.0,
     "cpr": 8388608,
-    "n_points": 30000,
+    "n_points": 10000,
     "blend": 0.5,
     "vline": 10.0,
     "table_start": 1000
