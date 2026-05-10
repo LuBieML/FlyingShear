@@ -4270,27 +4270,73 @@ def main(page: ft.Page):
     def on_profile_metric_change(e):
         refresh_rotary_profile_view(update=True, persist=True)
 
-    def zoom_profile_view_to_cut():
+    def _cut_window_angle_bounds():
+        """Return (cut_start_deg, cut_end_deg) for the first knife segment,
+        or None if the cut window is not yet known."""
         diag = rotary_profile_view_state.get("diag", {})
         table = rotary_profile_view_state.get("table", [])
         segment_counts = float(diag.get("cut_segment_counts", 0.0))
         w_cut = float(diag.get("w_cut", 0.0))
         n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
         if not table or segment_counts <= 0 or w_cut <= 0:
-            set_profile_view_range(0.0, 360.0)
-            return
+            return None
         segment_angle = 360.0 / max(1, n_knives)
         u_cut_start = 0.5 - w_cut / 2.0
         u_cut_end = 0.5 + w_cut / 2.0
-        start_angle = (interpolate_profile_table_value(table, u_cut_start)
+        cut_start_a = (interpolate_profile_table_value(table, u_cut_start)
                        / segment_counts * segment_angle)
-        end_angle = (interpolate_profile_table_value(table, u_cut_end)
+        cut_end_a = (interpolate_profile_table_value(table, u_cut_end)
                      / segment_counts * segment_angle)
+        return cut_start_a, cut_end_a
+
+    def zoom_profile_view_to_cut():
+        bounds = _cut_window_angle_bounds()
+        if bounds is None:
+            set_profile_view_range(0.0, 360.0)
+            return
+        start_angle, end_angle = bounds
         padding = max(5.0, (end_angle - start_angle) * 0.35)
         set_profile_view_range(
             max(0.0, start_angle - padding),
             min(360.0, end_angle + padding),
         )
+
+    def zoom_profile_view_to_cut_dome():
+        """Zoom both axes tight on the cut window so the 1/cos(α) dome —
+        which is only ~0.4% tall for a 10° cut window — becomes visible."""
+        bounds = _cut_window_angle_bounds()
+        if bounds is None:
+            set_profile_view_range(0.0, 360.0)
+            return
+        cut_start_a, cut_end_a = bounds
+        pad_x = max(1.0, (cut_end_a - cut_start_a) * 0.12)
+        start_deg = max(0.0, cut_start_a - pad_x)
+        end_deg = min(360.0, cut_end_a + pad_x)
+        set_profile_view_range(start_deg, end_deg, update=False, persist=True)
+
+        metric = profile_metric_dropdown.value or "rps"
+        points = rotary_profile_view_state.get("cached_points") or []
+        in_cut = [v for x, v in points if cut_start_a <= x <= cut_end_a]
+        if in_cut:
+            y_lo = min(in_cut)
+            y_hi = max(in_cut)
+            span = y_hi - y_lo
+            if span <= 0:
+                # Truly flat (numerically): synthesise a small range so
+                # set_ylim doesn't collapse to a single line.
+                span = max(abs(y_hi), 1e-9) * 1e-3
+            pad_y = span * 0.25
+            profile_ax.set_ylim(y_lo - pad_y, y_hi + pad_y)
+            profile_view_status.value = (
+                f"Y axis cropped to cut-window {profile_view_metric_label(metric)} "
+                f"({format_profile_axis_value(y_lo)} to {format_profile_axis_value(y_hi)}) "
+                "— the 1/cos(α) dome is visible. Any other zoom action resets the y range."
+            )
+            profile_view_status.color = MUTED_TEXT
+            _profile_canvas_draw()
+            _update_if_mounted(profile_view_status)
+
+        _update_if_mounted(rotary_profile_container)
 
     profile_angle_start_input.on_submit = on_profile_angle_submit
     profile_angle_start_input.on_blur = on_profile_angle_submit
@@ -4310,7 +4356,18 @@ def main(page: ft.Page):
         icon=ft.Icons.CENTER_FOCUS_STRONG,
         on_click=lambda e: zoom_profile_view_to_cut(),
         height=38,
-        tooltip="Zoom to the first generated cut window",
+        tooltip="Zoom X to the first generated cut window (Y stays at full range)",
+    )
+    profile_dome_btn = ft.OutlinedButton(
+        "Dome",
+        icon=ft.Icons.WAVES,
+        on_click=lambda e: zoom_profile_view_to_cut_dome(),
+        height=38,
+        tooltip=(
+            "Zoom both X and Y tight around the cut window so the 1/cos(α) "
+            "speed dome is visible. Useful for narrow cut windows where the "
+            "boost is < 1% and otherwise looks flat."
+        ),
     )
 
     rotary_profile_container = ft.Container(
@@ -4327,6 +4384,7 @@ def main(page: ft.Page):
                             [
                                 profile_full_btn,
                                 profile_cut_btn,
+                                profile_dome_btn,
                             ],
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
