@@ -1,5 +1,12 @@
 import flet as ft
 import flet.canvas as cv
+# flet_charts sets matplotlib's backend on import, so it must be imported
+# before we touch matplotlib. We go through pyplot to create the figure so
+# that the backend's canvas + manager are bound correctly — instantiating
+# Figure() directly skips that binding and the chart's resize handler then
+# crashes with "manager is None".
+import flet_charts as fc
+import matplotlib.pyplot as plt
 import collections
 import sys
 import os
@@ -3822,31 +3829,108 @@ def main(page: ft.Page):
         "drum_diameter_mm": 0.0,
         "n_knives": 1,
         "line_speed_mm_s": 0.0,
-        # Profile-point cache — keyed by signature of inputs + metric so
-        # zoom/pan operations reuse the heavy computation.
+        # Profile-point cache — keyed by a signature of the inputs + metric so
+        # the matplotlib redraw never recomputes points unless they actually
+        # changed.
         "cached_points": [],
         "cached_signature": None,
-        # Plot layout written by build_rotary_profile_view_shapes; used by
-        # the pointer/scroll handlers to map cursor X to drum angle.
-        "plot_left": 0.0,
-        "plot_right_edge": 0.0,
-        "plot_w": 0.0,
     }
 
     PROFILE_VIEW_HEIGHT = 560
-    rotary_profile_view_canvas = cv.Canvas(
-        width=visual_width,
-        height=PROFILE_VIEW_HEIGHT,
-        shapes=[],
+    # Matplotlib figure backing the profile view. Interactive zoom/pan/reset
+    # is handled inside the embedded chart by flet_charts' WebAgg-style backend,
+    # so per-frame work no longer crosses the Flet websocket.
+    profile_fig = plt.figure(figsize=(10.0, PROFILE_VIEW_HEIGHT / 100.0), dpi=100)
+    profile_fig.patch.set_facecolor("#1a1a1a")
+    profile_ax = profile_fig.add_subplot(111)
+
+    def _theme_profile_axes(ax):
+        ax.set_facecolor("#101418")
+        ax.tick_params(colors="#cccccc", labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_color("#444")
+        ax.grid(True, color="#333", linestyle="--", linewidth=0.5, alpha=0.6)
+        ax.title.set_color("#dddddd")
+
+    _theme_profile_axes(profile_ax)
+    profile_fig.subplots_adjust(left=0.09, right=0.985, top=0.95, bottom=0.13)
+    # Empty placeholder line so we can update xdata/ydata in place.
+    (profile_line,) = profile_ax.plot([], [], color="#4fc3f7", linewidth=2.0)
+    profile_ax.set_xlim(0.0, 360.0)
+
+    profile_chart = fc.MatplotlibChartWithToolbar(
+        figure=profile_fig,
+        expand=True,
     )
+
+    def on_profile_chart_scroll(e):
+        # Cursor-anchored mouse-wheel zoom for the matplotlib chart. The inner
+        # MatplotlibChart doesn't subscribe to on_scroll, so wrapping it in an
+        # outer GestureDetector that only listens for scroll lets the inner
+        # chart keep handling pan/hover/keyboard.
+        dy = float(getattr(e.scroll_delta, "y", 0.0) or 0.0)
+        if dy == 0.0:
+            return
+        try:
+            xlim_lo, xlim_hi = profile_ax.get_xlim()
+        except Exception:
+            return
+        span = float(xlim_hi) - float(xlim_lo)
+        if span <= 0:
+            return
+
+        # 1 wheel notch (~100 units of dy) → 1.2× span step. Negative dy
+        # (scroll up) → factor < 1 → zoom in.
+        factor = 1.2 ** (dy / 100.0)
+        new_span = max(0.5, min(360.0, span * factor))
+        if abs(new_span - span) < 1e-9:
+            return
+
+        # Compute the cursor's fraction across the axes' x range, going via
+        # the figure's pixel bbox + the axes' figure-relative position. This
+        # is robust to canvas resizes — matplotlib keeps fig.bbox in sync.
+        fig_w = float(profile_fig.bbox.width) or 1.0
+        cursor_frac = float(e.local_position.x) / fig_w
+        cursor_frac = max(0.0, min(1.0, cursor_frac))
+        ax_pos = profile_ax.get_position()
+        ax_w = float(ax_pos.x1 - ax_pos.x0)
+        if ax_w > 0:
+            ax_rel = (cursor_frac - float(ax_pos.x0)) / ax_w
+            ax_rel = max(0.0, min(1.0, ax_rel))
+        else:
+            ax_rel = 0.5
+
+        anchor_angle = float(xlim_lo) + ax_rel * span
+        new_lo = anchor_angle - ax_rel * new_span
+        new_hi = new_lo + new_span
+        if new_lo < 0.0:
+            new_hi -= new_lo
+            new_lo = 0.0
+        if new_hi > 360.0:
+            new_lo -= new_hi - 360.0
+            new_hi = 360.0
+        new_lo = max(0.0, new_lo)
+        new_hi = min(360.0, new_hi)
+        if new_hi - new_lo < 0.5:
+            return
+
+        profile_ax.set_xlim(new_lo, new_hi)
+        _profile_canvas_draw()
+
+    profile_chart_wrapper = ft.GestureDetector(
+        content=profile_chart,
+        on_scroll=on_profile_chart_scroll,
+    )
+
     rotary_profile_view_holder = ft.Container(
-        content=rotary_profile_view_canvas,
+        content=profile_chart_wrapper,
         width=visual_width,
-        height=PROFILE_VIEW_HEIGHT,
+        height=PROFILE_VIEW_HEIGHT + 56,  # extra row for the toolbar
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
         bgcolor=DARKER_BG,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        padding=4,
     )
 
     profile_angle_start_input = ft.TextField(
@@ -3893,17 +3977,6 @@ def main(page: ft.Page):
             ft.dropdown.Option("ratio", "Profile ratio"),
         ],
         tooltip="Choose how the generated drum speed is scaled on the Y axis",
-    )
-    profile_angle_range = ft.RangeSlider(
-        start_value=max(0.0, min(360.0, profile_view_setting_float("start_deg", 0.0))),
-        end_value=max(0.0, min(360.0, profile_view_setting_float("end_deg", 360.0))),
-        min=0.0,
-        max=360.0,
-        divisions=360,
-        round=0,
-        active_color=ACCENT_COLOR,
-        inactive_color=BORDER_COLOR,
-        tooltip="Drag handles to zoom into a drum-angle range",
     )
     profile_view_status = ft.Text("", size=13, color=MUTED_TEXT)
     profile_view_labels = {
@@ -4006,31 +4079,8 @@ def main(page: ft.Page):
         return [(angle, value) for angle, value in points
                 if start_deg <= angle <= end_deg]
 
-    def add_profile_view_empty_shapes(message):
-        width = float(rotary_profile_view_canvas.width or visual_width)
-        height = PROFILE_VIEW_HEIGHT
-        rotary_profile_view_canvas.shapes = [
-            cv.Rect(
-                0,
-                0,
-                width,
-                height,
-                border_radius=ft.BorderRadius.all(8),
-                paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL),
-            ),
-        ]
-        add_profile_text(
-            rotary_profile_view_canvas.shapes,
-            width / 2,
-            height / 2,
-            message,
-            size=15,
-            color=MUTED_TEXT,
-            max_width=520,
-        )
-
     def update_profile_view_stats(start_deg, end_deg, visible_points, metric):
-        profile_view_labels["range"].value = f"{start_deg:.0f}° to {end_deg:.0f}°"
+        profile_view_labels["range"].value = f"{start_deg:.1f}° to {end_deg:.1f}°"
         profile_view_labels["points"].value = str(len(visible_points))
         if visible_points:
             values = [value for _, value in visible_points]
@@ -4042,7 +4092,7 @@ def main(page: ft.Page):
         unit_text = profile_view_metric_label(metric)
         profile_view_status.value = (
             f"X axis is drum angle; Y axis is {unit_text} from the generated CAMBOX table.  "
-            "Tip: scroll to zoom around the cursor, drag horizontally to pan, double-click to reset."
+            "Use the toolbar above the chart: pan tool drags the view, zoom tool draws a rect, home resets."
         )
         profile_view_status.color = MUTED_TEXT
 
@@ -4073,191 +4123,6 @@ def main(page: ft.Page):
             rotary_profile_view_state["cached_signature"] = signature
         return rotary_profile_view_state["cached_points"]
 
-    def build_rotary_profile_view_shapes(points, visible_points, diag, start_deg,
-                                         end_deg, metric, n_knives):
-        width = float(rotary_profile_view_canvas.width or visual_width)
-        height = PROFILE_VIEW_HEIGHT
-        left = 86
-        right = 34
-        top = 42
-        bottom = height - 74
-        plot_end = width - right
-        plot_w = max(1.0, plot_end - left)
-        plot_h = max(1.0, bottom - top)
-        # Record plot geometry so cursor X can be mapped to drum angle by the
-        # gesture handlers below the canvas.
-        rotary_profile_view_state["plot_left"] = float(left)
-        rotary_profile_view_state["plot_right_edge"] = float(plot_end)
-        rotary_profile_view_state["plot_w"] = float(plot_w)
-        axis_paint = canvas_paint("#b8a80f", 2.5)
-        grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
-        profile_paint = canvas_paint("#4fc3f7", 2.5)
-        cut_band_paint = ft.Paint(color="#2d4d2a55", style=ft.PaintingStyle.FILL)
-        boundary_paint = canvas_paint("#607d8b", 1, dash=[5, 5])
-
-        shapes = [
-            cv.Rect(
-                0,
-                0,
-                width,
-                height,
-                border_radius=ft.BorderRadius.all(8),
-                paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL),
-            ),
-        ]
-
-        if not visible_points or end_deg <= start_deg:
-            add_profile_text(
-                shapes,
-                width / 2,
-                height / 2,
-                "No generated profile points in this angle range.",
-                size=15,
-                color=MUTED_TEXT,
-                max_width=520,
-            )
-            return shapes
-
-        values = [value for _, value in visible_points]
-        y_min = min(values)
-        y_max = max(values)
-        y_pad = max((y_max - y_min) * 0.10, abs(y_max) * 0.02, 0.001)
-        y_lo = y_min - y_pad
-        y_hi = y_max + y_pad
-        if y_lo > 0:
-            y_lo = max(0.0, y_lo)
-        if y_hi <= y_lo:
-            y_hi = y_lo + 1.0
-
-        def map_x(angle):
-            return left + ((angle - start_deg) / (end_deg - start_deg)) * plot_w
-
-        def map_y(value):
-            return bottom - ((value - y_lo) / (y_hi - y_lo)) * plot_h
-
-        # Cut-window bands are calculated from the same generated table positions
-        # so they stay aligned with the plotted speed data.
-        w_cut = float(diag.get("w_cut", 0.0))
-        segment_counts = float(diag.get("cut_segment_counts", 0.0))
-        if w_cut > 0 and segment_counts > 0:
-            u_cut_start = 0.5 - w_cut / 2.0
-            u_cut_end = 0.5 + w_cut / 2.0
-            table = rotary_profile_view_state.get("table", [])
-            segment_angle = 360.0 / max(1, n_knives)
-            cut_start_angle = (
-                interpolate_profile_table_value(table, u_cut_start)
-                / segment_counts * segment_angle
-            )
-            cut_end_angle = (
-                interpolate_profile_table_value(table, u_cut_end)
-                / segment_counts * segment_angle
-            )
-            for segment_index in range(max(1, n_knives)):
-                band_start = segment_index * segment_angle + cut_start_angle
-                band_end = segment_index * segment_angle + cut_end_angle
-                overlap_start = max(start_deg, band_start)
-                overlap_end = min(end_deg, band_end)
-                if overlap_end > overlap_start:
-                    x0 = map_x(overlap_start)
-                    x1 = map_x(overlap_end)
-                    shapes.append(cv.Rect(x0, top, x1 - x0, plot_h, paint=cut_band_paint))
-                    if x1 - x0 > 44:
-                        add_profile_text(
-                            shapes,
-                            (x0 + x1) / 2,
-                            top + 16,
-                            "cut",
-                            size=10,
-                            color=ft.Colors.GREEN_200,
-                            max_width=x1 - x0 - 4,
-                        )
-
-        # Axes and grid
-        shapes.extend([
-            cv.Line(left, bottom, plot_end, bottom, paint=axis_paint),
-            cv.Line(left, bottom, left, top, paint=axis_paint),
-        ])
-
-        x_ticks = 6
-        for tick in range(x_ticks + 1):
-            angle = start_deg + (end_deg - start_deg) * tick / x_ticks
-            x = map_x(angle)
-            shapes.append(cv.Line(x, top, x, bottom, paint=grid_paint))
-            add_profile_text(
-                shapes,
-                x,
-                bottom + 20,
-                f"{angle:.0f}°",
-                size=10,
-                color=ft.Colors.GREY_300,
-                max_width=62,
-            )
-
-        y_ticks = 5
-        for tick in range(y_ticks + 1):
-            value = y_lo + (y_hi - y_lo) * tick / y_ticks
-            y = map_y(value)
-            shapes.append(cv.Line(left, y, plot_end, y, paint=grid_paint))
-            add_profile_text(
-                shapes,
-                left - 8,
-                y - 7,
-                format_profile_axis_value(value),
-                size=10,
-                color=ft.Colors.GREY_300,
-                align=ft.Alignment.CENTER_RIGHT,
-                max_width=74,
-            )
-
-        segment_angle = 360.0 / max(1, n_knives)
-        for segment_index in range(1, max(1, n_knives)):
-            angle = segment_index * segment_angle
-            if start_deg < angle < end_deg:
-                x = map_x(angle)
-                shapes.append(cv.Line(x, top, x, bottom, paint=boundary_paint))
-
-        elements = []
-        for angle, value in visible_points:
-            x = map_x(angle)
-            y = map_y(value)
-            if not elements:
-                elements.append(cv.Path.MoveTo(x, y))
-            else:
-                elements.append(cv.Path.LineTo(x, y))
-        if elements:
-            shapes.append(cv.Path(elements=elements, paint=profile_paint))
-
-        add_profile_text(
-            shapes,
-            26,
-            (top + bottom) / 2,
-            profile_view_metric_label(metric),
-            size=13,
-            color=ft.Colors.WHITE,
-            rotate=-1.5708,
-            max_width=260,
-        )
-        add_profile_text(
-            shapes,
-            (left + plot_end) / 2,
-            height - 28,
-            "drum angle (degrees)",
-            size=13,
-            color=ft.Colors.WHITE,
-            max_width=220,
-        )
-        add_profile_text(
-            shapes,
-            plot_end - 112,
-            top + 16,
-            f"{len(points)} generated points over 360°",
-            size=10,
-            color=ft.Colors.GREY_400,
-            align=ft.Alignment.CENTER_RIGHT,
-            max_width=220,
-        )
-        return shapes
-
     def normalize_profile_angle_range(start_deg, end_deg):
         start_deg = max(0.0, min(360.0, float(start_deg)))
         end_deg = max(0.0, min(360.0, float(end_deg)))
@@ -4268,22 +4133,108 @@ def main(page: ft.Page):
             start_deg = max(0.0, end_deg - 1.0)
         return start_deg, end_deg
 
+    # While a programmatic refresh is mutating xlim, suppress the user-facing
+    # xlim_changed handler so it doesn't fight with code that already set the
+    # inputs/stats for that same range.
+    _profile_xlim_guard = {"suspended": False}
+
+    def _profile_canvas_draw():
+        canvas = getattr(profile_fig, "canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.draw_idle()
+        except Exception:
+            pass
+
+    def _on_profile_xlim_changed(ax):
+        # Fired when the user uses the matplotlib toolbar's pan/zoom/home
+        # buttons. Re-sync the From/To inputs and stat cards with the new view.
+        if _profile_xlim_guard["suspended"]:
+            return
+        try:
+            s_raw, e_raw = ax.get_xlim()
+        except Exception:
+            return
+        s = max(0.0, min(360.0, float(s_raw)))
+        ed = max(0.0, min(360.0, float(e_raw)))
+        if ed <= s:
+            return
+        profile_angle_start_input.value = f"{s:.1f}"
+        profile_angle_end_input.value = f"{ed:.1f}"
+        metric = profile_metric_dropdown.value or "rps"
+        points = rotary_profile_view_state.get("cached_points") or []
+        visible = visible_profile_points(points, s, ed)
+        update_profile_view_stats(s, ed, visible, metric)
+        for w in (profile_angle_start_input, profile_angle_end_input,
+                  profile_view_status,
+                  profile_view_labels["range"], profile_view_labels["min"],
+                  profile_view_labels["max"], profile_view_labels["points"]):
+            _update_if_mounted(w)
+
+    def redraw_profile_figure():
+        """Re-populate the matplotlib axes from the cached profile points."""
+        metric = profile_metric_dropdown.value or "rps"
+        n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
+        diag = rotary_profile_view_state.get("diag") or {}
+        table = rotary_profile_view_state.get("table") or []
+        points = get_cached_profile_points(metric)
+
+        profile_ax.clear()
+        _theme_profile_axes(profile_ax)
+        profile_ax.set_xlabel("drum angle (degrees)", color="#dddddd", fontsize=10)
+        profile_ax.set_ylabel(profile_view_metric_label(metric),
+                              color="#dddddd", fontsize=10)
+
+        if not points:
+            profile_ax.text(
+                0.5, 0.5,
+                "Generate a rotary knife cam profile to view the 360° speed trace.",
+                transform=profile_ax.transAxes, ha="center", va="center",
+                color="#888888", fontsize=11,
+            )
+            profile_ax.set_xlim(0.0, 360.0)
+        else:
+            segment_angle = 360.0 / max(1, n_knives)
+            w_cut = float(diag.get("w_cut", 0.0))
+            segment_counts = float(diag.get("cut_segment_counts", 0.0))
+            if w_cut > 0 and segment_counts > 0:
+                u_cut_start = 0.5 - w_cut / 2.0
+                u_cut_end = 0.5 + w_cut / 2.0
+                cut_start_a = (interpolate_profile_table_value(table, u_cut_start)
+                               / segment_counts * segment_angle)
+                cut_end_a = (interpolate_profile_table_value(table, u_cut_end)
+                             / segment_counts * segment_angle)
+                for seg in range(max(1, n_knives)):
+                    profile_ax.axvspan(
+                        seg * segment_angle + cut_start_a,
+                        seg * segment_angle + cut_end_a,
+                        facecolor="#2d4d2a", alpha=0.35, edgecolor="none",
+                    )
+            for seg in range(1, max(1, n_knives)):
+                profile_ax.axvline(
+                    seg * segment_angle, color="#607d8b",
+                    linestyle="--", linewidth=0.8, alpha=0.6,
+                )
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            profile_ax.plot(xs, ys, color="#4fc3f7", linewidth=2.0)
+            profile_ax.set_xlim(0.0, 360.0)
+
+        # ax.clear() drops registered callbacks; reattach for user-driven zoom.
+        profile_ax.callbacks.connect("xlim_changed", _on_profile_xlim_changed)
+
     def refresh_rotary_profile_view(update=False, persist=False):
-        table = rotary_profile_view_state.get("table", [])
-        diag = rotary_profile_view_state.get("diag", {})
         metric = profile_metric_dropdown.value or "rps"
         try:
             start_deg = float(profile_angle_start_input.value)
             end_deg = float(profile_angle_end_input.value)
         except (TypeError, ValueError):
-            start_deg = float(profile_angle_range.start_value or 0.0)
-            end_deg = float(profile_angle_range.end_value or 360.0)
+            start_deg, end_deg = 0.0, 360.0
         start_deg, end_deg = normalize_profile_angle_range(start_deg, end_deg)
 
         profile_angle_start_input.value = f"{start_deg:.0f}"
         profile_angle_end_input.value = f"{end_deg:.0f}"
-        profile_angle_range.start_value = start_deg
-        profile_angle_range.end_value = end_deg
         if persist:
             settings["cam_profile_view"] = profile_view_settings
             profile_view_settings["start_deg"] = start_deg
@@ -4291,23 +4242,18 @@ def main(page: ft.Page):
             profile_view_settings["metric"] = metric
             save_settings(settings)
 
-        n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
-        points = get_cached_profile_points(metric)
+        _profile_xlim_guard["suspended"] = True
+        try:
+            redraw_profile_figure()
+            profile_ax.set_xlim(start_deg, end_deg)
+        finally:
+            _profile_xlim_guard["suspended"] = False
+
+        points = rotary_profile_view_state.get("cached_points") or []
         current_visible_points = visible_profile_points(points, start_deg, end_deg)
         update_profile_view_stats(start_deg, end_deg, current_visible_points, metric)
 
-        if not points:
-            add_profile_view_empty_shapes("Generate a rotary knife cam profile to view the 360° speed trace.")
-        else:
-            rotary_profile_view_canvas.shapes = build_rotary_profile_view_shapes(
-                points,
-                current_visible_points,
-                diag,
-                start_deg,
-                end_deg,
-                metric,
-                n_knives,
-            )
+        _profile_canvas_draw()
 
         if update:
             _update_if_mounted(rotary_profile_container)
@@ -4318,43 +4264,11 @@ def main(page: ft.Page):
         profile_angle_end_input.value = f"{end_deg:.0f}"
         refresh_rotary_profile_view(update=update, persist=persist)
 
-    def on_profile_range_change(e):
-        profile_angle_start_input.value = f"{float(profile_angle_range.start_value):.0f}"
-        profile_angle_end_input.value = f"{float(profile_angle_range.end_value):.0f}"
-        refresh_rotary_profile_view(update=True, persist=False)
-
-    def on_profile_range_change_end(e):
-        profile_angle_start_input.value = f"{float(profile_angle_range.start_value):.0f}"
-        profile_angle_end_input.value = f"{float(profile_angle_range.end_value):.0f}"
-        refresh_rotary_profile_view(update=True, persist=True)
-
     def on_profile_angle_submit(e):
         refresh_rotary_profile_view(update=True, persist=True)
 
     def on_profile_metric_change(e):
         refresh_rotary_profile_view(update=True, persist=True)
-
-    def zoom_profile_view(factor):
-        try:
-            start_deg = float(profile_angle_start_input.value)
-            end_deg = float(profile_angle_end_input.value)
-        except (TypeError, ValueError):
-            start_deg, end_deg = 0.0, 360.0
-        start_deg, end_deg = normalize_profile_angle_range(start_deg, end_deg)
-        center = (start_deg + end_deg) / 2.0
-        span = max(1.0, (end_deg - start_deg) * factor)
-        if span >= 360.0:
-            set_profile_view_range(0.0, 360.0)
-            return
-        new_start = center - span / 2.0
-        new_end = center + span / 2.0
-        if new_start < 0.0:
-            new_end -= new_start
-            new_start = 0.0
-        if new_end > 360.0:
-            new_start -= new_end - 360.0
-            new_end = 360.0
-        set_profile_view_range(new_start, new_end)
 
     def zoom_profile_view_to_cut():
         diag = rotary_profile_view_state.get("diag", {})
@@ -4368,117 +4282,21 @@ def main(page: ft.Page):
         segment_angle = 360.0 / max(1, n_knives)
         u_cut_start = 0.5 - w_cut / 2.0
         u_cut_end = 0.5 + w_cut / 2.0
-        start_angle = (
-            interpolate_profile_table_value(table, u_cut_start)
-            / segment_counts * segment_angle
-        )
-        end_angle = (
-            interpolate_profile_table_value(table, u_cut_end)
-            / segment_counts * segment_angle
-        )
+        start_angle = (interpolate_profile_table_value(table, u_cut_start)
+                       / segment_counts * segment_angle)
+        end_angle = (interpolate_profile_table_value(table, u_cut_end)
+                     / segment_counts * segment_angle)
         padding = max(5.0, (end_angle - start_angle) * 0.35)
-        set_profile_view_range(max(0.0, start_angle - padding), min(360.0, end_angle + padding))
+        set_profile_view_range(
+            max(0.0, start_angle - padding),
+            min(360.0, end_angle + padding),
+        )
 
-    profile_angle_range.on_change = on_profile_range_change
-    profile_angle_range.on_change_end = on_profile_range_change_end
     profile_angle_start_input.on_submit = on_profile_angle_submit
     profile_angle_start_input.on_blur = on_profile_angle_submit
     profile_angle_end_input.on_submit = on_profile_angle_submit
     profile_angle_end_input.on_blur = on_profile_angle_submit
     profile_metric_dropdown.on_select = on_profile_metric_change
-
-    # --- Direct chart gestures (mouse-wheel zoom, drag pan, double-click reset) ---
-    # Drag state lives in a closure dict so handlers can read/write it.
-    _profile_pan_state = {"start": 0.0, "end": 360.0, "anchor_x": 0.0, "active": False}
-
-    def _current_profile_range():
-        try:
-            s = float(profile_angle_start_input.value)
-            ed = float(profile_angle_end_input.value)
-        except (TypeError, ValueError):
-            s, ed = 0.0, 360.0
-        return normalize_profile_angle_range(s, ed)
-
-    def _shift_into_bounds(start_deg, end_deg):
-        if start_deg < 0.0:
-            end_deg -= start_deg
-            start_deg = 0.0
-        if end_deg > 360.0:
-            start_deg -= end_deg - 360.0
-            end_deg = 360.0
-        return max(0.0, start_deg), min(360.0, end_deg)
-
-    def on_profile_chart_scroll(e):
-        # Mouse-wheel zoom anchored at the cursor — points are cached, so the
-        # only per-event work is filtering visible points and rebuilding shapes.
-        dy = float(getattr(e.scroll_delta, "y", 0.0) or 0.0)
-        if dy == 0.0:
-            return
-        start_deg, end_deg = _current_profile_range()
-        span = end_deg - start_deg
-        if span <= 0:
-            return
-        # 1 wheel notch (~100 units) → 1.2× zoom step.
-        factor = 1.2 ** (dy / 100.0)
-        new_span = max(1.0, min(360.0, span * factor))
-        if abs(new_span - span) < 1e-6:
-            return
-
-        plot_left = float(rotary_profile_view_state.get("plot_left") or 0.0)
-        plot_w = float(rotary_profile_view_state.get("plot_w") or 0.0)
-        if plot_w > 0:
-            rel = (float(e.local_position.x) - plot_left) / plot_w
-            rel = max(0.0, min(1.0, rel))
-        else:
-            rel = 0.5
-        anchor_angle = start_deg + rel * span
-
-        new_start = anchor_angle - rel * new_span
-        new_end = new_start + new_span
-        new_start, new_end = _shift_into_bounds(new_start, new_end)
-        set_profile_view_range(new_start, new_end)
-
-    def on_profile_chart_drag_start(e):
-        s, ed = _current_profile_range()
-        _profile_pan_state["start"] = s
-        _profile_pan_state["end"] = ed
-        _profile_pan_state["anchor_x"] = float(e.local_position.x)
-        _profile_pan_state["active"] = True
-
-    def on_profile_chart_drag_update(e):
-        if not _profile_pan_state["active"]:
-            return
-        plot_w = float(rotary_profile_view_state.get("plot_w") or 0.0)
-        if plot_w <= 0:
-            return
-        span = _profile_pan_state["end"] - _profile_pan_state["start"]
-        if span <= 0 or span >= 360.0:
-            return  # nothing to pan when fully zoomed out
-        dx = float(e.local_position.x) - _profile_pan_state["anchor_x"]
-        # Drag right shifts the visible window left (lower angles).
-        angle_shift = -(dx / plot_w) * span
-        new_start = _profile_pan_state["start"] + angle_shift
-        new_end = _profile_pan_state["end"] + angle_shift
-        new_start, new_end = _shift_into_bounds(new_start, new_end)
-        set_profile_view_range(new_start, new_end, persist=False)
-
-    def on_profile_chart_drag_end(e):
-        if not _profile_pan_state["active"]:
-            return
-        _profile_pan_state["active"] = False
-        # Persist final range only once the drag has settled.
-        refresh_rotary_profile_view(update=True, persist=True)
-
-    rotary_profile_view_gestures = ft.GestureDetector(
-        content=rotary_profile_view_holder,
-        on_scroll=on_profile_chart_scroll,
-        on_horizontal_drag_start=on_profile_chart_drag_start,
-        on_horizontal_drag_update=on_profile_chart_drag_update,
-        on_horizontal_drag_end=on_profile_chart_drag_end,
-        on_double_tap=lambda e: set_profile_view_range(0.0, 360.0),
-        drag_interval=16,
-        mouse_cursor=ft.MouseCursor.GRAB,
-    )
 
     profile_full_btn = ft.OutlinedButton(
         "Full",
@@ -4486,16 +4304,6 @@ def main(page: ft.Page):
         on_click=lambda e: set_profile_view_range(0.0, 360.0),
         height=38,
         tooltip="Show the full drum rotation",
-    )
-    profile_zoom_in_btn = ft.IconButton(
-        icon=ft.Icons.ZOOM_IN,
-        tooltip="Zoom in around the current range center",
-        on_click=lambda e: zoom_profile_view(0.5),
-    )
-    profile_zoom_out_btn = ft.IconButton(
-        icon=ft.Icons.ZOOM_OUT,
-        tooltip="Zoom out around the current range center",
-        on_click=lambda e: zoom_profile_view(2.0),
     )
     profile_cut_btn = ft.OutlinedButton(
         "Cut",
@@ -4519,8 +4327,6 @@ def main(page: ft.Page):
                             [
                                 profile_full_btn,
                                 profile_cut_btn,
-                                profile_zoom_out_btn,
-                                profile_zoom_in_btn,
                             ],
                             spacing=10,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -4542,8 +4348,7 @@ def main(page: ft.Page):
                     spacing=14,
                     run_spacing=10,
                 ),
-                profile_angle_range,
-                rotary_profile_view_gestures,
+                rotary_profile_view_holder,
                 ft.Row(
                     [
                         profile_view_stat_card("Visible angle range", "range", 210),
@@ -4568,9 +4373,9 @@ def main(page: ft.Page):
 
     def resize_rotary_profile_view_visual(update=False):
         new_visual_width = _available_visual_width()
-        rotary_profile_view_canvas.width = new_visual_width
         rotary_profile_view_holder.width = new_visual_width
-        refresh_rotary_profile_view(update=False)
+        # Matplotlib re-renders to fit its bounds via flet_charts' resize hook,
+        # so no manual canvas re-layout is needed here.
         if update:
             _update_if_mounted(rotary_profile_container)
 

@@ -94,7 +94,7 @@
     "cut_window": 10.0,
     "cpr": 8388608,
     "n_points": 10000,
-    "blend": 1.0,
+    "blend": 0.3,
     "vline": 10.0,
     "table_start": 1000
   },
@@ -106,8 +106,8 @@
     "show_debug": false
   },
   "cam_profile_view": {
-    "start_deg": 178.0,
-    "end_deg": 181.0,
+    "start_deg": 0.0,
+    "end_deg": 360.0,
     "metric": "rps"
   }
 }
