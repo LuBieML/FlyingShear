@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" \"e:/SynologySynchro/Projects/FlyingShear/flet_uapi_setup.py\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('flet_uapi_setup.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('flet_uapi_setup.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(pip show *)",
+      "Bash(python -c \"import flet.canvas as cv; help\\(cv.Rect.__init__\\)\")",
+      "Bash(python -c \"import flet.canvas as cv; help\\(cv.Text.__init__\\)\")",
+      "Bash(python -c \"import flet.canvas as cv; help\\(cv.Canvas.__init__\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import flet as ft; help\\(ft.RangeSlider.__init__\\)\")",
+      "Bash(timeout 8 python flet_uapi_setup.py)"
     ]
   }
 }

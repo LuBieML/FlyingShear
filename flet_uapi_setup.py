@@ -3803,6 +3803,650 @@ def main(page: ft.Page):
         lines.append(f"CAMBOX({table_start}, {table_end}, 1, cut_length, link_ax, 4)")
         return "\n".join(lines)
 
+    profile_view_settings = settings.get("cam_profile_view", {})
+
+    def profile_view_setting_float(key, default):
+        try:
+            return float(profile_view_settings.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def profile_view_setting_metric():
+        metric = str(profile_view_settings.get("metric", "rps"))
+        return metric if metric in ("rps", "rpm", "surface", "ratio") else "rps"
+
+    rotary_profile_view_state = {
+        "table": [],
+        "diag": {},
+        "cut_length_mm": 0.0,
+        "drum_diameter_mm": 0.0,
+        "n_knives": 1,
+        "line_speed_mm_s": 0.0,
+    }
+
+    PROFILE_VIEW_HEIGHT = 560
+    rotary_profile_view_canvas = cv.Canvas(
+        width=visual_width,
+        height=PROFILE_VIEW_HEIGHT,
+        shapes=[],
+    )
+    rotary_profile_view_holder = ft.Container(
+        content=rotary_profile_view_canvas,
+        width=visual_width,
+        height=PROFILE_VIEW_HEIGHT,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        bgcolor=DARKER_BG,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
+
+    profile_angle_start_input = ft.TextField(
+        label="From angle",
+        value=f"{profile_view_setting_float('start_deg', 0.0):.0f}",
+        width=130,
+        suffix="°",
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        text_align=ft.TextAlign.RIGHT,
+        text_size=13,
+        tooltip="Left edge of the visible drum-angle range",
+    )
+    profile_angle_end_input = ft.TextField(
+        label="To angle",
+        value=f"{profile_view_setting_float('end_deg', 360.0):.0f}",
+        width=130,
+        suffix="°",
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        text_align=ft.TextAlign.RIGHT,
+        text_size=13,
+        tooltip="Right edge of the visible drum-angle range",
+    )
+    profile_metric_dropdown = ft.Dropdown(
+        label="Y axis",
+        value=profile_view_setting_metric(),
+        width=190,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_size=13,
+        options=[
+            ft.dropdown.Option("rps", "Drum speed (rps)"),
+            ft.dropdown.Option("rpm", "Drum speed (RPM)"),
+            ft.dropdown.Option("surface", "Surface speed (mm/s)"),
+            ft.dropdown.Option("ratio", "Profile ratio"),
+        ],
+        tooltip="Choose how the generated drum speed is scaled on the Y axis",
+    )
+    profile_angle_range = ft.RangeSlider(
+        start_value=max(0.0, min(360.0, profile_view_setting_float("start_deg", 0.0))),
+        end_value=max(0.0, min(360.0, profile_view_setting_float("end_deg", 360.0))),
+        min=0.0,
+        max=360.0,
+        divisions=360,
+        round=0,
+        active_color=ACCENT_COLOR,
+        inactive_color=BORDER_COLOR,
+        tooltip="Drag handles to zoom into a drum-angle range",
+    )
+    profile_view_status = ft.Text("", size=13, color=MUTED_TEXT)
+    profile_view_labels = {
+        key: ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
+        for key in ("range", "min", "max", "points")
+    }
+
+    def profile_view_stat_card(label, key, width=170):
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(label, size=12, color=ft.Colors.GREY_400),
+                    profile_view_labels[key],
+                ],
+                spacing=4,
+            ),
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=12,
+            width=width,
+        )
+
+    def profile_view_metric_label(metric):
+        labels = {
+            "rps": "drum speed (rps)",
+            "rpm": "drum speed (RPM)",
+            "surface": "surface speed (mm/s)",
+            "ratio": "profile ratio",
+        }
+        return labels.get(metric, labels["rps"])
+
+    def format_profile_axis_value(value):
+        abs_value = abs(value)
+        if abs_value >= 1000:
+            return f"{value:.0f}"
+        if abs_value >= 100:
+            return f"{value:.1f}"
+        if abs_value >= 10:
+            return f"{value:.2f}"
+        return f"{value:.3f}"
+
+    def interpolate_profile_table_value(table_values, u):
+        if not table_values:
+            return 0.0
+        n = len(table_values)
+        idx_f = max(0.0, min(1.0, float(u))) * (n - 1)
+        idx_lo = int(idx_f)
+        idx_hi = min(idx_lo + 1, n - 1)
+        frac = idx_f - idx_lo
+        return table_values[idx_lo] * (1.0 - frac) + table_values[idx_hi] * frac
+
+    def build_rotary_speed_profile_points(table_values, diag, cut_length_mm,
+                                          drum_diameter_mm, n_knives,
+                                          line_speed_mm_s, metric):
+        n = len(table_values)
+        if n < 2:
+            return []
+
+        segment_counts = float(diag.get("cut_segment_counts", 0.0))
+        if segment_counts <= 0 or cut_length_mm <= 0 or n_knives < 1:
+            return []
+
+        cpr = segment_counts * n_knives
+        segment_angle = 360.0 / n_knives
+        du = 1.0 / (n - 1)
+        circumference = math.pi * drum_diameter_mm
+        points = []
+
+        for i, table_value in enumerate(table_values):
+            if i == 0:
+                counts_per_u = (table_values[1] - table_values[0]) / du
+            elif i == n - 1:
+                counts_per_u = (table_values[-1] - table_values[-2]) / du
+            else:
+                counts_per_u = (table_values[i + 1] - table_values[i - 1]) / (2.0 * du)
+
+            segment_ratio = counts_per_u / segment_counts
+            drum_rps = (counts_per_u / cpr) * (line_speed_mm_s / cut_length_mm)
+            if metric == "rpm":
+                y_value = drum_rps * 60.0
+            elif metric == "surface":
+                y_value = drum_rps * circumference
+            elif metric == "ratio":
+                y_value = segment_ratio
+            else:
+                y_value = drum_rps
+
+            angle_in_segment = (float(table_value) / segment_counts) * segment_angle
+            angle_in_segment = max(0.0, min(segment_angle, angle_in_segment))
+            for segment_index in range(n_knives):
+                angle = segment_index * segment_angle + angle_in_segment
+                if 0.0 <= angle <= 360.0:
+                    points.append((angle, y_value))
+
+        points.sort(key=lambda item: item[0])
+        return points
+
+    def visible_profile_points(points, start_deg, end_deg):
+        return [(angle, value) for angle, value in points
+                if start_deg <= angle <= end_deg]
+
+    def add_profile_view_empty_shapes(message):
+        width = float(rotary_profile_view_canvas.width or visual_width)
+        height = PROFILE_VIEW_HEIGHT
+        rotary_profile_view_canvas.shapes = [
+            cv.Rect(
+                0,
+                0,
+                width,
+                height,
+                border_radius=ft.BorderRadius.all(8),
+                paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL),
+            ),
+        ]
+        add_profile_text(
+            rotary_profile_view_canvas.shapes,
+            width / 2,
+            height / 2,
+            message,
+            size=15,
+            color=MUTED_TEXT,
+            max_width=520,
+        )
+
+    def update_profile_view_stats(start_deg, end_deg, visible_points, metric):
+        profile_view_labels["range"].value = f"{start_deg:.0f}° to {end_deg:.0f}°"
+        profile_view_labels["points"].value = str(len(visible_points))
+        if visible_points:
+            values = [value for _, value in visible_points]
+            profile_view_labels["min"].value = format_profile_axis_value(min(values))
+            profile_view_labels["max"].value = format_profile_axis_value(max(values))
+        else:
+            profile_view_labels["min"].value = "--"
+            profile_view_labels["max"].value = "--"
+        unit_text = profile_view_metric_label(metric)
+        profile_view_status.value = f"X axis is drum angle; Y axis is {unit_text} from the generated CAMBOX table."
+        profile_view_status.color = MUTED_TEXT
+
+    def build_rotary_profile_view_shapes(points, visible_points, diag, start_deg,
+                                         end_deg, metric, n_knives):
+        width = float(rotary_profile_view_canvas.width or visual_width)
+        height = PROFILE_VIEW_HEIGHT
+        left = 86
+        right = 34
+        top = 42
+        bottom = height - 74
+        plot_end = width - right
+        plot_w = max(1.0, plot_end - left)
+        plot_h = max(1.0, bottom - top)
+        axis_paint = canvas_paint("#b8a80f", 2.5)
+        grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
+        profile_paint = canvas_paint("#4fc3f7", 2.5)
+        cut_band_paint = ft.Paint(color="#2d4d2a55", style=ft.PaintingStyle.FILL)
+        boundary_paint = canvas_paint("#607d8b", 1, dash=[5, 5])
+
+        shapes = [
+            cv.Rect(
+                0,
+                0,
+                width,
+                height,
+                border_radius=ft.BorderRadius.all(8),
+                paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL),
+            ),
+        ]
+
+        if not visible_points or end_deg <= start_deg:
+            add_profile_text(
+                shapes,
+                width / 2,
+                height / 2,
+                "No generated profile points in this angle range.",
+                size=15,
+                color=MUTED_TEXT,
+                max_width=520,
+            )
+            return shapes
+
+        values = [value for _, value in visible_points]
+        y_min = min(values)
+        y_max = max(values)
+        y_pad = max((y_max - y_min) * 0.10, abs(y_max) * 0.02, 0.001)
+        y_lo = y_min - y_pad
+        y_hi = y_max + y_pad
+        if y_lo > 0:
+            y_lo = max(0.0, y_lo)
+        if y_hi <= y_lo:
+            y_hi = y_lo + 1.0
+
+        def map_x(angle):
+            return left + ((angle - start_deg) / (end_deg - start_deg)) * plot_w
+
+        def map_y(value):
+            return bottom - ((value - y_lo) / (y_hi - y_lo)) * plot_h
+
+        # Cut-window bands are calculated from the same generated table positions
+        # so they stay aligned with the plotted speed data.
+        w_cut = float(diag.get("w_cut", 0.0))
+        segment_counts = float(diag.get("cut_segment_counts", 0.0))
+        if w_cut > 0 and segment_counts > 0:
+            u_cut_start = 0.5 - w_cut / 2.0
+            u_cut_end = 0.5 + w_cut / 2.0
+            table = rotary_profile_view_state.get("table", [])
+            segment_angle = 360.0 / max(1, n_knives)
+            cut_start_angle = (
+                interpolate_profile_table_value(table, u_cut_start)
+                / segment_counts * segment_angle
+            )
+            cut_end_angle = (
+                interpolate_profile_table_value(table, u_cut_end)
+                / segment_counts * segment_angle
+            )
+            for segment_index in range(max(1, n_knives)):
+                band_start = segment_index * segment_angle + cut_start_angle
+                band_end = segment_index * segment_angle + cut_end_angle
+                overlap_start = max(start_deg, band_start)
+                overlap_end = min(end_deg, band_end)
+                if overlap_end > overlap_start:
+                    x0 = map_x(overlap_start)
+                    x1 = map_x(overlap_end)
+                    shapes.append(cv.Rect(x0, top, x1 - x0, plot_h, paint=cut_band_paint))
+                    if x1 - x0 > 44:
+                        add_profile_text(
+                            shapes,
+                            (x0 + x1) / 2,
+                            top + 16,
+                            "cut",
+                            size=10,
+                            color=ft.Colors.GREEN_200,
+                            max_width=x1 - x0 - 4,
+                        )
+
+        # Axes and grid
+        shapes.extend([
+            cv.Line(left, bottom, plot_end, bottom, paint=axis_paint),
+            cv.Line(left, bottom, left, top, paint=axis_paint),
+        ])
+
+        x_ticks = 6
+        for tick in range(x_ticks + 1):
+            angle = start_deg + (end_deg - start_deg) * tick / x_ticks
+            x = map_x(angle)
+            shapes.append(cv.Line(x, top, x, bottom, paint=grid_paint))
+            add_profile_text(
+                shapes,
+                x,
+                bottom + 20,
+                f"{angle:.0f}°",
+                size=10,
+                color=ft.Colors.GREY_300,
+                max_width=62,
+            )
+
+        y_ticks = 5
+        for tick in range(y_ticks + 1):
+            value = y_lo + (y_hi - y_lo) * tick / y_ticks
+            y = map_y(value)
+            shapes.append(cv.Line(left, y, plot_end, y, paint=grid_paint))
+            add_profile_text(
+                shapes,
+                left - 8,
+                y - 7,
+                format_profile_axis_value(value),
+                size=10,
+                color=ft.Colors.GREY_300,
+                align=ft.Alignment.CENTER_RIGHT,
+                max_width=74,
+            )
+
+        segment_angle = 360.0 / max(1, n_knives)
+        for segment_index in range(1, max(1, n_knives)):
+            angle = segment_index * segment_angle
+            if start_deg < angle < end_deg:
+                x = map_x(angle)
+                shapes.append(cv.Line(x, top, x, bottom, paint=boundary_paint))
+
+        elements = []
+        for angle, value in visible_points:
+            x = map_x(angle)
+            y = map_y(value)
+            if not elements:
+                elements.append(cv.Path.MoveTo(x, y))
+            else:
+                elements.append(cv.Path.LineTo(x, y))
+        if elements:
+            shapes.append(cv.Path(elements=elements, paint=profile_paint))
+
+        add_profile_text(
+            shapes,
+            26,
+            (top + bottom) / 2,
+            profile_view_metric_label(metric),
+            size=13,
+            color=ft.Colors.WHITE,
+            rotate=-1.5708,
+            max_width=260,
+        )
+        add_profile_text(
+            shapes,
+            (left + plot_end) / 2,
+            height - 28,
+            "drum angle (degrees)",
+            size=13,
+            color=ft.Colors.WHITE,
+            max_width=220,
+        )
+        add_profile_text(
+            shapes,
+            plot_end - 112,
+            top + 16,
+            f"{len(points)} generated points over 360°",
+            size=10,
+            color=ft.Colors.GREY_400,
+            align=ft.Alignment.CENTER_RIGHT,
+            max_width=220,
+        )
+        return shapes
+
+    def normalize_profile_angle_range(start_deg, end_deg):
+        start_deg = max(0.0, min(360.0, float(start_deg)))
+        end_deg = max(0.0, min(360.0, float(end_deg)))
+        if end_deg - start_deg < 1.0:
+            midpoint = (start_deg + end_deg) / 2.0
+            start_deg = max(0.0, midpoint - 0.5)
+            end_deg = min(360.0, start_deg + 1.0)
+            start_deg = max(0.0, end_deg - 1.0)
+        return start_deg, end_deg
+
+    def refresh_rotary_profile_view(update=False, persist=False):
+        table = rotary_profile_view_state.get("table", [])
+        diag = rotary_profile_view_state.get("diag", {})
+        metric = profile_metric_dropdown.value or "rps"
+        try:
+            start_deg = float(profile_angle_start_input.value)
+            end_deg = float(profile_angle_end_input.value)
+        except (TypeError, ValueError):
+            start_deg = float(profile_angle_range.start_value or 0.0)
+            end_deg = float(profile_angle_range.end_value or 360.0)
+        start_deg, end_deg = normalize_profile_angle_range(start_deg, end_deg)
+
+        profile_angle_start_input.value = f"{start_deg:.0f}"
+        profile_angle_end_input.value = f"{end_deg:.0f}"
+        profile_angle_range.start_value = start_deg
+        profile_angle_range.end_value = end_deg
+        if persist:
+            settings["cam_profile_view"] = profile_view_settings
+            profile_view_settings["start_deg"] = start_deg
+            profile_view_settings["end_deg"] = end_deg
+            profile_view_settings["metric"] = metric
+            save_settings(settings)
+
+        n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
+        points = build_rotary_speed_profile_points(
+            table,
+            diag,
+            float(rotary_profile_view_state.get("cut_length_mm") or 0.0),
+            float(rotary_profile_view_state.get("drum_diameter_mm") or 0.0),
+            n_knives,
+            float(rotary_profile_view_state.get("line_speed_mm_s") or 0.0),
+            metric,
+        )
+        current_visible_points = visible_profile_points(points, start_deg, end_deg)
+        update_profile_view_stats(start_deg, end_deg, current_visible_points, metric)
+
+        if not points:
+            add_profile_view_empty_shapes("Generate a rotary knife cam profile to view the 360° speed trace.")
+        else:
+            rotary_profile_view_canvas.shapes = build_rotary_profile_view_shapes(
+                points,
+                current_visible_points,
+                diag,
+                start_deg,
+                end_deg,
+                metric,
+                n_knives,
+            )
+
+        if update:
+            _update_if_mounted(rotary_profile_container)
+
+    def set_profile_view_range(start_deg, end_deg, update=True, persist=True):
+        start_deg, end_deg = normalize_profile_angle_range(start_deg, end_deg)
+        profile_angle_start_input.value = f"{start_deg:.0f}"
+        profile_angle_end_input.value = f"{end_deg:.0f}"
+        refresh_rotary_profile_view(update=update, persist=persist)
+
+    def on_profile_range_change(e):
+        profile_angle_start_input.value = f"{float(profile_angle_range.start_value):.0f}"
+        profile_angle_end_input.value = f"{float(profile_angle_range.end_value):.0f}"
+        refresh_rotary_profile_view(update=True, persist=False)
+
+    def on_profile_range_change_end(e):
+        profile_angle_start_input.value = f"{float(profile_angle_range.start_value):.0f}"
+        profile_angle_end_input.value = f"{float(profile_angle_range.end_value):.0f}"
+        refresh_rotary_profile_view(update=True, persist=True)
+
+    def on_profile_angle_submit(e):
+        refresh_rotary_profile_view(update=True, persist=True)
+
+    def on_profile_metric_change(e):
+        refresh_rotary_profile_view(update=True, persist=True)
+
+    def zoom_profile_view(factor):
+        try:
+            start_deg = float(profile_angle_start_input.value)
+            end_deg = float(profile_angle_end_input.value)
+        except (TypeError, ValueError):
+            start_deg, end_deg = 0.0, 360.0
+        start_deg, end_deg = normalize_profile_angle_range(start_deg, end_deg)
+        center = (start_deg + end_deg) / 2.0
+        span = max(1.0, (end_deg - start_deg) * factor)
+        if span >= 360.0:
+            set_profile_view_range(0.0, 360.0)
+            return
+        new_start = center - span / 2.0
+        new_end = center + span / 2.0
+        if new_start < 0.0:
+            new_end -= new_start
+            new_start = 0.0
+        if new_end > 360.0:
+            new_start -= new_end - 360.0
+            new_end = 360.0
+        set_profile_view_range(new_start, new_end)
+
+    def zoom_profile_view_to_cut():
+        diag = rotary_profile_view_state.get("diag", {})
+        table = rotary_profile_view_state.get("table", [])
+        segment_counts = float(diag.get("cut_segment_counts", 0.0))
+        w_cut = float(diag.get("w_cut", 0.0))
+        n_knives = int(rotary_profile_view_state.get("n_knives") or 1)
+        if not table or segment_counts <= 0 or w_cut <= 0:
+            set_profile_view_range(0.0, 360.0)
+            return
+        segment_angle = 360.0 / max(1, n_knives)
+        u_cut_start = 0.5 - w_cut / 2.0
+        u_cut_end = 0.5 + w_cut / 2.0
+        start_angle = (
+            interpolate_profile_table_value(table, u_cut_start)
+            / segment_counts * segment_angle
+        )
+        end_angle = (
+            interpolate_profile_table_value(table, u_cut_end)
+            / segment_counts * segment_angle
+        )
+        padding = max(5.0, (end_angle - start_angle) * 0.35)
+        set_profile_view_range(max(0.0, start_angle - padding), min(360.0, end_angle + padding))
+
+    profile_angle_range.on_change = on_profile_range_change
+    profile_angle_range.on_change_end = on_profile_range_change_end
+    profile_angle_start_input.on_submit = on_profile_angle_submit
+    profile_angle_start_input.on_blur = on_profile_angle_submit
+    profile_angle_end_input.on_submit = on_profile_angle_submit
+    profile_angle_end_input.on_blur = on_profile_angle_submit
+    profile_metric_dropdown.on_select = on_profile_metric_change
+
+    profile_full_btn = ft.OutlinedButton(
+        "Full",
+        icon=ft.Icons.FULLSCREEN,
+        on_click=lambda e: set_profile_view_range(0.0, 360.0),
+        height=38,
+        tooltip="Show the full drum rotation",
+    )
+    profile_zoom_in_btn = ft.IconButton(
+        icon=ft.Icons.ZOOM_IN,
+        tooltip="Zoom in around the current range center",
+        on_click=lambda e: zoom_profile_view(0.5),
+    )
+    profile_zoom_out_btn = ft.IconButton(
+        icon=ft.Icons.ZOOM_OUT,
+        tooltip="Zoom out around the current range center",
+        on_click=lambda e: zoom_profile_view(2.0),
+    )
+    profile_cut_btn = ft.OutlinedButton(
+        "Cut",
+        icon=ft.Icons.CENTER_FOCUS_STRONG,
+        on_click=lambda e: zoom_profile_view_to_cut(),
+        height=38,
+        tooltip="Zoom to the first generated cut window",
+    )
+
+    rotary_profile_container = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        section_header(
+                            "Profile View",
+                            "Generated drum speed over one full 360° knife-drum rotation",
+                            ft.Icons.SHOW_CHART,
+                        ),
+                        ft.Row(
+                            [
+                                profile_full_btn,
+                                profile_cut_btn,
+                                profile_zoom_out_btn,
+                                profile_zoom_in_btn,
+                            ],
+                            spacing=10,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    wrap=True,
+                    spacing=10,
+                    run_spacing=10,
+                ),
+                ft.Row(
+                    [
+                        profile_angle_start_input,
+                        profile_angle_end_input,
+                        profile_metric_dropdown,
+                    ],
+                    wrap=True,
+                    spacing=14,
+                    run_spacing=10,
+                ),
+                profile_angle_range,
+                rotary_profile_view_holder,
+                ft.Row(
+                    [
+                        profile_view_stat_card("Visible angle range", "range", 210),
+                        profile_view_stat_card("Visible min", "min"),
+                        profile_view_stat_card("Visible max", "max"),
+                        profile_view_stat_card("Profile points", "points"),
+                    ],
+                    wrap=True,
+                    spacing=10,
+                    run_spacing=10,
+                ),
+                profile_view_status,
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+    )
+
+    def resize_rotary_profile_view_visual(update=False):
+        new_visual_width = _available_visual_width()
+        rotary_profile_view_canvas.width = new_visual_width
+        rotary_profile_view_holder.width = new_visual_width
+        refresh_rotary_profile_view(update=False)
+        if update:
+            _update_if_mounted(rotary_profile_container)
+
+    refresh_rotary_profile_view(update=False)
+
     def cam_recalc(e=None):
         try:
             cut_len   = float(cam_cut_input.value)
@@ -3818,6 +4462,9 @@ def main(page: ft.Page):
             cam_warning_text.value = "✗ Invalid input — enter numeric values"
             cam_warning_text.color = ERROR_COLOR
             cam_code_output.value = ""
+            rotary_profile_view_state["table"] = []
+            rotary_profile_view_state["diag"] = {}
+            refresh_rotary_profile_view(update=False)
             page.update()
             return
 
@@ -3837,6 +4484,9 @@ def main(page: ft.Page):
                                        "n_knives ≥ 1; n_points ≥ 10; blend ∈ [0,1]")
             cam_warning_text.color = ERROR_COLOR
             cam_code_output.value = ""
+            rotary_profile_view_state["table"] = []
+            rotary_profile_view_state["diag"] = {}
+            refresh_rotary_profile_view(update=False)
             page.update()
             return
 
@@ -3852,6 +4502,9 @@ def main(page: ft.Page):
             cam_warning_text.color = ERROR_COLOR
             cam_code_output.value = ""
             cam_profile_canvas.shapes = []
+            rotary_profile_view_state["table"] = []
+            rotary_profile_view_state["diag"] = {}
+            refresh_rotary_profile_view(update=False)
             for k in cam_result_labels:
                 cam_result_labels[k].value = "—"
             page.update()
@@ -3873,6 +4526,17 @@ def main(page: ft.Page):
 
         # Profile graph
         cam_profile_canvas.shapes = build_cam_profile_shapes(table, diag)
+        rotary_profile_view_state.update(
+            {
+                "table": table,
+                "diag": diag,
+                "cut_length_mm": cut_len,
+                "drum_diameter_mm": drum_dia,
+                "n_knives": n_knives,
+                "line_speed_mm_s": vline,
+            }
+        )
+        refresh_rotary_profile_view(update=False)
 
         # Warnings
         warnings = []
@@ -5731,6 +6395,10 @@ def main(page: ft.Page):
                     ft.Container(content=cam_calc_container, padding=20, expand=True),
                 ),
                 (
+                    ft.Tab(label="Profile View", icon=ft.Icons.SHOW_CHART),
+                    ft.Container(content=rotary_profile_container, padding=20, expand=True),
+                ),
+                (
                     ft.Tab(label="Cam Math Help", icon=ft.Icons.FUNCTIONS),
                     rotary_cam_math_help_list,
                 ),
@@ -5965,6 +6633,7 @@ def main(page: ft.Page):
     def on_page_resize(e):
         resize_shear_visual(update=True)
         resize_rotary_sim_visual(update=True)
+        resize_rotary_profile_view_visual(update=True)
 
     page.on_resize = on_page_resize
 
