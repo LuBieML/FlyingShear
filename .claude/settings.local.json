@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" \"e:/SynologySynchro/Projects/FlyingShear/flet_uapi_setup.py\")"
+      "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" \"e:/SynologySynchro/Projects/FlyingShear/flet_uapi_setup.py\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('flet_uapi_setup.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

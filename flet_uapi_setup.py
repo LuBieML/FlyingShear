@@ -4214,6 +4214,11 @@ def main(page: ft.Page):
                     help_text(
                         "Also check table resolution, outside-zone RPS, and peak angular acceleration against the real drive limits."
                     ),
+                    help_text(
+                        "Geometry assumes the blade contacts material at the drum's bottom tangent (180° from drum zero, where zero = blade at top). "
+                        "A vertical anvil offset or blade rake/clearance angle will shift the cosine correction's center, so cuts may drift across the window. "
+                        "Validate timing on the real machine and adjust the drum-zero homing offset if needed."
+                    ),
                 ],
                 icon=ft.Icons.TUNE,
             ),
@@ -4636,8 +4641,13 @@ def main(page: ft.Page):
         return belt_y
 
     def rotary_cut_state_for_angle(drum_angle, n_knives, cut_window_deg):
-        spacing = 2 * math.pi / max(1, n_knives)
-        knife_angles = [(drum_angle + i * spacing) % (2 * math.pi) for i in range(n_knives)]
+        n = max(1, n_knives)
+        spacing = 2 * math.pi / n
+        # Cam profile origin (u=0) sits half a cycle before the cut center, so at
+        # drum_angle=0 the active knife is π·(n-1)/n radians shy of material contact
+        # at angle π. For n=1 this is 0 (knife at top); for n=2 it's π/2 (horizontal).
+        profile_offset = math.pi * (n - 1) / n
+        knife_angles = [(drum_angle + profile_offset + i * spacing) % (2 * math.pi) for i in range(n)]
         distances = [
             shortest_angle_distance_rad(a, ROTARY_MATERIAL_CONTACT_ANGLE_RAD)
             for a in knife_angles
