@@ -2471,17 +2471,17 @@ def main(page: ft.Page):
         "warning": ("#2a200c", "#5a4014", ft.Icons.WARNING_AMBER,   ft.Colors.AMBER_300),
     }
 
-    def _apply_warning_severity(severity):
+    def _apply_warning_severity(severity, banner=warning_banner, icon=warning_icon, text=warning_text):
         if severity not in _WARNING_PALETTE:
-            warning_banner.visible = False
+            banner.visible = False
             return
         bg, border, icon_name, fg = _WARNING_PALETTE[severity]
-        warning_banner.bgcolor = bg
-        warning_banner.border = ft.Border.all(1, border)
-        warning_icon.name = icon_name
-        warning_icon.color = fg
-        warning_text.color = fg
-        warning_banner.visible = True
+        banner.bgcolor = bg
+        banner.border = ft.Border.all(1, border)
+        icon.name = icon_name
+        icon.color = fg
+        text.color = fg
+        banner.visible = True
 
     review_text = ft.Text("", size=12, color=ft.Colors.GREY_300)
     profile_canvas = cv.Canvas(width=660, height=218, shapes=[])
@@ -6334,6 +6334,1401 @@ def main(page: ft.Page):
     redraw_rotary_sim()
     update_rotary_debug_overlay()
 
+    # ============================================================
+    # === Flow Wrapper FLEXLINK Calculator + Simulation ==========
+    # ============================================================
+    flexlink_settings = settings.setdefault("flexlink_calc", {})
+    for flexlink_key, flexlink_default in [
+        ("cycle_pitch", 300),
+        ("line_speed", 500),
+        ("excite_dist", 20),
+        ("base_in", 70),
+        ("base_out", 5),
+        ("excite_acc", 50),
+        ("excite_dec", 50),
+        ("curve_type", "sine"),
+        ("start_mode", "immediate"),
+        ("link_pos", 0),
+        ("link_source", "mpos"),
+        ("direction_mode", "any"),
+        ("repeat_mode", "program_loop"),
+    ]:
+        flexlink_settings.setdefault(flexlink_key, flexlink_default)
+
+    flexlink_tooltips = {
+        "cycle_pitch": "FLEXLINK link_dist: positive master-axis distance for one complete jaw advance cycle.",
+        "line_speed": "Maximum film speed used for cycle-time and peak-speed estimates.",
+        "excite_dist": "Signed extra jaw travel during the seal impulse; positive advances the jaws ahead of the film.",
+        "base_in": "Percentage of link_dist before excitation starts.",
+        "base_out": "Percentage of link_dist remaining after excitation ends.",
+        "excite_acc": "Percentage of excitation time used to ramp into the advance impulse.",
+        "excite_dec": "Percentage of excitation time used to ramp out of the advance impulse.",
+        "curve_type": "FLEXLINK curve type encoded into link_options bits 10..12.",
+        "start_mode": "Optional trigger for the first FLEXLINK call.",
+        "link_pos": "Absolute link-axis position or R_MARK channel, depending on the selected trigger.",
+        "link_source": "Use measured master position (MPOS) or demanded position (DPOS).",
+        "direction_mode": "Restrict the link to positive master motion or thresholded positive motion.",
+        "repeat_mode": "Repeat in program logic or set the FLEXLINK repeat option bit.",
+        "profile_graph": "Normalized FLEXLINK velocity ratio over one cycle pitch.",
+        "warnings": "Validation messages for timing, speed, option bits, and start trigger behavior.",
+        "code": "Generated Trio BASIC FLEXLINK program.",
+        "copy": "Copy the generated Trio BASIC FLEXLINK program to the Windows clipboard.",
+    }
+    CALC_TOOLTIPS.update({
+        "flexlink_excite_window_mm": "cycle_pitch * (1 - base_in/100 - base_out/100).",
+        "flexlink_base_dist_mm": "Slave travel at the base ratio before the excitation window.",
+        "flexlink_peak_speed": "Estimated slave peak speed during the excitation impulse.",
+        "flexlink_cycle_time": "cycle_pitch / line_speed, shown in milliseconds.",
+        "flexlink_options": "Decimal FLEXLINK link_options value from trigger, source, direction, repeat, and curve bits.",
+        "flexlink_curve_label": "Human-readable FLEXLINK curve type.",
+        "flexlink_start_label": "Human-readable start trigger selection.",
+    })
+
+    def flexlink_setting_float(key, default):
+        try:
+            return float(flexlink_settings.get(key, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    flexlink_cycle_pitch_input = make_input(
+        "Cycle pitch", "cycle_pitch", flexlink_settings.get("cycle_pitch", 300), suffix="mm"
+    )
+    flexlink_cycle_pitch_input.value = str(flexlink_settings.get("cycle_pitch", 300))
+    flexlink_cycle_pitch_input.tooltip = flexlink_tooltips["cycle_pitch"]
+
+    flexlink_line_speed_input = make_input(
+        "MAX line speed", "line_speed", flexlink_settings.get("line_speed", 500), suffix="mm/s"
+    )
+    flexlink_line_speed_input.value = str(flexlink_settings.get("line_speed", 500))
+    flexlink_line_speed_input.tooltip = flexlink_tooltips["line_speed"]
+
+    flexlink_excite_dist_input = make_input(
+        "Excite distance", "excite_dist", flexlink_settings.get("excite_dist", 20), suffix="mm"
+    )
+    flexlink_excite_dist_input.value = str(flexlink_settings.get("excite_dist", 20))
+    flexlink_excite_dist_input.tooltip = flexlink_tooltips["excite_dist"]
+
+    flexlink_base_in_input = make_input(
+        "Base-in", "base_in", flexlink_settings.get("base_in", 70), width=130, suffix="%"
+    )
+    flexlink_base_in_input.value = str(flexlink_settings.get("base_in", 70))
+    flexlink_base_in_input.tooltip = flexlink_tooltips["base_in"]
+
+    flexlink_base_out_input = make_input(
+        "Base-out", "base_out", flexlink_settings.get("base_out", 5), width=130, suffix="%"
+    )
+    flexlink_base_out_input.value = str(flexlink_settings.get("base_out", 5))
+    flexlink_base_out_input.tooltip = flexlink_tooltips["base_out"]
+
+    flexlink_excite_acc_input = make_input(
+        "Excite accel", "excite_acc", flexlink_settings.get("excite_acc", 50), width=135, suffix="%"
+    )
+    flexlink_excite_acc_input.value = str(flexlink_settings.get("excite_acc", 50))
+    flexlink_excite_acc_input.tooltip = flexlink_tooltips["excite_acc"]
+
+    flexlink_excite_dec_input = make_input(
+        "Excite decel", "excite_dec", flexlink_settings.get("excite_dec", 50), width=135, suffix="%"
+    )
+    flexlink_excite_dec_input.value = str(flexlink_settings.get("excite_dec", 50))
+    flexlink_excite_dec_input.tooltip = flexlink_tooltips["excite_dec"]
+
+    flexlink_curve_dropdown = make_dropdown(
+        "Curve type", "curve_type", flexlink_settings.get("curve_type", "sine"),
+        [
+            ("sine", "Sine"),
+            ("poly9", "Poly9"),
+            ("poly7", "Poly7"),
+            ("poly5", "Poly5"),
+            ("linear", "Linear"),
+        ],
+        width=160,
+    )
+    flexlink_curve_dropdown.value = str(flexlink_settings.get("curve_type", "sine"))
+    flexlink_curve_dropdown.tooltip = flexlink_tooltips["curve_type"]
+
+    flexlink_start_dropdown = make_dropdown(
+        "Start trigger", "start_mode", flexlink_settings.get("start_mode", "immediate"),
+        [
+            ("immediate", "Immediate"),
+            ("mark", "MARK"),
+            ("absolute", "Absolute position"),
+            ("markb", "MARKB"),
+            ("rmark", "R_MARK channel"),
+        ],
+        width=190,
+    )
+    flexlink_start_dropdown.value = str(flexlink_settings.get("start_mode", "immediate"))
+    flexlink_start_dropdown.tooltip = flexlink_tooltips["start_mode"]
+
+    flexlink_link_pos_input = make_input(
+        "Link pos / channel", "link_pos", flexlink_settings.get("link_pos", 0), width=150
+    )
+    flexlink_link_pos_input.value = str(flexlink_settings.get("link_pos", 0))
+    flexlink_link_pos_input.tooltip = flexlink_tooltips["link_pos"]
+
+    flexlink_source_dropdown = make_dropdown(
+        "Link source", "link_source", flexlink_settings.get("link_source", "mpos"),
+        [("mpos", "Master MPOS"), ("dpos", "Master DPOS")],
+        width=160,
+    )
+    flexlink_source_dropdown.value = str(flexlink_settings.get("link_source", "mpos"))
+    flexlink_source_dropdown.tooltip = flexlink_tooltips["link_source"]
+
+    flexlink_direction_dropdown = make_dropdown(
+        "Direction", "direction_mode", flexlink_settings.get("direction_mode", "any"),
+        [
+            ("any", "Any direction"),
+            ("positive", "Positive only"),
+            ("positive_threshold", "Positive threshold"),
+        ],
+        width=185,
+    )
+    flexlink_direction_dropdown.value = str(flexlink_settings.get("direction_mode", "any"))
+    flexlink_direction_dropdown.tooltip = flexlink_tooltips["direction_mode"]
+
+    flexlink_repeat_dropdown = make_dropdown(
+        "Repeat style", "repeat_mode", flexlink_settings.get("repeat_mode", "program_loop"),
+        [
+            ("program_loop", "Program WHILE loop"),
+            ("flexlink_repeat", "FLEXLINK repeat bit"),
+        ],
+        width=205,
+    )
+    flexlink_repeat_dropdown.value = str(flexlink_settings.get("repeat_mode", "program_loop"))
+    flexlink_repeat_dropdown.tooltip = flexlink_tooltips["repeat_mode"]
+
+    flexlink_result_keys = [
+        "flexlink_excite_window_mm",
+        "flexlink_base_dist_mm",
+        "flexlink_peak_speed",
+        "flexlink_cycle_time",
+        "flexlink_options",
+        "flexlink_curve_label",
+        "flexlink_start_label",
+    ]
+    for flexlink_key in flexlink_result_keys:
+        result_labels[flexlink_key] = ft.Text(
+            "---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD
+        )
+
+    flexlink_warning_text = ft.Text(
+        "", size=13, color=ft.Colors.AMBER_300,
+        tooltip=flexlink_tooltips["warnings"],
+        selectable=True,
+        expand=True,
+    )
+    flexlink_warning_icon = ft.Icon(ft.Icons.INFO_OUTLINE, size=18, color=ft.Colors.GREY_400)
+    flexlink_warning_banner = ft.Container(
+        content=ft.Row(
+            [flexlink_warning_icon, flexlink_warning_text],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        visible=False,
+    )
+    _WARNING_PALETTE["info"] = ("#101d28", "#1f4d67", ft.Icons.INFO_OUTLINE, ft.Colors.CYAN_200)
+
+    flexlink_profile_canvas = cv.Canvas(width=660, height=200, shapes=[])
+    flexlink_code_output = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True,
+        tooltip=flexlink_tooltips["code"],
+    )
+
+    flexlink_curve_labels = {
+        "sine": "Sine",
+        "poly9": "Poly9",
+        "poly7": "Poly7",
+        "poly5": "Poly5",
+        "linear": "Linear",
+    }
+    flexlink_start_labels = {
+        "immediate": "Immediate",
+        "mark": "MARK",
+        "absolute": "Absolute position",
+        "markb": "MARKB",
+        "rmark": "R_MARK channel",
+    }
+
+    def flexlink_build_options(flexlink_curve_type, flexlink_start_mode,
+                               flexlink_link_source, flexlink_direction_mode,
+                               flexlink_repeat_mode):
+        flexlink_options = 0
+        flexlink_curve_bits = {
+            "sine": 0,
+            "poly9": 1,
+            "poly7": 2,
+            "poly5": 3,
+            "linear": 4,
+        }
+        flexlink_options |= flexlink_curve_bits.get(flexlink_curve_type, 0) << 10
+
+        flexlink_start_bits = {
+            "mark": 0,
+            "absolute": 1,
+            "markb": 8,
+            "rmark": 9,
+        }
+        if flexlink_start_mode in flexlink_start_bits:
+            flexlink_options |= option_bit(flexlink_start_bits[flexlink_start_mode])
+
+        if flexlink_link_source == "dpos":
+            flexlink_options |= option_bit(13)
+        if flexlink_direction_mode == "positive":
+            flexlink_options |= option_bit(5)
+        elif flexlink_direction_mode == "positive_threshold":
+            flexlink_options |= option_bit(14)
+        if flexlink_repeat_mode == "flexlink_repeat":
+            flexlink_options |= option_bit(2)
+        return flexlink_options
+
+    def flexlink_build_velocity_profile_shapes(flexlink_cycle_pitch, flexlink_base_in,
+                                               flexlink_base_out, flexlink_excite_acc,
+                                               flexlink_excite_dec, flexlink_curve_type):
+        flexlink_width = 660
+        flexlink_height = 200
+        flexlink_left = 64
+        flexlink_right = 30
+        flexlink_top = 22
+        flexlink_base_y = 132
+        flexlink_peak_y = 48
+        flexlink_axis_y = 156
+        flexlink_plot_end = flexlink_width - flexlink_right
+        flexlink_plot_width = flexlink_plot_end - flexlink_left
+        flexlink_axis_paint = canvas_paint("#b8a80f", 2.8)
+        flexlink_grid_paint = canvas_paint("#46505a", 1, dash=[4, 5])
+        flexlink_base_paint = canvas_paint("#4fc3f7", 4)
+        flexlink_excite_paint = canvas_paint("#d24a35", 4.5)
+        flexlink_label_color = ft.Colors.GREY_300
+
+        flexlink_window_pct = max(0.0, 100.0 - flexlink_base_in - flexlink_base_out)
+        flexlink_window_mm = max(0.0, flexlink_cycle_pitch * flexlink_window_pct / 100.0)
+        flexlink_acc_mm = flexlink_window_mm * max(0.0, flexlink_excite_acc) / 100.0
+        flexlink_dec_mm = flexlink_window_mm * max(0.0, flexlink_excite_dec) / 100.0
+        flexlink_flat_mm = max(0.0, flexlink_window_mm - flexlink_acc_mm - flexlink_dec_mm)
+        flexlink_base_in_mm = max(0.0, flexlink_cycle_pitch * flexlink_base_in / 100.0)
+        flexlink_base_out_mm = max(0.0, flexlink_cycle_pitch * flexlink_base_out / 100.0)
+        flexlink_values = [
+            flexlink_base_in_mm,
+            flexlink_acc_mm,
+            flexlink_flat_mm,
+            flexlink_dec_mm,
+            flexlink_base_out_mm,
+        ]
+        flexlink_total = sum(flexlink_values)
+        if flexlink_total <= 0:
+            flexlink_widths = [flexlink_plot_width / 5.0] * 5
+        else:
+            flexlink_minimums = [72, 54, 40, 54, 48]
+            flexlink_minimums = [
+                flexlink_minimums[i] if flexlink_values[i] > 0 else 0
+                for i in range(len(flexlink_values))
+            ]
+            flexlink_minimum_total = sum(flexlink_minimums)
+            if flexlink_minimum_total >= flexlink_plot_width:
+                flexlink_widths = [
+                    flexlink_plot_width * flexlink_value / flexlink_total
+                    for flexlink_value in flexlink_values
+                ]
+            else:
+                flexlink_remaining = flexlink_plot_width - flexlink_minimum_total
+                flexlink_widths = [
+                    flexlink_minimums[i] + (
+                        flexlink_remaining * flexlink_values[i] / flexlink_total
+                        if flexlink_values[i] > 0 else 0
+                    )
+                    for i in range(len(flexlink_values))
+                ]
+
+        flexlink_x0 = flexlink_left
+        flexlink_x1 = flexlink_x0 + flexlink_widths[0]
+        flexlink_x2 = flexlink_x1 + flexlink_widths[1]
+        flexlink_x3 = flexlink_x2 + flexlink_widths[2]
+        flexlink_x4 = flexlink_x3 + flexlink_widths[3]
+        flexlink_x5 = flexlink_x4 + flexlink_widths[4]
+
+        flexlink_shapes = [
+            cv.Rect(
+                0, 0, flexlink_width, flexlink_height,
+                border_radius=ft.BorderRadius.all(8),
+                paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL),
+            ),
+            cv.Line(flexlink_left, flexlink_axis_y, flexlink_plot_end + 10, flexlink_axis_y,
+                    paint=flexlink_axis_paint),
+            cv.Line(flexlink_left, flexlink_axis_y, flexlink_left, flexlink_top,
+                    paint=flexlink_axis_paint),
+            cv.Line(flexlink_plot_end + 10, flexlink_axis_y, flexlink_plot_end, flexlink_axis_y - 6,
+                    paint=flexlink_axis_paint),
+            cv.Line(flexlink_plot_end + 10, flexlink_axis_y, flexlink_plot_end, flexlink_axis_y + 6,
+                    paint=flexlink_axis_paint),
+            cv.Line(flexlink_left, flexlink_top, flexlink_left - 6, flexlink_top + 10,
+                    paint=flexlink_axis_paint),
+            cv.Line(flexlink_left, flexlink_top, flexlink_left + 6, flexlink_top + 10,
+                    paint=flexlink_axis_paint),
+        ]
+        for flexlink_marker_x in (flexlink_x1, flexlink_x2, flexlink_x3, flexlink_x4):
+            if flexlink_left + 6 < flexlink_marker_x < flexlink_plot_end - 6:
+                flexlink_shapes.append(
+                    cv.Line(flexlink_marker_x, flexlink_top + 8,
+                            flexlink_marker_x, flexlink_axis_y + 8,
+                            paint=flexlink_grid_paint)
+                )
+
+        if flexlink_x1 > flexlink_x0:
+            flexlink_shapes.append(
+                cv.Line(flexlink_x0, flexlink_base_y, flexlink_x1, flexlink_base_y,
+                        paint=flexlink_base_paint)
+            )
+        if flexlink_x5 > flexlink_x4:
+            flexlink_shapes.append(
+                cv.Line(flexlink_x4, flexlink_base_y, min(flexlink_x5, flexlink_plot_end),
+                        flexlink_base_y, paint=flexlink_base_paint)
+            )
+
+        if flexlink_curve_type in ("sine", "poly9", "poly7", "poly5"):
+            flexlink_rise = max(flexlink_x2 - flexlink_x1, 1)
+            flexlink_fall = max(flexlink_x4 - flexlink_x3, 1)
+            flexlink_elements = [
+                cv.Path.MoveTo(flexlink_x1, flexlink_base_y),
+                cv.Path.CubicTo(
+                    flexlink_x1 + flexlink_rise * 0.32, flexlink_base_y,
+                    flexlink_x2 - flexlink_rise * 0.32, flexlink_peak_y,
+                    flexlink_x2, flexlink_peak_y,
+                ),
+                cv.Path.LineTo(flexlink_x3, flexlink_peak_y),
+                cv.Path.CubicTo(
+                    flexlink_x3 + flexlink_fall * 0.32, flexlink_peak_y,
+                    flexlink_x4 - flexlink_fall * 0.32, flexlink_base_y,
+                    flexlink_x4, flexlink_base_y,
+                ),
+            ]
+        else:
+            flexlink_elements = [
+                cv.Path.MoveTo(flexlink_x1, flexlink_base_y),
+                cv.Path.LineTo(flexlink_x2, flexlink_peak_y),
+                cv.Path.LineTo(flexlink_x3, flexlink_peak_y),
+                cv.Path.LineTo(flexlink_x4, flexlink_base_y),
+            ]
+        flexlink_shapes.append(cv.Path(elements=flexlink_elements, paint=flexlink_excite_paint))
+
+        add_profile_text(flexlink_shapes, 25, 88, "ratio", size=14, color=ft.Colors.WHITE, rotate=-1.5708)
+        add_profile_text(flexlink_shapes, flexlink_plot_end - 50, flexlink_axis_y + 30,
+                         "master distance", size=12, color=ft.Colors.WHITE, max_width=130)
+        add_profile_text(flexlink_shapes, (flexlink_x0 + flexlink_x1) / 2, flexlink_base_y - 20,
+                         "1:1", size=12, color=ft.Colors.CYAN_100, max_width=70)
+        add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x4) / 2, flexlink_peak_y - 20,
+                         "Excite", size=16, color=ft.Colors.WHITE, max_width=150)
+        add_profile_text(flexlink_shapes, (flexlink_x4 + min(flexlink_x5, flexlink_plot_end)) / 2,
+                         flexlink_base_y - 20, "1:1", size=12, color=ft.Colors.CYAN_100, max_width=70)
+
+        flexlink_label_specs = [
+            (flexlink_x0, flexlink_x1, flexlink_base_in_mm),
+            (flexlink_x1, flexlink_x2, flexlink_acc_mm),
+            (flexlink_x2, flexlink_x3, flexlink_flat_mm),
+            (flexlink_x3, flexlink_x4, flexlink_dec_mm),
+            (flexlink_x4, min(flexlink_x5, flexlink_plot_end), flexlink_base_out_mm),
+        ]
+        for flexlink_start_x, flexlink_end_x, flexlink_value in flexlink_label_specs:
+            if flexlink_end_x - flexlink_start_x < 8 or flexlink_value <= 0:
+                continue
+            add_profile_text(
+                flexlink_shapes,
+                (flexlink_start_x + flexlink_end_x) / 2,
+                flexlink_axis_y + 13,
+                f"{fmt_distance(flexlink_value)} mm",
+                size=10,
+                color=flexlink_label_color,
+                max_width=max(44, flexlink_end_x - flexlink_start_x - 4),
+            )
+        return flexlink_shapes
+
+    flexlink_phase_bar = ft.Column([
+        ft.Text("Generated FLEXLINK velocity profile", size=12, color=ft.Colors.GREY_400),
+        ft.Container(
+            content=flexlink_profile_canvas,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            tooltip=flexlink_tooltips["profile_graph"],
+        ),
+    ], spacing=6)
+
+    def flexlink_recalc(e=None):
+        try:
+            flexlink_cycle_pitch = float(flexlink_cycle_pitch_input.value)
+            flexlink_line_speed = float(flexlink_line_speed_input.value)
+            flexlink_excite_dist = float(flexlink_excite_dist_input.value)
+            flexlink_base_in = float(flexlink_base_in_input.value)
+            flexlink_base_out = float(flexlink_base_out_input.value)
+            flexlink_excite_acc = float(flexlink_excite_acc_input.value)
+            flexlink_excite_dec = float(flexlink_excite_dec_input.value)
+            flexlink_link_pos = float(flexlink_link_pos_input.value or 0)
+        except (TypeError, ValueError):
+            flexlink_warning_text.value = "Invalid inputs: enter numeric values for the FLEXLINK calculator."
+            _apply_warning_severity("error", flexlink_warning_banner, flexlink_warning_icon, flexlink_warning_text)
+            flexlink_code_output.value = ""
+            page.update()
+            return
+
+        flexlink_curve_type = flexlink_curve_dropdown.value or "sine"
+        flexlink_start_mode = flexlink_start_dropdown.value or "immediate"
+        flexlink_link_source = flexlink_source_dropdown.value or "mpos"
+        flexlink_direction_mode = flexlink_direction_dropdown.value or "any"
+        flexlink_repeat_mode = flexlink_repeat_dropdown.value or "program_loop"
+
+        flexlink_errors = []
+        if flexlink_cycle_pitch <= 0:
+            flexlink_errors.append("Cycle pitch must be > 0")
+        if flexlink_line_speed <= 0:
+            flexlink_errors.append("Line speed must be > 0")
+        if not 0 <= flexlink_base_in <= 100 or not 0 <= flexlink_base_out <= 100:
+            flexlink_errors.append("Base-in and base-out must be 0..100%")
+        if not 0 <= flexlink_excite_acc <= 100 or not 0 <= flexlink_excite_dec <= 100:
+            flexlink_errors.append("Excite accel and decel must be 0..100%")
+        if flexlink_start_mode in ("absolute", "rmark") and flexlink_link_pos < 0:
+            flexlink_errors.append("Link position/channel must be >= 0 for selected start trigger")
+        if flexlink_start_mode == "rmark" and int(flexlink_link_pos) != flexlink_link_pos:
+            flexlink_errors.append("R_MARK channel must be a whole number")
+
+        flexlink_excite_window_pct = 100 - flexlink_base_in - flexlink_base_out
+        flexlink_excite_window_mm = flexlink_cycle_pitch * flexlink_excite_window_pct / 100.0
+        flexlink_excite_time_s = flexlink_excite_window_mm / flexlink_line_speed if flexlink_line_speed > 0 else 0
+        flexlink_base_dist_computed = (flexlink_base_in / 100.0) * flexlink_cycle_pitch
+        flexlink_peak_speed_estimate = abs(flexlink_excite_dist) / (flexlink_excite_time_s * 0.5) if flexlink_excite_time_s > 0 else 0
+        flexlink_peak_speed = flexlink_line_speed + flexlink_peak_speed_estimate if flexlink_line_speed > 0 else 0
+        flexlink_cycle_time_ms = flexlink_cycle_pitch / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
+
+        flexlink_options = flexlink_build_options(
+            flexlink_curve_type,
+            flexlink_start_mode,
+            flexlink_link_source,
+            flexlink_direction_mode,
+            flexlink_repeat_mode,
+        )
+        flexlink_curve_label = flexlink_curve_labels.get(flexlink_curve_type, flexlink_curve_type)
+        if flexlink_start_mode == "absolute":
+            flexlink_start_label = f"Abs {flexlink_link_pos:g}"
+        elif flexlink_start_mode == "rmark":
+            flexlink_start_label = f"R_MARK {flexlink_link_pos:g}"
+        else:
+            flexlink_start_label = flexlink_start_labels.get(flexlink_start_mode, flexlink_start_mode)
+
+        result_labels["flexlink_excite_window_mm"].value = f"{flexlink_excite_window_mm:.2f} mm"
+        result_labels["flexlink_base_dist_mm"].value = f"{flexlink_base_dist_computed:.2f} mm"
+        result_labels["flexlink_peak_speed"].value = f"{fmt_speed(flexlink_peak_speed)} mm/s"
+        result_labels["flexlink_peak_speed"].color = (
+            ERROR_COLOR if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3
+            else ft.Colors.CYAN_200
+        )
+        result_labels["flexlink_cycle_time"].value = f"{flexlink_cycle_time_ms:.1f} ms"
+        result_labels["flexlink_options"].value = str(flexlink_options)
+        result_labels["flexlink_curve_label"].value = flexlink_curve_label
+        result_labels["flexlink_start_label"].value = flexlink_start_label
+
+        flexlink_profile_canvas.shapes = flexlink_build_velocity_profile_shapes(
+            max(flexlink_cycle_pitch, 0),
+            flexlink_base_in,
+            flexlink_base_out,
+            flexlink_excite_acc,
+            flexlink_excite_dec,
+            flexlink_curve_type,
+        )
+
+        flexlink_messages = []
+        flexlink_severity = "ok"
+        if flexlink_base_in + flexlink_base_out >= 100:
+            flexlink_messages.append("Excite window is zero - reduce base_in + base_out below 100%")
+            flexlink_severity = "error"
+        if flexlink_excite_acc + flexlink_excite_dec > 100:
+            flexlink_messages.append("Accel + decel exceeds 100% of excite time")
+            flexlink_severity = "error"
+        if flexlink_errors:
+            flexlink_messages.extend(flexlink_errors)
+            flexlink_severity = "error"
+        if flexlink_severity != "error":
+            if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3:
+                flexlink_messages.append("High peak slave speed - verify servo capability")
+                flexlink_severity = "warning"
+            if flexlink_excite_window_mm < 5:
+                flexlink_messages.append("Very short excitation window")
+                flexlink_severity = "warning"
+        if flexlink_severity != "error":
+            if flexlink_start_mode != "immediate":
+                flexlink_messages.append("Start trigger applies to first FLEXLINK call only")
+                if flexlink_severity == "ok":
+                    flexlink_severity = "info"
+            if flexlink_repeat_mode == "flexlink_repeat":
+                flexlink_messages.append("FLEXLINK repeat bit active; verify bi-directional behaviour")
+                if flexlink_severity == "ok":
+                    flexlink_severity = "info"
+
+        if not flexlink_messages:
+            flexlink_warning_text.value = "All checks pass"
+            _apply_warning_severity("ok", flexlink_warning_banner, flexlink_warning_icon, flexlink_warning_text)
+        else:
+            flexlink_warning_text.value = "  |  ".join(flexlink_messages)
+            _apply_warning_severity(flexlink_severity, flexlink_warning_banner, flexlink_warning_icon, flexlink_warning_text)
+
+        if flexlink_severity == "error":
+            flexlink_code_output.value = ""
+        else:
+            try:
+                flexlink_link_axis = int(axis_m_dropdown.value or "0")
+                flexlink_slave_axis = int(axis_s_dropdown.value or "1")
+            except ValueError:
+                flexlink_link_axis, flexlink_slave_axis = 0, 1
+
+            flexlink_options_args = ", link_options, link_pos" if flexlink_options > 0 or flexlink_link_pos != 0 else ""
+            flexlink_loop_start = "" if flexlink_repeat_mode == "flexlink_repeat" else "WHILE TRUE\n"
+            flexlink_line_prefix = "" if flexlink_repeat_mode == "flexlink_repeat" else "    "
+            flexlink_loop_end = "" if flexlink_repeat_mode == "flexlink_repeat" else "WEND\n"
+            flexlink_repeat_comment = (
+                "' FLEXLINK repeat bit is set in link_options; controller repeats the link\n"
+                if flexlink_repeat_mode == "flexlink_repeat" else ""
+            )
+
+            flexlink_code_output.value = (
+                f"link_ax    = {flexlink_link_axis}\n"
+                f"slave_ax   = {flexlink_slave_axis}\n"
+                f"link_options = {flexlink_options}\n"
+                f"link_pos   = {flexlink_link_pos:.3f}\n"
+                f"\n"
+                f"BASE(slave_ax)\n"
+                f"SERVO = ON\n"
+                f"DEFPOS(0)\n"
+                f"\n"
+                f"{flexlink_repeat_comment}"
+                f"{flexlink_loop_start}"
+                f"{flexlink_line_prefix}' Flow wrapper: base transport with excitation advance at seal point\n"
+                f"{flexlink_line_prefix}FLEXLINK({flexlink_base_dist_computed:.3f}, "
+                f"{flexlink_excite_dist:.3f}, {flexlink_cycle_pitch:.3f}, "
+                f"{flexlink_base_in:.1f}, {flexlink_base_out:.1f}, "
+                f"{flexlink_excite_acc:.1f}, {flexlink_excite_dec:.1f}, "
+                f"link_ax{flexlink_options_args})\n"
+                f"{flexlink_line_prefix}WAIT IDLE\n"
+                f"{flexlink_loop_end}"
+            )
+
+        flexlink_settings["cycle_pitch"] = flexlink_cycle_pitch
+        flexlink_settings["line_speed"] = flexlink_line_speed
+        flexlink_settings["excite_dist"] = flexlink_excite_dist
+        flexlink_settings["base_in"] = flexlink_base_in
+        flexlink_settings["base_out"] = flexlink_base_out
+        flexlink_settings["excite_acc"] = flexlink_excite_acc
+        flexlink_settings["excite_dec"] = flexlink_excite_dec
+        flexlink_settings["curve_type"] = flexlink_curve_type
+        flexlink_settings["start_mode"] = flexlink_start_mode
+        flexlink_settings["link_pos"] = flexlink_link_pos
+        flexlink_settings["link_source"] = flexlink_link_source
+        flexlink_settings["direction_mode"] = flexlink_direction_mode
+        flexlink_settings["repeat_mode"] = flexlink_repeat_mode
+        save_settings(settings)
+        try:
+            if current_solution["value"] == "flow_wrapper":
+                refresh_conveyor_speed_limit(flexlink_line_speed)
+        except NameError:
+            pass
+        try:
+            flexlink_line_speed_slider.value = max(0, min(1000, flexlink_line_speed))
+        except NameError:
+            pass
+        page.update()
+
+    for flexlink_input in (
+        flexlink_cycle_pitch_input,
+        flexlink_line_speed_input,
+        flexlink_excite_dist_input,
+        flexlink_base_in_input,
+        flexlink_base_out_input,
+        flexlink_excite_acc_input,
+        flexlink_excite_dec_input,
+        flexlink_link_pos_input,
+    ):
+        flexlink_input.on_change = flexlink_recalc
+        flexlink_input.on_blur = flexlink_recalc
+
+    for flexlink_dropdown in (
+        flexlink_curve_dropdown,
+        flexlink_start_dropdown,
+        flexlink_source_dropdown,
+        flexlink_direction_dropdown,
+        flexlink_repeat_dropdown,
+    ):
+        flexlink_dropdown.on_change = flexlink_recalc
+        flexlink_dropdown.on_select = flexlink_recalc
+
+    def flexlink_copy_code(e):
+        flexlink_text = flexlink_code_output.value
+        flexlink_cf_unicode_text = 13
+        flexlink_gmem_moveable = 2
+        flexlink_raw = flexlink_text.encode("utf-16-le") + b"\x00\x00"
+        flexlink_k32 = ctypes.windll.kernel32
+        flexlink_u32 = ctypes.windll.user32
+        flexlink_k32.GlobalAlloc.restype = ctypes.c_void_p
+        flexlink_k32.GlobalAlloc.argtypes = [ctypes.c_uint, ctypes.c_size_t]
+        flexlink_k32.GlobalLock.restype = ctypes.c_void_p
+        flexlink_k32.GlobalLock.argtypes = [ctypes.c_void_p]
+        flexlink_k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+        flexlink_u32.SetClipboardData.restype = ctypes.c_void_p
+        flexlink_u32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+        flexlink_u32.OpenClipboard(0)
+        flexlink_u32.EmptyClipboard()
+        flexlink_h = flexlink_k32.GlobalAlloc(flexlink_gmem_moveable, len(flexlink_raw))
+        flexlink_p = flexlink_k32.GlobalLock(flexlink_h)
+        ctypes.memmove(flexlink_p, flexlink_raw, len(flexlink_raw))
+        flexlink_k32.GlobalUnlock(flexlink_h)
+        flexlink_u32.SetClipboardData(flexlink_cf_unicode_text, flexlink_h)
+        flexlink_u32.CloseClipboard()
+        status_text.value = "FLEXLINK program copied to clipboard"
+        status_text.color = SUCCESS_COLOR
+        show_snack("FLEXLINK program copied to clipboard.", "success")
+        page.update()
+
+    flexlink_copy_btn = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=flexlink_copy_code,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip=flexlink_tooltips["copy"],
+    )
+
+    flexlink_params_panel = ft.Container(
+        content=ft.Column([
+            section_header("Flow Wrapper FLEXLINK Calculator", "Parametric jaw advance linked to film transport", ft.Icons.WAVES),
+            ft.Row(
+                [
+                    flexlink_cycle_pitch_input,
+                    flexlink_line_speed_input,
+                    flexlink_excite_dist_input,
+                    flexlink_base_in_input,
+                    flexlink_base_out_input,
+                    flexlink_excite_acc_input,
+                    flexlink_excite_dec_input,
+                ],
+                wrap=True,
+                spacing=15,
+                run_spacing=12,
+            ),
+            ft.Row(
+                [
+                    flexlink_curve_dropdown,
+                    flexlink_start_dropdown,
+                    flexlink_link_pos_input,
+                    flexlink_source_dropdown,
+                    flexlink_direction_dropdown,
+                    flexlink_repeat_dropdown,
+                ],
+                wrap=True,
+                spacing=15,
+                run_spacing=12,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.INSIGHTS, size=14, color=MUTED_TEXT),
+                            ft.Text("COMPUTED METRICS", size=10, color=MUTED_TEXT,
+                                    weight=ft.FontWeight.BOLD),
+                        ],
+                        spacing=6,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Row(
+                        [
+                            result_card("Excite window", "flexlink_excite_window_mm"),
+                            result_card("Base distance", "flexlink_base_dist_mm"),
+                            result_card("Peak slave speed", "flexlink_peak_speed"),
+                            result_card("Cycle time", "flexlink_cycle_time"),
+                            result_card("link_options value", "flexlink_options"),
+                            result_card("Curve", "flexlink_curve_label"),
+                            result_card("Start", "flexlink_start_label"),
+                        ],
+                        wrap=True,
+                        spacing=10,
+                        run_spacing=10,
+                    ),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            flexlink_phase_bar,
+            flexlink_warning_banner,
+            ft.Text("Material axis = FLEXLINK link axis. Jaw carriage axis = generated BASIC BASE axis.",
+                    size=12, color=ft.Colors.GREY_400),
+        ], spacing=14, scroll=ft.ScrollMode.AUTO),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        height=900,
+        col={"xs": 12, "xl": 6},
+    )
+
+    flexlink_trio_basic_panel = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                section_header("Trio BASIC Program", "Generated FLEXLINK code", ft.Icons.CODE),
+                ft.Container(expand=True),
+                flexlink_copy_btn,
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            flexlink_code_output,
+        ], expand=True, spacing=12),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        height=900,
+        col={"xs": 12, "xl": 6},
+    )
+
+    flexlink_calc_container = ft.ResponsiveRow(
+        [flexlink_params_panel, flexlink_trio_basic_panel],
+        columns=12,
+        spacing=18,
+        run_spacing=18,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+
+    flexlink_sim_height = 220
+    flexlink_sim_running = False
+    flexlink_sim_state = {
+        "u": 0.0,
+        "playing": True,
+        "belt_offset_px": 0.0,
+    }
+
+    def flexlink_curve_progress(flexlink_t, flexlink_curve_type):
+        flexlink_t = max(0.0, min(1.0, float(flexlink_t)))
+        if flexlink_curve_type == "linear":
+            return flexlink_t
+        if flexlink_curve_type == "poly5":
+            return flexlink_t ** 3 * (10 - 15 * flexlink_t + 6 * flexlink_t ** 2)
+        if flexlink_curve_type == "poly7":
+            return flexlink_t ** 4 * (35 - 84 * flexlink_t + 70 * flexlink_t ** 2 - 20 * flexlink_t ** 3)
+        if flexlink_curve_type == "poly9":
+            return flexlink_t ** 5 * (
+                126 - 420 * flexlink_t + 540 * flexlink_t ** 2
+                - 315 * flexlink_t ** 3 + 70 * flexlink_t ** 4
+            )
+        return 0.5 - 0.5 * math.cos(math.pi * flexlink_t)
+
+    def flexlink_excitation_progress(flexlink_u, flexlink_base_in, flexlink_base_out,
+                                     flexlink_excite_acc, flexlink_excite_dec,
+                                     flexlink_curve_type):
+        flexlink_start_u = flexlink_base_in / 100.0
+        flexlink_end_u = 1.0 - flexlink_base_out / 100.0
+        if flexlink_end_u <= flexlink_start_u:
+            return 0.0, False
+        if flexlink_u <= flexlink_start_u:
+            return 0.0, False
+        if flexlink_u >= flexlink_end_u:
+            return 1.0, False
+
+        flexlink_phase = (flexlink_u - flexlink_start_u) / (flexlink_end_u - flexlink_start_u)
+        flexlink_acc = max(0.0, min(1.0, flexlink_excite_acc / 100.0))
+        flexlink_dec = max(0.0, min(1.0, flexlink_excite_dec / 100.0))
+        if flexlink_acc + flexlink_dec > 1.0:
+            flexlink_scale = 1.0 / (flexlink_acc + flexlink_dec)
+            flexlink_acc *= flexlink_scale
+            flexlink_dec *= flexlink_scale
+        flexlink_flat = max(0.0, 1.0 - flexlink_acc - flexlink_dec)
+        flexlink_area_total = max(0.001, 0.5 * flexlink_acc + flexlink_flat + 0.5 * flexlink_dec)
+
+        if flexlink_acc > 0 and flexlink_phase < flexlink_acc:
+            flexlink_local = flexlink_phase / flexlink_acc
+            flexlink_area = 0.5 * flexlink_acc * flexlink_curve_progress(flexlink_local, flexlink_curve_type)
+        elif flexlink_phase < flexlink_acc + flexlink_flat:
+            flexlink_area = 0.5 * flexlink_acc + (flexlink_phase - flexlink_acc)
+        elif flexlink_dec > 0:
+            flexlink_local = (flexlink_phase - flexlink_acc - flexlink_flat) / flexlink_dec
+            flexlink_area = (
+                0.5 * flexlink_acc
+                + flexlink_flat
+                + flexlink_dec * (
+                    flexlink_local - 0.5 * flexlink_curve_progress(flexlink_local, flexlink_curve_type)
+                )
+            )
+        else:
+            flexlink_area = flexlink_area_total
+        return max(0.0, min(1.0, flexlink_area / flexlink_area_total)), True
+
+    def flexlink_fill_paint(flexlink_color):
+        return ft.Paint(color=flexlink_color, style=ft.PaintingStyle.FILL)
+
+    def flexlink_linear_paint(flexlink_x0, flexlink_y0, flexlink_x1, flexlink_y1, flexlink_colors):
+        return ft.Paint(
+            gradient=ft.PaintLinearGradient(
+                begin=ft.Offset(flexlink_x0, flexlink_y0),
+                end=ft.Offset(flexlink_x1, flexlink_y1),
+                colors=flexlink_colors,
+                color_stops=[i / (len(flexlink_colors) - 1) for i in range(len(flexlink_colors))],
+            ),
+            style=ft.PaintingStyle.FILL,
+        )
+
+    def flexlink_add_polygon(flexlink_shapes, flexlink_points, flexlink_fill,
+                             flexlink_stroke="#111316", flexlink_stroke_width=1.1):
+        flexlink_elements = [cv.Path.MoveTo(*flexlink_points[0])]
+        flexlink_elements.extend(cv.Path.LineTo(*flexlink_point) for flexlink_point in flexlink_points[1:])
+        flexlink_elements.append(cv.Path.Close())
+        flexlink_shapes.append(cv.Path(elements=flexlink_elements, paint=flexlink_fill_paint(flexlink_fill)))
+        if flexlink_stroke:
+            flexlink_shapes.append(
+                cv.Path(elements=flexlink_elements, paint=canvas_paint(flexlink_stroke, flexlink_stroke_width))
+            )
+
+    def flexlink_draw_conveyor(flexlink_shapes, flexlink_width, flexlink_belt_offset_px):
+        flexlink_rail_color = "#4a4f55"
+        flexlink_belt_left = PULLEY_SIZE
+        flexlink_belt_right = flexlink_width - PULLEY_SIZE
+        flexlink_belt_width_px = max(120, flexlink_belt_right - flexlink_belt_left)
+        flexlink_pulley_y = flexlink_sim_height - 58
+        flexlink_belt_y = flexlink_pulley_y + (PULLEY_SIZE - BELT_HEIGHT) / 2
+        flexlink_belt_center_y = flexlink_belt_y + BELT_HEIGHT / 2
+        flexlink_shapes.extend([
+            cv.Rect(0, 0, flexlink_width, flexlink_sim_height,
+                    paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
+            cv.Rect(0, flexlink_belt_y - RAIL_HEIGHT - 2, flexlink_width, RAIL_HEIGHT,
+                    paint=ft.Paint(color=flexlink_rail_color, style=ft.PaintingStyle.FILL)),
+            cv.Rect(0, flexlink_belt_y + BELT_HEIGHT + 2, flexlink_width, RAIL_HEIGHT,
+                    paint=ft.Paint(color=flexlink_rail_color, style=ft.PaintingStyle.FILL)),
+            cv.Rect(flexlink_belt_left, flexlink_belt_y, flexlink_belt_width_px, BELT_HEIGHT,
+                    border_radius=ft.BorderRadius.all(BELT_HEIGHT / 2),
+                    paint=ft.Paint(
+                        gradient=ft.PaintLinearGradient(
+                            begin=ft.Offset(flexlink_belt_left, flexlink_belt_y),
+                            end=ft.Offset(flexlink_belt_left, flexlink_belt_y + BELT_HEIGHT),
+                            colors=["#262626", "#070707", "#262626"],
+                            color_stops=[0.0, 0.5, 1.0],
+                        ),
+                        style=ft.PaintingStyle.FILL,
+                    )),
+            cv.Circle(PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE / 2,
+                      paint=ft.Paint(color="#6f7478", style=ft.PaintingStyle.FILL)),
+            cv.Circle(flexlink_width - PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE / 2,
+                      paint=ft.Paint(color="#6f7478", style=ft.PaintingStyle.FILL)),
+            cv.Circle(PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE * 0.16,
+                      paint=ft.Paint(color="#151515", style=ft.PaintingStyle.FILL)),
+            cv.Circle(flexlink_width - PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE * 0.16,
+                      paint=ft.Paint(color="#151515", style=ft.PaintingStyle.FILL)),
+        ])
+
+        flexlink_x = flexlink_belt_left - BELT_SPACING + (flexlink_belt_offset_px % BELT_SPACING)
+        flexlink_cleat_paint = ft.Paint(
+            gradient=ft.PaintLinearGradient(
+                begin=ft.Offset(0, flexlink_belt_y),
+                end=ft.Offset(0, flexlink_belt_y + BELT_HEIGHT),
+                colors=[ft.Colors.GREY_400, ft.Colors.GREY_700, "#050505"],
+                color_stops=[0.0, 0.45, 1.0],
+            ),
+            style=ft.PaintingStyle.FILL,
+        )
+        while flexlink_x < flexlink_belt_right + BELT_SPACING:
+            if flexlink_belt_left - CLEAT_WIDTH <= flexlink_x <= flexlink_belt_right:
+                flexlink_shapes.append(
+                    cv.Rect(
+                        flexlink_x,
+                        flexlink_belt_y + (BELT_HEIGHT - CLEAT_HEIGHT) / 2,
+                        CLEAT_WIDTH,
+                        CLEAT_HEIGHT,
+                        border_radius=ft.BorderRadius.all(2),
+                        paint=flexlink_cleat_paint,
+                    )
+                )
+            flexlink_x += BELT_SPACING
+        return flexlink_belt_y
+
+    def redraw_flexlink_sim():
+        flexlink_width = float(flexlink_sim_canvas.width or visual_width)
+        flexlink_shapes = []
+        flexlink_belt_y = flexlink_draw_conveyor(
+            flexlink_shapes,
+            flexlink_width,
+            flexlink_sim_state["belt_offset_px"],
+        )
+
+        flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
+        flexlink_excite_dist = flexlink_setting_float("excite_dist", 20)
+        flexlink_base_in = flexlink_setting_float("base_in", 70)
+        flexlink_base_out = flexlink_setting_float("base_out", 5)
+        flexlink_excite_acc = flexlink_setting_float("excite_acc", 50)
+        flexlink_excite_dec = flexlink_setting_float("excite_dec", 50)
+        flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
+        flexlink_base_dist = flexlink_cycle_pitch * flexlink_base_in / 100.0
+        flexlink_u = float(flexlink_sim_state.get("u", 0.0)) % 1.0
+        flexlink_excite_progress, flexlink_in_excite = flexlink_excitation_progress(
+            flexlink_u,
+            flexlink_base_in,
+            flexlink_base_out,
+            flexlink_excite_acc,
+            flexlink_excite_dec,
+            flexlink_curve_type,
+        )
+        flexlink_slave_position = flexlink_u * flexlink_base_dist + flexlink_excite_dist * flexlink_excite_progress
+
+        flexlink_left = PULLEY_SIZE + 10
+        flexlink_right = flexlink_width - PULLEY_SIZE - 10
+        flexlink_travel = max(80.0, flexlink_right - flexlink_left - 50)
+        flexlink_jaw_x = flexlink_left + (flexlink_slave_position % flexlink_cycle_pitch) / flexlink_cycle_pitch * flexlink_travel
+        flexlink_jaw_x = max(flexlink_left, min(flexlink_right - 44, flexlink_jaw_x))
+        flexlink_seal_u = flexlink_base_in / 100.0 + max(0.0, 100.0 - flexlink_base_in - flexlink_base_out) / 200.0
+        flexlink_seal_x = flexlink_left + flexlink_seal_u * flexlink_travel
+
+        flexlink_shapes.append(
+            cv.Line(flexlink_seal_x, 18, flexlink_seal_x, flexlink_belt_y + BELT_HEIGHT + 15,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.55, ft.Colors.WHITE), 1.2, dash=[5, 5]))
+        )
+        add_profile_text(
+            flexlink_shapes,
+            flexlink_seal_x + 8,
+            20,
+            "seal point",
+            size=10,
+            color=ft.Colors.GREY_300,
+            align=ft.Alignment.TOP_LEFT,
+            max_width=90,
+        )
+
+        flexlink_track_y = 28
+        flexlink_shapes.extend([
+            cv.Line(flexlink_left, flexlink_track_y, flexlink_right, flexlink_track_y,
+                    paint=canvas_paint("#59636c", 4)),
+            cv.Line(flexlink_left, flexlink_track_y + 10, flexlink_right, flexlink_track_y + 10,
+                    paint=canvas_paint("#263038", 2)),
+        ])
+
+        flexlink_gap = 4 if flexlink_in_excite else 30
+        flexlink_jaw_color = SUCCESS_COLOR if flexlink_in_excite else "#8fa1ad"
+        flexlink_tip_color = "#b8ffcf" if flexlink_in_excite else "#dfe7eb"
+        flexlink_carriage_w = 44
+        flexlink_carriage_h = 50
+        flexlink_carriage_y = 38
+        flexlink_upper_y = flexlink_carriage_y + 11
+        flexlink_lower_y = flexlink_upper_y + 18 + flexlink_gap
+
+        flexlink_shapes.extend([
+            cv.Rect(
+                flexlink_jaw_x - 4,
+                flexlink_carriage_y,
+                flexlink_carriage_w + 8,
+                flexlink_carriage_h,
+                border_radius=ft.BorderRadius.all(4),
+                paint=flexlink_linear_paint(
+                    flexlink_jaw_x,
+                    flexlink_carriage_y,
+                    flexlink_jaw_x,
+                    flexlink_carriage_y + flexlink_carriage_h,
+                    ["#3b4650", "#151b20"],
+                ),
+            ),
+            cv.Rect(
+                flexlink_jaw_x + 4,
+                flexlink_upper_y,
+                36,
+                13,
+                border_radius=ft.BorderRadius.all(2),
+                paint=flexlink_fill_paint(flexlink_jaw_color),
+            ),
+            cv.Rect(
+                flexlink_jaw_x + 4,
+                flexlink_lower_y,
+                36,
+                13,
+                border_radius=ft.BorderRadius.all(2),
+                paint=flexlink_fill_paint(flexlink_jaw_color),
+            ),
+        ])
+        flexlink_add_polygon(
+            flexlink_shapes,
+            [
+                (flexlink_jaw_x + 10, flexlink_upper_y + 13),
+                (flexlink_jaw_x + 34, flexlink_upper_y + 13),
+                (flexlink_jaw_x + 22, flexlink_upper_y + 23),
+            ],
+            flexlink_tip_color,
+            "#263038",
+            0.9,
+        )
+        flexlink_add_polygon(
+            flexlink_shapes,
+            [
+                (flexlink_jaw_x + 10, flexlink_lower_y),
+                (flexlink_jaw_x + 34, flexlink_lower_y),
+                (flexlink_jaw_x + 22, flexlink_lower_y - 10),
+            ],
+            flexlink_tip_color,
+            "#263038",
+            0.9,
+        )
+        if flexlink_in_excite:
+            flexlink_shapes.append(
+                cv.Oval(
+                    flexlink_jaw_x - 20,
+                    flexlink_upper_y + 15,
+                    84,
+                    flexlink_gap + 16,
+                    paint=flexlink_fill_paint(ft.Colors.with_opacity(0.18, SUCCESS_COLOR)),
+                )
+            )
+
+        add_profile_text(
+            flexlink_shapes,
+            flexlink_left,
+            flexlink_sim_height - 28,
+            f"u={flexlink_u:.2f}  excite={flexlink_excite_progress * 100:.0f}%",
+            size=11,
+            color=ft.Colors.GREY_300,
+            align=ft.Alignment.TOP_LEFT,
+            max_width=220,
+        )
+        flexlink_sim_canvas.shapes = flexlink_shapes
+        return True
+
+    flexlink_sim_canvas = cv.Canvas(width=visual_width, height=flexlink_sim_height, shapes=[])
+    flexlink_sim_canvas_holder = ft.Container(
+        content=flexlink_sim_canvas,
+        width=visual_width,
+        height=flexlink_sim_height,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        bgcolor=DARKER_BG,
+    )
+
+    def flexlink_on_speed_slider_change(e):
+        flexlink_value = float(e.control.value or 0)
+        flexlink_line_speed_input.value = f"{flexlink_value:.0f}"
+        flexlink_recalc(e)
+
+    flexlink_line_speed_slider = ft.Slider(
+        min=0,
+        max=1000,
+        value=max(0, min(1000, flexlink_setting_float("line_speed", 500))),
+        width=360,
+        label="{value} mm/s",
+        round=1,
+        active_color=ft.Colors.CYAN_300,
+        inactive_color=ft.Colors.GREY_700,
+        thumb_color=ft.Colors.CYAN_200,
+        on_change=flexlink_on_speed_slider_change,
+        tooltip="Preview line speed; also updates the FLEXLINK calculator line speed.",
+    )
+
+    flexlink_play_pause_btn = ft.FilledButton(
+        "Pause",
+        icon=ft.Icons.PAUSE,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+    )
+    flexlink_reset_btn = ft.OutlinedButton(
+        "Reset",
+        icon=ft.Icons.RESTART_ALT,
+        height=38,
+    )
+
+    async def flexlink_sim_loop():
+        flexlink_last = time.perf_counter()
+        while flexlink_sim_running:
+            flexlink_frame_start = time.perf_counter()
+            flexlink_dt = max(0.0, flexlink_frame_start - flexlink_last)
+            flexlink_last = flexlink_frame_start
+            if flexlink_sim_state.get("playing", True):
+                flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
+                try:
+                    flexlink_line_speed = max(0.0, float(flexlink_line_speed_slider.value or 0))
+                except (TypeError, ValueError):
+                    flexlink_line_speed = flexlink_setting_float("line_speed", 500)
+                flexlink_sim_state["u"] = (
+                    flexlink_sim_state["u"] + flexlink_dt * (flexlink_line_speed / flexlink_cycle_pitch)
+                ) % 1.0
+                flexlink_sim_state["belt_offset_px"] = (
+                    flexlink_sim_state["belt_offset_px"]
+                    + CONVEYOR_VISUAL_DIRECTION * flexlink_dt * flexlink_line_speed
+                ) % BELT_SPACING
+                redraw_flexlink_sim()
+                _update_if_mounted(flexlink_sim_canvas_holder)
+            flexlink_elapsed = time.perf_counter() - flexlink_frame_start
+            flexlink_remaining = FRAME_BUDGET - flexlink_elapsed
+            await asyncio.sleep(flexlink_remaining if flexlink_remaining > 0 else 0)
+
+    def flexlink_start_sim():
+        nonlocal flexlink_sim_running
+        if flexlink_sim_running:
+            return
+        flexlink_sim_running = True
+        asyncio.create_task(flexlink_sim_loop())
+
+    def flexlink_stop_sim():
+        nonlocal flexlink_sim_running
+        flexlink_sim_running = False
+
+    def flexlink_toggle_play(e):
+        flexlink_sim_state["playing"] = not bool(flexlink_sim_state.get("playing", True))
+        flexlink_play_pause_btn.text = "Pause" if flexlink_sim_state["playing"] else "Play"
+        flexlink_play_pause_btn.icon = ft.Icons.PAUSE if flexlink_sim_state["playing"] else ft.Icons.PLAY_ARROW
+        page.update()
+
+    def flexlink_reset_sim(e):
+        flexlink_sim_state["u"] = 0.0
+        flexlink_sim_state["belt_offset_px"] = 0.0
+        redraw_flexlink_sim()
+        page.update()
+
+    flexlink_play_pause_btn.on_click = flexlink_toggle_play
+    flexlink_reset_btn.on_click = flexlink_reset_sim
+
+    flexlink_sim_container = ft.Container(
+        content=ft.Column(
+            [
+                section_header("Flow Wrapper Simulation", "Animated FLEXLINK jaw advance preview", ft.Icons.PLAY_CIRCLE),
+                flexlink_sim_canvas_holder,
+                control_cluster(
+                    "Preview controls",
+                    [
+                        ft.Text("Line speed", size=12, color=ft.Colors.GREY_400),
+                        flexlink_line_speed_slider,
+                        flexlink_play_pause_btn,
+                        flexlink_reset_btn,
+                    ],
+                    icon=ft.Icons.TUNE,
+                    col={"xs": 12},
+                ),
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=20,
+    )
+
+    def resize_flexlink_sim_visual(update=False):
+        flexlink_new_visual_width = _available_visual_width()
+        flexlink_sim_canvas.width = flexlink_new_visual_width
+        flexlink_sim_canvas_holder.width = flexlink_new_visual_width
+        redraw_flexlink_sim()
+        if update:
+            _update_if_mounted(flexlink_sim_canvas_holder)
+
+    def flexlink_build_help_anatomy_shapes():
+        flexlink_width = 300
+        flexlink_height = 160
+        flexlink_left = 28
+        flexlink_right = 14
+        flexlink_top = 24
+        flexlink_base_y = 100
+        flexlink_peak_y = 42
+        flexlink_axis_y = 120
+        flexlink_plot_end = flexlink_width - flexlink_right
+        flexlink_x0 = flexlink_left
+        flexlink_x1 = 112
+        flexlink_x2 = 146
+        flexlink_x3 = 198
+        flexlink_x4 = 236
+        flexlink_x5 = flexlink_plot_end
+        flexlink_shapes = [
+            cv.Rect(0, 0, flexlink_width, flexlink_height,
+                    border_radius=ft.BorderRadius.all(8),
+                    paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
+            cv.Line(flexlink_left, flexlink_axis_y, flexlink_plot_end + 7, flexlink_axis_y,
+                    paint=canvas_paint("#b8a80f", 2.5)),
+            cv.Line(flexlink_left, flexlink_axis_y, flexlink_left, flexlink_top,
+                    paint=canvas_paint("#b8a80f", 2.5)),
+        ]
+        for flexlink_marker_x in (flexlink_x1, flexlink_x2, flexlink_x3, flexlink_x4):
+            flexlink_shapes.append(
+                cv.Line(flexlink_marker_x, flexlink_top + 6, flexlink_marker_x, flexlink_axis_y + 6,
+                        paint=canvas_paint("#46505a", 1, dash=[4, 5]))
+            )
+        flexlink_shapes.extend([
+            cv.Line(flexlink_x0, flexlink_base_y, flexlink_x1, flexlink_base_y,
+                    paint=canvas_paint("#4fc3f7", 3.5)),
+            cv.Path(
+                elements=[
+                    cv.Path.MoveTo(flexlink_x1, flexlink_base_y),
+                    cv.Path.CubicTo(flexlink_x1 + 12, flexlink_base_y, flexlink_x2 - 12,
+                                    flexlink_peak_y, flexlink_x2, flexlink_peak_y),
+                    cv.Path.LineTo(flexlink_x3, flexlink_peak_y),
+                    cv.Path.CubicTo(flexlink_x3 + 14, flexlink_peak_y, flexlink_x4 - 14,
+                                    flexlink_base_y, flexlink_x4, flexlink_base_y),
+                ],
+                paint=canvas_paint("#d24a35", 3.5),
+            ),
+            cv.Line(flexlink_x4, flexlink_base_y, flexlink_x5, flexlink_base_y,
+                    paint=canvas_paint("#4fc3f7", 3.5)),
+        ])
+        add_profile_text(flexlink_shapes, (flexlink_x0 + flexlink_x1) / 2, 126,
+                         "base_in", size=9, color=ft.Colors.CYAN_100, max_width=70)
+        add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x2) / 2, 126,
+                         "acc", size=9, color=ft.Colors.RED_100, max_width=40)
+        add_profile_text(flexlink_shapes, (flexlink_x2 + flexlink_x3) / 2, 126,
+                         "flat", size=9, color=ft.Colors.RED_100, max_width=48)
+        add_profile_text(flexlink_shapes, (flexlink_x3 + flexlink_x4) / 2, 126,
+                         "dec", size=9, color=ft.Colors.RED_100, max_width=40)
+        add_profile_text(flexlink_shapes, (flexlink_x4 + flexlink_x5) / 2, 126,
+                         "base_out", size=9, color=ft.Colors.CYAN_100, max_width=70)
+        add_profile_text(flexlink_shapes, 11, 74, "ratio", size=10, color=ft.Colors.WHITE, rotate=-1.5708)
+        return flexlink_shapes
+
+    flexlink_help_anatomy_canvas = cv.Canvas(
+        width=300,
+        height=160,
+        shapes=flexlink_build_help_anatomy_shapes(),
+    )
+    flexlink_example_cycle_pitch = 300.0
+    flexlink_example_line_speed = 500.0
+    flexlink_example_excite_dist = 20.0
+    flexlink_example_base_in = 70.0
+    flexlink_example_base_out = 5.0
+    flexlink_example_excite_acc = 50.0
+    flexlink_example_excite_dec = 50.0
+    flexlink_example_window = flexlink_example_cycle_pitch * (
+        1.0 - flexlink_example_base_in / 100.0 - flexlink_example_base_out / 100.0
+    )
+    flexlink_example_time = flexlink_example_window / flexlink_example_line_speed
+    flexlink_example_peak = flexlink_example_line_speed + flexlink_example_excite_dist / flexlink_example_time
+
+    flexlink_help_list = ft.ListView(
+        controls=[
+            section_header("FLEXLINK Math Help", "Flow-wrapper jaw advance with a parametric linked profile", ft.Icons.FUNCTIONS),
+            ft.ResponsiveRow(
+                [
+                    help_card(
+                        "Command Shape",
+                        [
+                            help_text("FLEXLINK(base_dist, excite_dist, link_dist, base_in, base_out, excite_acc, excite_dec, link_axis[, link_options[, start_pos]])"),
+                            help_text("base_dist is the slave travel at the base ratio. excite_dist is the signed advance or retard applied during the seal impulse."),
+                            help_text("link_dist is the positive master distance for one full profile. base_in and base_out reserve dwell distance before and after the excitation window."),
+                            formula_block(
+                                [
+                                    "excite_window = link_dist * (1 - base_in / 100 - base_out / 100)",
+                                    "excite_time = excite_window / line_speed",
+                                    "advance_speed ~= excite_dist / excite_time",
+                                ]
+                            ),
+                        ],
+                        icon=ft.Icons.CODE,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                    help_card(
+                        "Profile Anatomy",
+                        [
+                            ft.Container(
+                                content=flexlink_help_anatomy_canvas,
+                                border=ft.Border.all(1, BORDER_COLOR),
+                                border_radius=8,
+                                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                            ),
+                            help_text("The blue zones keep the jaw at the base film-transport ratio. The red impulse adds the sealing advance and then blends back to the base ratio."),
+                        ],
+                        icon=ft.Icons.SHOW_CHART,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                ],
+                columns=12,
+                spacing=18,
+                run_spacing=18,
+            ),
+            ft.ResponsiveRow(
+                [
+                    help_card(
+                        "Worked Example",
+                        [
+                            help_text("Flow wrapper example: cycle pitch 300 mm, line speed 500 mm/s, 20 mm advance, base_in 70%, base_out 5%, accel/decel 50/50."),
+                            formula_block(
+                                [
+                                    f"excite_window = 300 * (1 - 0.70 - 0.05) = {flexlink_example_window:.0f} mm",
+                                    f"excite_time = {flexlink_example_window:.0f} / 500 = {flexlink_example_time:.2f} s",
+                                    f"peak_speed ~= 500 + 20 / {flexlink_example_time:.2f} = {flexlink_example_peak:.0f} mm/s",
+                                    "FLEXLINK(210.000, 20.000, 300.000, 70.0, 5.0, 50.0, 50.0, link_ax)",
+                                ]
+                            ),
+                        ],
+                        icon=ft.Icons.ARTICLE,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                    help_card(
+                        "link_options Bits",
+                        [
+                            mini_table(
+                                ["Bit", "Value", "Meaning"],
+                                [
+                                    ("0", "1", "Start on MARK registration event"),
+                                    ("1", "2", "Start at absolute link-axis position"),
+                                    ("2", "4", "Auto-repeat bi-directionally"),
+                                    ("5", "32", "Active only during positive master movement"),
+                                    ("8", "256", "Start on MARKB registration event"),
+                                    ("9", "512", "Start on R_MARK channel"),
+                                    ("10..12", "1024..4096", "Curve type: 0 Sine, 1 Poly9, 2 Poly7, 3 Poly5, 4 Linear"),
+                                    ("13", "8192", "Follow master DPOS instead of MPOS"),
+                                    ("14", "16384", "Active only after positive threshold reached"),
+                                ],
+                                [64, 80, 360],
+                            ),
+                        ],
+                        icon=ft.Icons.TUNE,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                ],
+                columns=12,
+                spacing=18,
+                run_spacing=18,
+            ),
+            ft.ResponsiveRow(
+                [
+                    help_card(
+                        "Flow Wrapper Application Notes",
+                        [
+                            help_text("base_in is dwell before the jaws begin their sealing advance. base_out is the remaining dwell after the jaws return to the base film ratio."),
+                            help_text("excite_dist is signed: positive advances the jaws ahead of the film, while negative retards them. Sign depends on jaw mechanics and axis direction."),
+                            help_text("Typical starting points are base_in 60..80%, base_out 0..10%, excite_acc 50%, excite_dec 50%, with Sine or Poly5 curve type."),
+                            help_text("Horizontal pillow-pack machines usually use a modest positive advance. Vertical wrappers may need signed correction based on pull-belt direction and sealing jaw layout."),
+                        ],
+                        icon=ft.Icons.NOTES,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                    help_card(
+                        "Comparison to CAMBOX/MOVELINK",
+                        [
+                            mini_table(
+                                ["Command", "Use when", "Tradeoff"],
+                                [
+                                    ("FLEXLINK", "Parametric flow-wrapper advance", "No table data; quick tuning"),
+                                    ("CAMBOX", "Continuous rotary or complex cam law", "Most flexible, needs table generation"),
+                                    ("MOVELINK", "Discrete linked move phases", "Best for cut-on-the-fly strokes and returns"),
+                                ],
+                                [92, 210, 220],
+                            ),
+                            help_text("FLEXLINK is the simplest choice when the machine needs a repeatable linked advance impulse and the curve can be described by a few parameters."),
+                        ],
+                        icon=ft.Icons.COMPARE_ARROWS,
+                        col={"xs": 12, "xl": 6},
+                    ),
+                ],
+                columns=12,
+                spacing=18,
+                run_spacing=18,
+            ),
+        ],
+        spacing=18,
+        padding=20,
+        expand=True,
+    )
+
+    flexlink_recalc()
+    redraw_flexlink_sim()
+
     connection_panel = ft.Container(
         content=ft.Column(
             [
@@ -6399,6 +7794,30 @@ def main(page: ft.Page):
                     axis_connection_page,
                 ),
             ]
+        elif solution == "flow_wrapper":
+            tab_specs = [
+                (
+                    ft.Tab(label="Configure FlexLink", icon=ft.Icons.WAVES),
+                    ft.Container(
+                        content=ft.Column([flexlink_calc_container], spacing=14, scroll=ft.ScrollMode.AUTO),
+                        padding=20,
+                        expand=True,
+                    ),
+                ),
+                (
+                    ft.Tab(label="Simulation", icon=ft.Icons.PLAY_CIRCLE),
+                    ft.Container(content=flexlink_sim_container, padding=20, expand=True),
+                ),
+                (
+                    ft.Tab(label="FlexLink Help", icon=ft.Icons.FUNCTIONS),
+                    flexlink_help_list,
+                ),
+                (
+                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
+                    axis_connection_page,
+                ),
+                (ft.Tab(label="Live Monitor", icon=ft.Icons.ANALYTICS), flying_shear_monitor_page),
+            ]
         else:
             tab_specs = [
                 (
@@ -6417,9 +7836,16 @@ def main(page: ft.Page):
                 (ft.Tab(label="Live Monitor", icon=ft.Icons.ANALYTICS), flying_shear_monitor_page),
             ]
 
+        def on_solution_tab_change(e):
+            if solution == "flow_wrapper" and int(e.control.selected_index or 0) == 1:
+                flexlink_start_sim()
+            else:
+                flexlink_stop_sim()
+
         return ft.Tabs(
             length=len(tab_specs),
             selected_index=0,
+            on_change=on_solution_tab_change,
             content=ft.Column(
                 [
                     ft.TabBar(
@@ -6440,6 +7866,7 @@ def main(page: ft.Page):
         )
 
     app_root = ft.Container(expand=True)
+    current_solution = {"value": None}
 
     def set_workspace_appbar(solution_name):
         page.appbar = ft.AppBar(
@@ -6463,7 +7890,14 @@ def main(page: ft.Page):
         )
 
     def show_solution_workspace(solution):
-        solution_name = "Rotary Knife" if solution == "rotary_knife" else "Flying Shear"
+        current_solution["value"] = solution
+        if solution != "flow_wrapper":
+            flexlink_stop_sim()
+        solution_name = (
+            "Rotary Knife" if solution == "rotary_knife"
+            else "Flow Wrapper" if solution == "flow_wrapper"
+            else "Flying Shear"
+        )
         page.title = f"Trio {solution_name} Setup"
         set_workspace_appbar(solution_name)
         app_root.content = build_solution_tabs(solution)
@@ -6530,6 +7964,8 @@ def main(page: ft.Page):
     def show_solution_picker():
         page.title = "Trio Motion Setup"
         page.appbar = None
+        current_solution["value"] = None
+        flexlink_stop_sim()
 
         hero = ft.Column(
             [
@@ -6563,6 +7999,12 @@ def main(page: ft.Page):
                     ft.Icons.AUTORENEW,
                     "rotary_knife",
                 ),
+                solution_card(
+                    "Flow Wrapper",
+                    "Sinusoidal jaw advance linked to film transport via FLEXLINK - no cam table required.",
+                    ft.Icons.WAVES,
+                    "flow_wrapper",
+                ),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -6586,12 +8028,13 @@ def main(page: ft.Page):
 
     # Clean up monitor on window close
     async def on_window_event(e):
-        nonlocal monitor_running
+        nonlocal monitor_running, flexlink_sim_running
 
         if e.type != ft.WindowEventType.CLOSE:
             return
 
         monitor_running = False
+        flexlink_sim_running = False
 
         loop = asyncio.get_running_loop()
 
@@ -6626,6 +8069,7 @@ def main(page: ft.Page):
         resize_shear_visual(update=True)
         resize_rotary_sim_visual(update=True)
         resize_rotary_profile_view_visual(update=True)
+        resize_flexlink_sim_visual(update=True)
 
     page.on_resize = on_page_resize
 

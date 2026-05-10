@@ -109,5 +109,20 @@
     "start_deg": 0.0,
     "end_deg": 360.0,
     "metric": "rpm"
+  },
+  "flexlink_calc": {
+    "cycle_pitch": 300.0,
+    "line_speed": 67.0,
+    "excite_dist": 20.0,
+    "base_in": 70.0,
+    "base_out": 5.0,
+    "excite_acc": 50.0,
+    "excite_dec": 50.0,
+    "curve_type": "sine",
+    "start_mode": "immediate",
+    "link_pos": 0.0,
+    "link_source": "mpos",
+    "direction_mode": "any",
+    "repeat_mode": "program_loop"
   }
 }
