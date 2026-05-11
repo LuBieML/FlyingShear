@@ -3581,10 +3581,67 @@ def main(page: ft.Page):
         text_style=ft.TextStyle(font_family="Consolas", size=12),
         expand=True, tooltip=CAM_TOOLTIPS["code"],
     )
+    cam_quicktest_status = ft.Text(
+        "Generate a valid profile before sending table data.",
+        size=12,
+        color=MUTED_TEXT,
+    )
+    cam_quicktest_progress = ft.ProgressRing(width=18, height=18, stroke_width=2, visible=False)
+    cam_quicktest_table_state = {
+        "table": [],
+        "table_start": 0,
+        "sent_signature": None,
+        "current_signature": None,
+    }
 
-    def set_cam_code_output(value):
-        cam_code_output.value = value
-        cam_code_output_tab2.value = value
+    def set_cam_code_output(basic_value, quicktest_value=""):
+        cam_code_output.value = basic_value
+        cam_code_output_tab2.value = quicktest_value
+
+    def cam_table_signature(table_values, table_start):
+        return (int(table_start), tuple(float(v) for v in table_values))
+
+    def set_cam_quicktest_status(value, color):
+        cam_quicktest_status.value = value
+        cam_quicktest_status.color = color
+
+    def mark_cam_quicktest_table_stale(table_values, table_start):
+        signature = cam_table_signature(table_values, table_start)
+        cam_quicktest_table_state.update(
+            {
+                "table": list(table_values),
+                "table_start": int(table_start),
+                "current_signature": signature,
+            }
+        )
+        if cam_quicktest_table_state.get("sent_signature") == signature:
+            set_cam_quicktest_status(
+                f"Controller table is current: {len(table_values)} values at TABLE({table_start}).",
+                SUCCESS_COLOR,
+            )
+        else:
+            set_cam_quicktest_status(
+                f"Table values changed. Send {len(table_values)} values to TABLE({table_start}) before running QuickTest BASIC.",
+                WARNING_COLOR,
+            )
+        try:
+            cam_quicktest_send_btn.disabled = False
+        except NameError:
+            pass
+
+    def clear_cam_quicktest_table_state(message):
+        cam_quicktest_table_state.update(
+            {
+                "table": [],
+                "table_start": 0,
+                "current_signature": None,
+            }
+        )
+        set_cam_quicktest_status(message, MUTED_TEXT)
+        try:
+            cam_quicktest_send_btn.disabled = True
+        except NameError:
+            pass
 
     # --- Cam table math (1/cos cut correction + sinusoidal blend) ---
     def generate_rotary_knife_cam_table(cut_length_mm, drum_diameter_mm, n_knives,
@@ -3811,6 +3868,42 @@ def main(page: ft.Page):
             chunk = table_values[chunk_start:chunk_start + values_per_line]
             idx = table_start + chunk_start
             lines.append(f"TABLE({idx}, {', '.join(str(v) for v in chunk)})")
+        lines.append("")
+        lines.append("BASE(drum_ax)")
+        lines.append("SERVO = ON")
+        lines.append("' Jog/home the blade to the top before this line; that is drum position 0.")
+        lines.append("DEFPOS(0)")
+        lines.append("")
+        lines.append("' Bit 2 = repeat continuously")
+        lines.append(f"CAMBOX({table_start}, {table_end}, 1, cut_length, link_ax, 4)")
+        return "\n".join(lines)
+
+    def emit_cam_quicktest_basic_program(table_values, diag, cut_length, link_axis,
+                                         drum_axis, table_start, cutter_op):
+        n_pts = len(table_values)
+        table_end = table_start + n_pts - 1
+        lines = []
+        lines.append(f"' Rotary knife QuickTest cam — {n_pts} pts, "
+                     f"{diag['table_resolution_deg']:.4f}°/point on drum")
+        lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
+                     f"{int(diag['cut_segment_counts'])} counts per cut segment")
+        lines.append("' Drum zero: blade at top. Material contact/cut is 180 deg from zero.")
+        lines.append(f"' Cut zone: {diag['cut_zone_master_mm']:.2f} mm of material "
+                     f"(R={diag['R']:.4f})")
+        lines.append(f"' Inside cut window: ratio={diag['v_cut']:.4f} center, "
+                     f"{diag['v_cut_at_edge_normalized']:.4f} at edges "
+                     f"({diag['cosine_correction_at_edge']:.4f}x cosine correction)")
+        lines.append(f"' Outside cut window: ratio={diag['v_out']:.4f}")
+        lines.append("")
+        lines.append("' QUICKTEST MODE")
+        lines.append(f"' Load controller table indexes {table_start} to {table_end} with the")
+        lines.append("' app button: SetMultiTableValues(start_index, count, values).")
+        lines.append("' Re-send table data after every profile recalculation.")
+        lines.append("")
+        lines.append(f"link_ax    = {link_axis}")
+        lines.append(f"drum_ax    = {drum_axis}")
+        lines.append(f"cut_length = {cut_length:g}")
+        lines.append(f"cutter_op  = {cutter_op}")
         lines.append("")
         lines.append("BASE(drum_ax)")
         lines.append("SERVO = ON")
@@ -4464,7 +4557,8 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             cam_warning_text.value = "✗ Invalid input — enter numeric values"
             cam_warning_text.color = ERROR_COLOR
-            set_cam_code_output("")
+            set_cam_code_output("", "")
+            clear_cam_quicktest_table_state("Generate a valid profile before sending table data.")
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
@@ -4486,7 +4580,8 @@ def main(page: ft.Page):
                                        "cut/drum/cpr/vline must be > 0; "
                                        "n_knives ≥ 1; n_points ≥ 10; blend ∈ [0,1]")
             cam_warning_text.color = ERROR_COLOR
-            set_cam_code_output("")
+            set_cam_code_output("", "")
+            clear_cam_quicktest_table_state("Fix profile inputs before sending table data.")
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
@@ -4503,7 +4598,8 @@ def main(page: ft.Page):
         except ValueError as ex:
             cam_warning_text.value = f"✗ {ex}"
             cam_warning_text.color = ERROR_COLOR
-            set_cam_code_output("")
+            set_cam_code_output("", "")
+            clear_cam_quicktest_table_state("Fix profile inputs before sending table data.")
             cam_profile_canvas.shapes = []
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
@@ -4577,13 +4673,18 @@ def main(page: ft.Page):
             f"{len(table)} table points starting at TABLE({table_start})."
         )
 
-        set_cam_code_output(
-            emit_cam_basic_program(
-                table_values=table, diag=diag, cut_length=cut_len,
-                link_axis=link_ax, drum_axis=drum_ax,
-                table_start=table_start, cutter_op=cutter_op,
-            )
+        basic_program = emit_cam_basic_program(
+            table_values=table, diag=diag, cut_length=cut_len,
+            link_axis=link_ax, drum_axis=drum_ax,
+            table_start=table_start, cutter_op=cutter_op,
         )
+        quicktest_program = emit_cam_quicktest_basic_program(
+            table_values=table, diag=diag, cut_length=cut_len,
+            link_axis=link_ax, drum_axis=drum_ax,
+            table_start=table_start, cutter_op=cutter_op,
+        )
+        set_cam_code_output(basic_program, quicktest_program)
+        mark_cam_quicktest_table_stale(table, table_start)
         try:
             update_rotary_units_label()
             redraw_rotary_sim()
@@ -4598,8 +4699,10 @@ def main(page: ft.Page):
         inp.on_change = cam_recalc
         inp.on_blur = save_calc_settings
 
-    def copy_cam_code(e):
-        text = cam_code_output.value
+    def copy_text_to_clipboard(text, success_message):
+        if not text:
+            show_snack("No program text to copy.", "warning")
+            return
         CF_UNICODETEXT = 13
         GMEM_MOVEABLE = 2
         raw = text.encode("utf-16-le") + b"\x00\x00"
@@ -4620,7 +4723,68 @@ def main(page: ft.Page):
         k32.GlobalUnlock(h)
         u32.SetClipboardData(CF_UNICODETEXT, h)
         u32.CloseClipboard()
-        show_snack("Cam program copied to clipboard.", "success")
+        show_snack(success_message, "success")
+
+    def copy_cam_code(e):
+        copy_text_to_clipboard(cam_code_output.value, "Cam program copied to clipboard.")
+
+    def copy_cam_quicktest_code(e):
+        copy_text_to_clipboard(cam_code_output_tab2.value, "QuickTest program copied to clipboard.")
+
+    async def send_cam_quicktest_table(e):
+        if not trio_conn.is_connected():
+            show_snack("Connect to the controller before sending QuickTest table data.", "warning")
+            return
+
+        table_values = list(cam_quicktest_table_state.get("table") or [])
+        table_start = int(cam_quicktest_table_state.get("table_start") or 0)
+        if not table_values:
+            show_snack("Generate a valid cam profile before sending table data.", "warning")
+            return
+
+        cam_quicktest_send_btn.disabled = True
+        cam_quicktest_progress.visible = True
+        set_cam_quicktest_status(
+            f"Sending {len(table_values)} values to TABLE({table_start})...",
+            ft.Colors.CYAN_200,
+        )
+        page.update()
+
+        def _write_table_values():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                raise Exception("No Trio connection")
+            method = getattr(conn, "SetMultiTableValues", None)
+            if method is None:
+                raise Exception("SetMultiTableValues is not available in this Trio UAPI binding")
+            count = len(table_values)
+            values = [float(v) for v in table_values]
+            values_array = (ctypes.c_double * count)(*values)
+            errors = []
+            for candidate in (values, tuple(values), values_array):
+                try:
+                    method(int(table_start), int(count), candidate)
+                    return
+                except (TypeError, ValueError) as ex:
+                    errors.append(str(ex))
+            raise Exception("; ".join(errors) or "SetMultiTableValues rejected table values")
+
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(uapi_executor, _write_table_values)
+            cam_quicktest_table_state["sent_signature"] = cam_quicktest_table_state.get("current_signature")
+            set_cam_quicktest_status(
+                f"Controller table updated: {len(table_values)} values at TABLE({table_start}).",
+                SUCCESS_COLOR,
+            )
+            show_snack("QuickTest table data sent to controller.", "success")
+        except Exception as ex:
+            set_cam_quicktest_status(f"Table send failed: {ex}", ERROR_COLOR)
+            show_snack(f"QuickTest table send failed: {ex}", "error")
+        finally:
+            cam_quicktest_send_btn.disabled = not bool(cam_quicktest_table_state.get("table"))
+            cam_quicktest_progress.visible = False
+            page.update()
 
     copy_cam_btn = ft.FilledButton(
         "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_cam_code,
@@ -4628,9 +4792,18 @@ def main(page: ft.Page):
         height=38, tooltip="Copy generated TABLE/CAMBOX program to clipboard",
     )
     copy_cam_btn_tab2 = ft.FilledButton(
-        "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_cam_code,
+        "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_cam_quicktest_code,
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
-        height=38, tooltip="Copy generated TABLE/CAMBOX program to clipboard",
+        height=38, tooltip="Copy generated QuickTest program to clipboard",
+    )
+    cam_quicktest_send_btn = ft.FilledButton(
+        "Send table data",
+        icon=ft.Icons.UPLOAD,
+        on_click=send_cam_quicktest_table,
+        disabled=True,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Write generated values with SetMultiTableValues(start_index, count, values)",
     )
 
     cam_panel_height = 1000
@@ -4685,6 +4858,32 @@ def main(page: ft.Page):
             code_output,
         ], expand=True, spacing=12)
 
+    def cam_quicktest_tab_content():
+        return ft.Column([
+            ft.Row([
+                section_header("QuickTest Mode", "BASIC without TABLE loader commands", ft.Icons.CODE),
+                ft.Container(expand=True),
+                cam_quicktest_progress,
+                cam_quicktest_send_btn,
+                copy_cam_btn_tab2,
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.INFO_OUTLINE, size=16, color=MUTED_TEXT),
+                        ft.Container(content=cam_quicktest_status, expand=True),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                bgcolor=DARKER_BG,
+                border=ft.Border.all(1, BORDER_COLOR),
+                border_radius=8,
+                padding=10,
+            ),
+            cam_code_output_tab2,
+        ], expand=True, spacing=12)
+
     cam_basic_panel = ft.Container(
         content=ft.Tabs(
             length=2,
@@ -4704,7 +4903,7 @@ def main(page: ft.Page):
                     ft.TabBarView(
                         controls=[
                             cam_basic_tab_content(cam_code_output, copy_cam_btn),
-                            cam_basic_tab_content(cam_code_output_tab2, copy_cam_btn_tab2),
+                            cam_quicktest_tab_content(),
                         ],
                         expand=1,
                     ),
