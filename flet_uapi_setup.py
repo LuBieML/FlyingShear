@@ -3574,6 +3574,17 @@ def main(page: ft.Page):
         text_style=ft.TextStyle(font_family="Consolas", size=12),
         expand=True, tooltip=CAM_TOOLTIPS["code"],
     )
+    cam_code_output_tab2 = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR, focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True, tooltip=CAM_TOOLTIPS["code"],
+    )
+
+    def set_cam_code_output(value):
+        cam_code_output.value = value
+        cam_code_output_tab2.value = value
 
     # --- Cam table math (1/cos cut correction + sinusoidal blend) ---
     def generate_rotary_knife_cam_table(cut_length_mm, drum_diameter_mm, n_knives,
@@ -4453,7 +4464,7 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             cam_warning_text.value = "✗ Invalid input — enter numeric values"
             cam_warning_text.color = ERROR_COLOR
-            cam_code_output.value = ""
+            set_cam_code_output("")
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
@@ -4475,7 +4486,7 @@ def main(page: ft.Page):
                                        "cut/drum/cpr/vline must be > 0; "
                                        "n_knives ≥ 1; n_points ≥ 10; blend ∈ [0,1]")
             cam_warning_text.color = ERROR_COLOR
-            cam_code_output.value = ""
+            set_cam_code_output("")
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
@@ -4492,7 +4503,7 @@ def main(page: ft.Page):
         except ValueError as ex:
             cam_warning_text.value = f"✗ {ex}"
             cam_warning_text.color = ERROR_COLOR
-            cam_code_output.value = ""
+            set_cam_code_output("")
             cam_profile_canvas.shapes = []
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
@@ -4566,10 +4577,12 @@ def main(page: ft.Page):
             f"{len(table)} table points starting at TABLE({table_start})."
         )
 
-        cam_code_output.value = emit_cam_basic_program(
-            table_values=table, diag=diag, cut_length=cut_len,
-            link_axis=link_ax, drum_axis=drum_ax,
-            table_start=table_start, cutter_op=cutter_op,
+        set_cam_code_output(
+            emit_cam_basic_program(
+                table_values=table, diag=diag, cut_length=cut_len,
+                link_axis=link_ax, drum_axis=drum_ax,
+                table_start=table_start, cutter_op=cutter_op,
+            )
         )
         try:
             update_rotary_units_label()
@@ -4610,6 +4623,11 @@ def main(page: ft.Page):
         show_snack("Cam program copied to clipboard.", "success")
 
     copy_cam_btn = ft.FilledButton(
+        "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_cam_code,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38, tooltip="Copy generated TABLE/CAMBOX program to clipboard",
+    )
+    copy_cam_btn_tab2 = ft.FilledButton(
         "Copy program", icon=ft.Icons.CONTENT_COPY, on_click=copy_cam_code,
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
         height=38, tooltip="Copy generated TABLE/CAMBOX program to clipboard",
@@ -4657,15 +4675,44 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 6},
     )
 
-    cam_basic_panel = ft.Container(
-        content=ft.Column([
+    def cam_basic_tab_content(code_output, copy_button):
+        return ft.Column([
             ft.Row([
                 section_header("Trio BASIC Program", "Generated TABLE + CAMBOX", ft.Icons.CODE),
                 ft.Container(expand=True),
-                copy_cam_btn,
+                copy_button,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            cam_code_output,
-        ], expand=True, spacing=12),
+            code_output,
+        ], expand=True, spacing=12)
+
+    cam_basic_panel = ft.Container(
+        content=ft.Tabs(
+            length=2,
+            selected_index=0,
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
+                            ft.Tab(label="tab 2", icon=ft.Icons.CODE),
+                        ],
+                        label_color=ft.Colors.CYAN_200,
+                        unselected_label_color=MUTED_TEXT,
+                        indicator_color=ACCENT_COLOR,
+                        divider_color=BORDER_COLOR,
+                    ),
+                    ft.TabBarView(
+                        controls=[
+                            cam_basic_tab_content(cam_code_output, copy_cam_btn),
+                            cam_basic_tab_content(cam_code_output_tab2, copy_cam_btn_tab2),
+                        ],
+                        expand=1,
+                    ),
+                ],
+                expand=1,
+            ),
+            expand=1,
+        ),
         bgcolor=PANEL_BG, border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8, padding=16, height=cam_panel_height,
         col={"xs": 12, "xl": 6},
