@@ -7614,76 +7614,154 @@ def main(page: ft.Page):
                 cv.Path(elements=flexlink_elements, paint=canvas_paint(flexlink_stroke, flexlink_stroke_width))
             )
 
-    def flexlink_draw_conveyor(flexlink_shapes, flexlink_width, flexlink_belt_offset_px):
-        flexlink_rail_color = "#4a4f55"
-        flexlink_belt_left = PULLEY_SIZE
-        flexlink_belt_right = flexlink_width - PULLEY_SIZE
-        flexlink_belt_width_px = max(120, flexlink_belt_right - flexlink_belt_left)
-        flexlink_pulley_y = flexlink_sim_height - 58
-        flexlink_belt_y = flexlink_pulley_y + (PULLEY_SIZE - BELT_HEIGHT) / 2
-        flexlink_belt_center_y = flexlink_belt_y + BELT_HEIGHT / 2
+    def flexlink_draw_foil_web(flexlink_shapes, flexlink_width, flexlink_web_offset_px,
+                               flexlink_cycle_pitch):
+        flexlink_web_left = 42.0
+        flexlink_web_right = flexlink_width - 42.0
+        flexlink_web_width = max(160.0, flexlink_web_right - flexlink_web_left)
+        flexlink_web_y = 124.0
+        flexlink_web_h = 20.0
+        flexlink_web_center_y = flexlink_web_y + flexlink_web_h / 2.0
+        flexlink_pack_pitch = max(120.0, min(210.0, flexlink_cycle_pitch * scale_px_per_unit[0]))
+        flexlink_phase_px = flexlink_web_offset_px % flexlink_pack_pitch
+
         flexlink_shapes.extend([
             cv.Rect(0, 0, flexlink_width, flexlink_sim_height,
                     paint=ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)),
-            cv.Rect(0, flexlink_belt_y - RAIL_HEIGHT - 2, flexlink_width, RAIL_HEIGHT,
-                    paint=ft.Paint(color=flexlink_rail_color, style=ft.PaintingStyle.FILL)),
-            cv.Rect(0, flexlink_belt_y + BELT_HEIGHT + 2, flexlink_width, RAIL_HEIGHT,
-                    paint=ft.Paint(color=flexlink_rail_color, style=ft.PaintingStyle.FILL)),
-            cv.Rect(flexlink_belt_left, flexlink_belt_y, flexlink_belt_width_px, BELT_HEIGHT,
-                    border_radius=ft.BorderRadius.all(BELT_HEIGHT / 2),
-                    paint=ft.Paint(
-                        gradient=ft.PaintLinearGradient(
-                            begin=ft.Offset(flexlink_belt_left, flexlink_belt_y),
-                            end=ft.Offset(flexlink_belt_left, flexlink_belt_y + BELT_HEIGHT),
-                            colors=["#262626", "#070707", "#262626"],
-                            color_stops=[0.0, 0.5, 1.0],
-                        ),
-                        style=ft.PaintingStyle.FILL,
-                    )),
-            cv.Circle(PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE / 2,
-                      paint=ft.Paint(color="#6f7478", style=ft.PaintingStyle.FILL)),
-            cv.Circle(flexlink_width - PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE / 2,
-                      paint=ft.Paint(color="#6f7478", style=ft.PaintingStyle.FILL)),
-            cv.Circle(PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE * 0.16,
-                      paint=ft.Paint(color="#151515", style=ft.PaintingStyle.FILL)),
-            cv.Circle(flexlink_width - PULLEY_SIZE / 2, flexlink_belt_center_y, PULLEY_SIZE * 0.16,
-                      paint=ft.Paint(color="#151515", style=ft.PaintingStyle.FILL)),
+            cv.Rect(
+                flexlink_web_left - 16,
+                flexlink_web_y - 22,
+                flexlink_web_width + 32,
+                flexlink_web_h + 44,
+                border_radius=ft.BorderRadius.all(8),
+                paint=ft.Paint(color="#0d1217", style=ft.PaintingStyle.FILL),
+            ),
+            cv.Line(flexlink_web_left - 18, flexlink_web_y - 24,
+                    flexlink_web_right + 18, flexlink_web_y - 24,
+                    paint=canvas_paint("#4c5963", 2.4)),
+            cv.Line(flexlink_web_left - 18, flexlink_web_y + flexlink_web_h + 24,
+                    flexlink_web_right + 18, flexlink_web_y + flexlink_web_h + 24,
+                    paint=canvas_paint("#2b353d", 1.6)),
+            cv.Rect(
+                flexlink_web_left,
+                flexlink_web_y,
+                flexlink_web_width,
+                flexlink_web_h,
+                border_radius=ft.BorderRadius.all(7),
+                paint=ft.Paint(
+                    gradient=ft.PaintLinearGradient(
+                        begin=ft.Offset(flexlink_web_left, flexlink_web_y),
+                        end=ft.Offset(flexlink_web_left, flexlink_web_y + flexlink_web_h),
+                        colors=[
+                            ft.Colors.with_opacity(0.82, "#d8eef7"),
+                            ft.Colors.with_opacity(0.54, "#8fb8c8"),
+                            ft.Colors.with_opacity(0.68, "#e8f7fb"),
+                        ],
+                        color_stops=[0.0, 0.48, 1.0],
+                    ),
+                    style=ft.PaintingStyle.FILL,
+                ),
+            ),
+            cv.Line(flexlink_web_left, flexlink_web_y + 4,
+                    flexlink_web_right, flexlink_web_y + 4,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.70, ft.Colors.WHITE), 1.0)),
+            cv.Line(flexlink_web_left, flexlink_web_y + flexlink_web_h - 4,
+                    flexlink_web_right, flexlink_web_y + flexlink_web_h - 4,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.52, "#4f7f91"), 1.0)),
+            cv.Line(flexlink_web_left, flexlink_web_center_y,
+                    flexlink_web_right, flexlink_web_center_y,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.48, "#315867"), 1.1, dash=[8, 7])),
         ])
 
-        flexlink_x = flexlink_belt_left - BELT_SPACING + (flexlink_belt_offset_px % BELT_SPACING)
-        flexlink_cleat_paint = ft.Paint(
-            gradient=ft.PaintLinearGradient(
-                begin=ft.Offset(0, flexlink_belt_y),
-                end=ft.Offset(0, flexlink_belt_y + BELT_HEIGHT),
-                colors=[ft.Colors.GREY_400, ft.Colors.GREY_700, "#050505"],
-                color_stops=[0.0, 0.45, 1.0],
-            ),
-            style=ft.PaintingStyle.FILL,
-        )
-        while flexlink_x < flexlink_belt_right + BELT_SPACING:
-            if flexlink_belt_left - CLEAT_WIDTH <= flexlink_x <= flexlink_belt_right:
-                flexlink_shapes.append(
-                    cv.Rect(
-                        flexlink_x,
-                        flexlink_belt_y + (BELT_HEIGHT - CLEAT_HEIGHT) / 2,
-                        CLEAT_WIDTH,
-                        CLEAT_HEIGHT,
-                        border_radius=ft.BorderRadius.all(2),
-                        paint=flexlink_cleat_paint,
+        flexlink_x = flexlink_web_left - flexlink_pack_pitch + flexlink_phase_px
+        while flexlink_x < flexlink_web_right + flexlink_pack_pitch:
+            if flexlink_web_left - flexlink_pack_pitch <= flexlink_x <= flexlink_web_right:
+                flexlink_pack_x = flexlink_x + 10
+                flexlink_pack_w = max(50.0, flexlink_pack_pitch - 20)
+                if flexlink_pack_x < flexlink_web_right and flexlink_pack_x + flexlink_pack_w > flexlink_web_left:
+                    flexlink_shapes.append(
+                        cv.Rect(
+                            flexlink_pack_x,
+                            flexlink_web_y + 4,
+                            flexlink_pack_w,
+                            flexlink_web_h - 8,
+                            border_radius=ft.BorderRadius.all(6),
+                            paint=ft.Paint(
+                                gradient=ft.PaintLinearGradient(
+                                    begin=ft.Offset(flexlink_pack_x, flexlink_web_y + 4),
+                                    end=ft.Offset(flexlink_pack_x, flexlink_web_y + flexlink_web_h - 4),
+                                    colors=[
+                                        ft.Colors.with_opacity(0.18, ft.Colors.WHITE),
+                                        ft.Colors.with_opacity(0.08, "#17485a"),
+                                        ft.Colors.with_opacity(0.24, ft.Colors.WHITE),
+                                    ],
+                                    color_stops=[0.0, 0.55, 1.0],
+                                ),
+                                style=ft.PaintingStyle.FILL,
+                            ),
+                        )
                     )
-                )
-            flexlink_x += BELT_SPACING
-        return flexlink_belt_y
+                    flexlink_shapes.append(
+                        cv.Line(
+                            flexlink_pack_x + flexlink_pack_w * 0.18,
+                            flexlink_web_y + 7,
+                            flexlink_pack_x + flexlink_pack_w * 0.78,
+                            flexlink_web_y + 7,
+                            paint=canvas_paint(ft.Colors.with_opacity(0.55, ft.Colors.WHITE), 0.9),
+                        )
+                    )
+
+                flexlink_crimp_x = flexlink_x
+                if flexlink_web_left <= flexlink_crimp_x <= flexlink_web_right:
+                    flexlink_shapes.append(
+                        cv.Rect(
+                            flexlink_crimp_x - 2,
+                            flexlink_web_y - 3,
+                            4,
+                            flexlink_web_h + 6,
+                            border_radius=ft.BorderRadius.all(2),
+                            paint=ft.Paint(color=ft.Colors.with_opacity(0.38, "#dff5ff"),
+                                           style=ft.PaintingStyle.FILL),
+                        )
+                    )
+                    for flexlink_tooth_y in range(int(flexlink_web_y + 1), int(flexlink_web_y + flexlink_web_h), 7):
+                        flexlink_shapes.append(
+                            cv.Line(
+                                flexlink_crimp_x - 5,
+                                flexlink_tooth_y,
+                                flexlink_crimp_x + 5,
+                                flexlink_tooth_y + 4,
+                                paint=canvas_paint(ft.Colors.with_opacity(0.48, "#4d7583"), 0.8),
+                            )
+                        )
+
+                flexlink_mark_x = flexlink_x + flexlink_pack_pitch * 0.72
+                if flexlink_web_left <= flexlink_mark_x <= flexlink_web_right:
+                    flexlink_shapes.append(
+                        cv.Rect(
+                            flexlink_mark_x,
+                            flexlink_web_y + 2,
+                            18,
+                            5,
+                            border_radius=ft.BorderRadius.all(2),
+                            paint=ft.Paint(color=ft.Colors.with_opacity(0.74, "#17232a"),
+                                           style=ft.PaintingStyle.FILL),
+                        )
+                    )
+            flexlink_x += flexlink_pack_pitch
+
+        return {
+            "left": flexlink_web_left,
+            "right": flexlink_web_right,
+            "y": flexlink_web_y,
+            "height": flexlink_web_h,
+            "center_y": flexlink_web_center_y,
+            "pack_pitch": flexlink_pack_pitch,
+        }
 
     def redraw_flexlink_sim():
         flexlink_width = float(flexlink_sim_canvas.width or visual_width)
         flexlink_shapes = []
-        flexlink_belt_y = flexlink_draw_conveyor(
-            flexlink_shapes,
-            flexlink_width,
-            flexlink_sim_state["belt_offset_px"],
-        )
-
         flexlink_snapshot = flexlink_profile_snapshot()
         flexlink_cycle_pitch = flexlink_snapshot["cycle_pitch"]
         flexlink_base_in = flexlink_snapshot["base_in"]
@@ -7701,54 +7779,81 @@ def main(page: ft.Page):
         if flexlink_live and flexlink_actual_position is not None:
             flexlink_slave_position = flexlink_actual_position
 
-        flexlink_left = PULLEY_SIZE + 10
-        flexlink_right = flexlink_width - PULLEY_SIZE - 10
-        flexlink_travel = max(80.0, flexlink_right - flexlink_left - 50)
+        flexlink_foil = flexlink_draw_foil_web(
+            flexlink_shapes,
+            flexlink_width,
+            flexlink_sim_state["belt_offset_px"],
+            flexlink_cycle_pitch,
+        )
+
+        flexlink_left = flexlink_foil["left"] + 12
+        flexlink_right = flexlink_foil["right"] - 12
+        flexlink_travel = max(80.0, flexlink_right - flexlink_left - 62)
         flexlink_jaw_x = flexlink_left + (flexlink_slave_position % flexlink_cycle_pitch) / flexlink_cycle_pitch * flexlink_travel
-        flexlink_jaw_x = max(flexlink_left, min(flexlink_right - 44, flexlink_jaw_x))
+        flexlink_jaw_x = max(flexlink_left, min(flexlink_right - 58, flexlink_jaw_x))
         flexlink_expected_x = flexlink_left + (
             flexlink_expected_position % flexlink_cycle_pitch
         ) / flexlink_cycle_pitch * flexlink_travel
-        flexlink_expected_x = max(flexlink_left, min(flexlink_right - 44, flexlink_expected_x))
+        flexlink_expected_x = max(flexlink_left, min(flexlink_right - 58, flexlink_expected_x))
         flexlink_seal_u = flexlink_base_in / 100.0 + max(0.0, 100.0 - flexlink_base_in - flexlink_base_out) / 200.0
         flexlink_seal_x = flexlink_left + flexlink_seal_u * flexlink_travel
 
         flexlink_shapes.append(
-            cv.Line(flexlink_seal_x, 18, flexlink_seal_x, flexlink_belt_y + BELT_HEIGHT + 15,
+            cv.Line(flexlink_seal_x, 34, flexlink_seal_x, flexlink_foil["y"] + flexlink_foil["height"] + 34,
                     paint=canvas_paint(ft.Colors.with_opacity(0.55, ft.Colors.WHITE), 1.2, dash=[5, 5]))
+        )
+
+        flexlink_track_y = 48
+        flexlink_foil_y = flexlink_foil["y"]
+        flexlink_foil_h = flexlink_foil["height"]
+        flexlink_foil_center_y = flexlink_foil["center_y"]
+        flexlink_shapes.extend([
+            cv.Line(flexlink_left, flexlink_track_y, flexlink_right, flexlink_track_y,
+                    paint=canvas_paint("#5f6d77", 4.2)),
+            cv.Line(flexlink_left, flexlink_track_y + 10, flexlink_right, flexlink_track_y + 10,
+                    paint=canvas_paint("#263038", 2)),
+            cv.Line(flexlink_left, flexlink_track_y + 22, flexlink_right, flexlink_track_y + 22,
+                    paint=canvas_paint("#182129", 1.4)),
+        ])
+        flexlink_label_x = min(flexlink_seal_x + 12, flexlink_width - 92)
+        flexlink_label_y = flexlink_track_y + 22
+        flexlink_shapes.append(
+            cv.Rect(
+                flexlink_label_x - 5,
+                flexlink_label_y - 3,
+                76,
+                16,
+                border_radius=ft.BorderRadius.all(3),
+                paint=ft.Paint(
+                    color=ft.Colors.with_opacity(0.86, DARKER_BG),
+                    style=ft.PaintingStyle.FILL,
+                ),
+            )
         )
         add_profile_text(
             flexlink_shapes,
-            flexlink_seal_x + 8,
-            20,
+            flexlink_label_x,
+            flexlink_label_y,
             "seal point",
             size=10,
-            color=ft.Colors.GREY_300,
+            color=ft.Colors.GREY_200,
             align=ft.Alignment.TOP_LEFT,
             max_width=90,
         )
-
-        flexlink_track_y = 28
-        flexlink_shapes.extend([
-            cv.Line(flexlink_left, flexlink_track_y, flexlink_right, flexlink_track_y,
-                    paint=canvas_paint("#59636c", 4)),
-            cv.Line(flexlink_left, flexlink_track_y + 10, flexlink_right, flexlink_track_y + 10,
-                    paint=canvas_paint("#263038", 2)),
-        ])
         if flexlink_live and flexlink_actual_position is not None:
             flexlink_shapes.append(
                 cv.Line(
-                    flexlink_expected_x + 22,
-                    flexlink_track_y - 9,
-                    flexlink_expected_x + 22,
-                    flexlink_track_y + 88,
+                    flexlink_expected_x + 29,
+                    flexlink_track_y - 12,
+                    flexlink_expected_x + 29,
+                    flexlink_foil_y + flexlink_foil_h + 42,
                     paint=canvas_paint(ft.Colors.with_opacity(0.55, ft.Colors.CYAN_200), 1.1, dash=[4, 4]),
                 )
             )
             add_profile_text(
                 flexlink_shapes,
-                flexlink_expected_x + 28,
-                flexlink_track_y + 48,
+                flexlink_expected_x + 36,
+                flexlink_foil_y + flexlink_foil_h + 18,
                 "target",
                 size=10,
                 color=ft.Colors.CYAN_100,
@@ -7756,79 +7861,130 @@ def main(page: ft.Page):
                 max_width=70,
             )
 
-        flexlink_gap = 4 if flexlink_in_excite else 30
-        flexlink_jaw_color = SUCCESS_COLOR if flexlink_in_excite else "#8fa1ad"
-        flexlink_tip_color = "#b8ffcf" if flexlink_in_excite else "#dfe7eb"
-        flexlink_carriage_w = 44
-        flexlink_carriage_h = 50
-        flexlink_carriage_y = 38
-        flexlink_upper_y = flexlink_carriage_y + 11
-        flexlink_lower_y = flexlink_upper_y + 18 + flexlink_gap
+        flexlink_jaw_w = 58
+        flexlink_jaw_h = 20
+        flexlink_jaw_clearance = 2 if flexlink_in_excite else 16
+        flexlink_upper_y = flexlink_foil_y - flexlink_jaw_clearance - flexlink_jaw_h
+        flexlink_lower_y = flexlink_foil_y + flexlink_foil_h + flexlink_jaw_clearance
+        flexlink_jaw_center_x = flexlink_jaw_x + flexlink_jaw_w / 2.0
+        flexlink_jaw_fill = "#d8e3e8" if flexlink_in_excite else "#9aa8b0"
+        flexlink_jaw_edge = "#b8ffcf" if flexlink_in_excite else "#cad5da"
+        flexlink_jaw_dark = "#354049" if flexlink_in_excite else "#2b343b"
 
-        flexlink_shapes.extend([
-            cv.Rect(
-                flexlink_jaw_x - 4,
-                flexlink_carriage_y,
-                flexlink_carriage_w + 8,
-                flexlink_carriage_h,
-                border_radius=ft.BorderRadius.all(4),
-                paint=flexlink_linear_paint(
-                    flexlink_jaw_x,
-                    flexlink_carriage_y,
-                    flexlink_jaw_x,
-                    flexlink_carriage_y + flexlink_carriage_h,
-                    ["#3b4650", "#151b20"],
-                ),
-            ),
-            cv.Rect(
-                flexlink_jaw_x + 4,
-                flexlink_upper_y,
-                36,
-                13,
-                border_radius=ft.BorderRadius.all(2),
-                paint=flexlink_fill_paint(flexlink_jaw_color),
-            ),
-            cv.Rect(
-                flexlink_jaw_x + 4,
-                flexlink_lower_y,
-                36,
-                13,
-                border_radius=ft.BorderRadius.all(2),
-                paint=flexlink_fill_paint(flexlink_jaw_color),
-            ),
-        ])
-        flexlink_add_polygon(
-            flexlink_shapes,
-            [
-                (flexlink_jaw_x + 10, flexlink_upper_y + 13),
-                (flexlink_jaw_x + 34, flexlink_upper_y + 13),
-                (flexlink_jaw_x + 22, flexlink_upper_y + 23),
-            ],
-            flexlink_tip_color,
-            "#263038",
-            0.9,
-        )
-        flexlink_add_polygon(
-            flexlink_shapes,
-            [
-                (flexlink_jaw_x + 10, flexlink_lower_y),
-                (flexlink_jaw_x + 34, flexlink_lower_y),
-                (flexlink_jaw_x + 22, flexlink_lower_y - 10),
-            ],
-            flexlink_tip_color,
-            "#263038",
-            0.9,
-        )
         if flexlink_in_excite:
             flexlink_shapes.append(
                 cv.Oval(
-                    flexlink_jaw_x - 20,
-                    flexlink_upper_y + 15,
-                    84,
-                    flexlink_gap + 16,
-                    paint=flexlink_fill_paint(ft.Colors.with_opacity(0.18, SUCCESS_COLOR)),
+                    flexlink_jaw_x - 18,
+                    flexlink_foil_y - 9,
+                    flexlink_jaw_w + 36,
+                    flexlink_foil_h + 18,
+                    paint=flexlink_fill_paint(ft.Colors.with_opacity(0.16, SUCCESS_COLOR)),
                 )
             )
+
+        flexlink_shapes.extend([
+            cv.Rect(
+                flexlink_jaw_x - 7,
+                flexlink_track_y + 8,
+                flexlink_jaw_w + 14,
+                18,
+                border_radius=ft.BorderRadius.all(4),
+                paint=flexlink_linear_paint(
+                    flexlink_jaw_x,
+                    flexlink_track_y + 8,
+                    flexlink_jaw_x,
+                    flexlink_track_y + 26,
+                    ["#3b4650", "#151b20"],
+                ),
+            ),
+            cv.Line(flexlink_jaw_x + 7, flexlink_track_y + 26,
+                    flexlink_jaw_x + 7, flexlink_upper_y + 2,
+                    paint=canvas_paint("#53616b", 2.2)),
+            cv.Line(flexlink_jaw_x + flexlink_jaw_w - 7, flexlink_track_y + 26,
+                    flexlink_jaw_x + flexlink_jaw_w - 7, flexlink_upper_y + 2,
+                    paint=canvas_paint("#53616b", 2.2)),
+            cv.Rect(
+                flexlink_jaw_x,
+                flexlink_upper_y,
+                flexlink_jaw_w,
+                flexlink_jaw_h,
+                border_radius=ft.BorderRadius.all(3),
+                paint=flexlink_linear_paint(
+                    flexlink_jaw_x,
+                    flexlink_upper_y,
+                    flexlink_jaw_x,
+                    flexlink_upper_y + flexlink_jaw_h,
+                    [flexlink_jaw_fill, flexlink_jaw_dark],
+                ),
+            ),
+            cv.Rect(
+                flexlink_jaw_x,
+                flexlink_lower_y,
+                flexlink_jaw_w,
+                flexlink_jaw_h,
+                border_radius=ft.BorderRadius.all(3),
+                paint=flexlink_linear_paint(
+                    flexlink_jaw_x,
+                    flexlink_lower_y,
+                    flexlink_jaw_x,
+                    flexlink_lower_y + flexlink_jaw_h,
+                    [flexlink_jaw_dark, flexlink_jaw_fill],
+                ),
+            ),
+            cv.Line(flexlink_jaw_x + 5, flexlink_upper_y + 3,
+                    flexlink_jaw_x + flexlink_jaw_w - 5, flexlink_upper_y + 3,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.58, ft.Colors.WHITE), 0.9)),
+            cv.Line(flexlink_jaw_x + 5, flexlink_lower_y + flexlink_jaw_h - 3,
+                    flexlink_jaw_x + flexlink_jaw_w - 5, flexlink_lower_y + flexlink_jaw_h - 3,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.45, ft.Colors.WHITE), 0.9)),
+        ])
+
+        for flexlink_tooth_x in range(int(flexlink_jaw_x + 5), int(flexlink_jaw_x + flexlink_jaw_w - 4), 7):
+            flexlink_add_polygon(
+                flexlink_shapes,
+                [
+                    (flexlink_tooth_x, flexlink_upper_y + flexlink_jaw_h - 1),
+                    (flexlink_tooth_x + 4, flexlink_upper_y + flexlink_jaw_h - 1),
+                    (flexlink_tooth_x + 2, flexlink_upper_y + flexlink_jaw_h + 5),
+                ],
+                flexlink_jaw_edge,
+                "#263038",
+                0.7,
+            )
+            flexlink_add_polygon(
+                flexlink_shapes,
+                [
+                    (flexlink_tooth_x, flexlink_lower_y + 1),
+                    (flexlink_tooth_x + 4, flexlink_lower_y + 1),
+                    (flexlink_tooth_x + 2, flexlink_lower_y - 5),
+                ],
+                flexlink_jaw_edge,
+                "#263038",
+                0.7,
+            )
+
+        flexlink_shapes.extend([
+            cv.Line(
+                flexlink_jaw_center_x,
+                flexlink_upper_y + flexlink_jaw_h + 5,
+                flexlink_jaw_center_x,
+                flexlink_foil_y,
+                paint=canvas_paint(ft.Colors.with_opacity(0.34, flexlink_jaw_edge), 1.0),
+            ),
+            cv.Line(
+                flexlink_jaw_center_x,
+                flexlink_foil_y + flexlink_foil_h,
+                flexlink_jaw_center_x,
+                flexlink_lower_y - 5,
+                paint=canvas_paint(ft.Colors.with_opacity(0.34, flexlink_jaw_edge), 1.0),
+            ),
+            cv.Circle(
+                flexlink_jaw_center_x,
+                flexlink_foil_center_y,
+                3.2,
+                paint=flexlink_fill_paint(ft.Colors.with_opacity(0.72, flexlink_jaw_edge)),
+            ),
+        ])
 
         add_profile_text(
             flexlink_shapes,
@@ -7851,11 +8007,17 @@ def main(page: ft.Page):
         flexlink_sim_canvas.shapes = flexlink_shapes
         return True
 
-    flexlink_sim_canvas = cv.Canvas(width=visual_width, height=flexlink_sim_height, shapes=[])
+    flexlink_sim_canvas = cv.Canvas(
+        width=visual_width,
+        height=flexlink_sim_height,
+        shapes=[],
+        expand=False,
+    )
     flexlink_sim_canvas_holder = ft.Container(
         content=flexlink_sim_canvas,
         width=visual_width,
         height=flexlink_sim_height,
+        expand=False,
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -7868,6 +8030,105 @@ def main(page: ft.Page):
         height=38,
         disabled=True,
         tooltip="Use current live master/slave positions as the simulation origin.",
+    )
+
+    def make_flexlink_motion_button(text, icon, color, command, tooltip):
+        return ft.FilledButton(
+            text,
+            icon=icon,
+            on_click=lambda e: _send_master_cmd(command),
+            disabled=not trio_conn.is_connected(),
+            style=ft.ButtonStyle(bgcolor=color, color=ft.Colors.WHITE),
+            height=38,
+            tooltip=tooltip,
+        )
+
+    flexlink_master_speed_input = ft.TextField(
+        label="Film speed",
+        value=format_conveyor_speed(clamp_conveyor_speed(get_saved_conveyor_speed())),
+        width=140,
+        height=45,
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        suffix="u/s",
+        text_size=12,
+        on_change=on_master_speed_change,
+        on_blur=lambda e: normalize_conveyor_speed_input(e.control),
+        on_submit=lambda e: _send_master_speed(e.control),
+        tooltip="Film/master axis SPEED set before Forward/Reverse",
+    )
+    master_speed_inputs.append(flexlink_master_speed_input)
+
+    flexlink_master_speed_slider = ft.Slider(
+        min=0,
+        max=get_conveyor_speed_max(),
+        value=clamp_conveyor_speed(float(flexlink_master_speed_input.value or 0)),
+        width=230,
+        label="{value} u/s",
+        round=1,
+        active_color=ft.Colors.CYAN_300,
+        inactive_color=ft.Colors.GREY_700,
+        thumb_color=ft.Colors.CYAN_200,
+        on_change_end=lambda e: _send_master_speed(e.control),
+        tooltip="Limited by the calculator MAX line speed",
+    )
+    master_speed_sliders.append(flexlink_master_speed_slider)
+
+    flexlink_master_rev_btn = make_flexlink_motion_button(
+        "Reverse", ft.Icons.ARROW_BACK, ft.Colors.BLUE_GREY_700,
+        "reverse", "Reverse(master) - continuous film move reverse",
+    )
+    flexlink_master_fwd_btn = make_flexlink_motion_button(
+        "Forward", ft.Icons.PLAY_ARROW, ft.Colors.GREEN_700,
+        "forward", "Forward(master) - continuous film move forward",
+    )
+    flexlink_master_stop_btn = make_flexlink_motion_button(
+        "Stop", ft.Icons.STOP, ft.Colors.RED_700,
+        "cancel", "Cancel(2, master) - stop buffered + current move",
+    )
+    rotary_motion_buttons.extend([
+        flexlink_master_fwd_btn,
+        flexlink_master_rev_btn,
+        flexlink_master_stop_btn,
+    ])
+
+    flexlink_machine_controls_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.PLAY_ARROW, size=14, color=MUTED_TEXT),
+                        ft.Text("FILM WEB CONTROL", size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [
+                        flexlink_master_rev_btn,
+                        flexlink_master_fwd_btn,
+                        flexlink_master_stop_btn,
+                        flexlink_master_speed_input,
+                        flexlink_master_speed_slider,
+                        make_cutter_lamp_panel_clone(),
+                    ],
+                    wrap=True,
+                    spacing=8,
+                    run_spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=8,
+            tight=True,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+        height=126,
     )
 
     flexlink_source_label = ft.Text("Controller required", size=15, color=WARNING_COLOR, weight=ft.FontWeight.BOLD)
@@ -7897,6 +8158,7 @@ def main(page: ft.Page):
             flexlink_sim_state["slave_origin_mpos"] = None
 
     def flexlink_diag_card(label, value_control, width=185, col=None):
+        kwargs = {"col": col} if col is not None else {}
         return ft.Container(
             content=ft.Column([
                 ft.Text(label, size=11, color=ft.Colors.GREY_400),
@@ -7907,7 +8169,7 @@ def main(page: ft.Page):
             border_radius=8,
             padding=10,
             width=width,
-            col=col or {"xs": 12, "sm": 6, "lg": 3},
+            **kwargs,
         )
 
     def update_flexlink_diagnostics(now, force=False):
@@ -8071,34 +8333,56 @@ def main(page: ft.Page):
 
     flexlink_reset_btn.on_click = flexlink_reset_sim
 
+    flexlink_live_readings_row = ft.Row(
+        [
+            flexlink_diag_card("Source", flexlink_source_label, 230),
+            flexlink_diag_card("Master speed", flexlink_master_speed_label, 230),
+            flexlink_diag_card("Jaw speed", flexlink_slave_speed_label, 230),
+            flexlink_diag_card("Cycle phase", flexlink_phase_label, 190),
+            flexlink_diag_card("Position error", flexlink_sync_error_label, 210),
+        ],
+        wrap=True,
+        spacing=10,
+        run_spacing=10,
+        vertical_alignment=ft.CrossAxisAlignment.START,
+    )
+
+    flexlink_sim_controls_panel = ft.Container(
+        content=ft.Row(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.TUNE, size=14, color=MUTED_TEXT),
+                        ft.Text("SIMULATION CONTROLS", size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                flexlink_reset_btn,
+                flexlink_status_text,
+            ],
+            wrap=True,
+            spacing=10,
+            run_spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+    )
+
     flexlink_sim_container = ft.Container(
         content=ft.Column(
             [
                 section_header("Flow Wrapper Simulation", "Live FLEXLINK axis preview", ft.Icons.PLAY_CIRCLE),
+                flexlink_machine_controls_panel,
+                flexlink_sim_controls_panel,
                 flexlink_sim_canvas_holder,
-                ft.ResponsiveRow(
-                    [
-                        flexlink_diag_card("Source", flexlink_source_label),
-                        flexlink_diag_card("Master speed", flexlink_master_speed_label),
-                        flexlink_diag_card("Jaw speed", flexlink_slave_speed_label),
-                        flexlink_diag_card("Cycle phase", flexlink_phase_label),
-                        flexlink_diag_card("Position error", flexlink_sync_error_label),
-                    ],
-                    columns=12,
-                    spacing=10,
-                    run_spacing=10,
-                ),
-                control_cluster(
-                    "Simulation controls",
-                    [
-                        flexlink_reset_btn,
-                    ],
-                    icon=ft.Icons.TUNE,
-                    col={"xs": 12},
-                ),
-                flexlink_status_text,
+                flexlink_live_readings_row,
             ],
             spacing=14,
+            tight=True,
             scroll=ft.ScrollMode.AUTO,
         ),
         bgcolor=PANEL_BG,
@@ -8106,7 +8390,6 @@ def main(page: ft.Page):
         border_radius=8,
         padding=20,
     )
-
     def resize_flexlink_sim_visual(update=False):
         flexlink_new_visual_width = _available_visual_width()
         flexlink_sim_canvas.width = flexlink_new_visual_width
