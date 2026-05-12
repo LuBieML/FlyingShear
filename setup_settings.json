@@ -15,7 +15,7 @@
   "master_axis": "3",
   "slave_axis": "0",
   "cutter_output": "8",
-  "scale_px_per_unit": 25.0,
+  "scale_px_per_unit": 38.0,
   "axis_params": {
     "1": {
       "UNITS": "2097152.0",
@@ -70,17 +70,17 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "2.16",
+  "master_speed": "4.91",
   "shear_calc": {
-    "cut": 20.0,
+    "cut": 35.0,
     "vline": 50.0,
-    "amax": 500.0,
-    "tsync": 1000.0,
+    "amax": 300.0,
+    "tsync": 100.0,
     "safety": 1.5,
     "vmax": 210.0,
     "link_pos": 0.0,
     "base_dist": 0.0,
-    "profile": "trapezoid",
+    "profile": "power7",
     "start_mode": "immediate",
     "link_source": "mpos",
     "direction_mode": "any",
@@ -94,7 +94,7 @@
     "cut_window": 30.0,
     "cpr": 8388608,
     "n_points": 10000,
-    "blend": 0.4,
+    "blend": 1.0,
     "vline": 10.0,
     "table_start": 1000
   },
