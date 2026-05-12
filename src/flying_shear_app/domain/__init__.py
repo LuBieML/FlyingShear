@@ -1,0 +1,1 @@
+"""Pure motion-domain calculations."""

@@ -1,0 +1,89 @@
+"""Pure rotary-knife unit conversion and kinematics helpers."""
+
+import math
+
+
+def compute_rotary_mpos_counts_per_physical_rev(encoder_counts_per_rev, drum_axis_units):
+    """Convert drive encoder CPR and Trio UNITS into MPOS units per drum turn."""
+    cpr = float(encoder_counts_per_rev)
+    units = float(drum_axis_units)
+    if cpr <= 0:
+        raise ValueError("Encoder counts/rev must be > 0")
+    if units <= 0:
+        raise ValueError("Drum axis UNITS must be > 0")
+    return cpr / units
+
+
+def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
+    divisor = float(mpos_counts_per_physical_rev)
+    if divisor <= 0:
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
+    return ((float(drum_mpos) % divisor) / divisor) * 2.0 * math.pi
+
+
+def shortest_angle_distance_rad(angle, target):
+    return abs(((float(angle) - float(target) + math.pi) % (2.0 * math.pi)) - math.pi)
+
+
+def rotary_blade_direction_for_angle(drum_angle):
+    angle = float(drum_angle)
+    return math.sin(angle), -math.cos(angle)
+
+
+def compute_rotary_drum_tangential_mm_s(
+    drum_mspeed,
+    mpos_counts_per_physical_rev,
+    drum_diameter_mm,
+):
+    divisor = float(mpos_counts_per_physical_rev)
+    diameter = float(drum_diameter_mm)
+    if divisor <= 0:
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
+    if diameter <= 0:
+        raise ValueError("Drum diameter must be > 0")
+    drum_rps = float(drum_mspeed) / divisor
+    return drum_rps * math.pi * diameter
+
+
+def compute_rotary_drum_kinematics(
+    drum_mpos,
+    drum_mspeed,
+    mpos_counts_per_physical_rev,
+    drum_diameter_mm,
+    drum_direction_reversed=False,
+):
+    """Return shared rotary drum unit conversions for live diagnostics and drawing."""
+    mpos_per_rev = float(mpos_counts_per_physical_rev)
+    diameter = float(drum_diameter_mm)
+    if mpos_per_rev <= 0:
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
+    if diameter <= 0:
+        raise ValueError("Drum diameter must be > 0")
+
+    direction_sign = -1.0 if drum_direction_reversed else 1.0
+    circumference = math.pi * diameter
+    raw_mpos = None if drum_mpos is None else float(drum_mpos)
+    raw_mspeed = None if drum_mspeed is None else float(drum_mspeed)
+    effective_mspeed = None if raw_mspeed is None else raw_mspeed * direction_sign
+
+    drum_angle_rad = None
+    if raw_mpos is not None:
+        drum_fraction_of_rev = (raw_mpos % mpos_per_rev) / mpos_per_rev
+        drum_angle_rad = (drum_fraction_of_rev * 2.0 * math.pi * direction_sign) % (2.0 * math.pi)
+
+    drum_rps = None
+    drum_tangential_mm_s = None
+    if effective_mspeed is not None:
+        drum_rps = effective_mspeed / mpos_per_rev
+        drum_tangential_mm_s = drum_rps * circumference
+
+    return {
+        "drum_mpos": raw_mpos,
+        "drum_mspeed": raw_mspeed,
+        "effective_drum_mspeed": effective_mspeed,
+        "mpos_per_rev": mpos_per_rev,
+        "drum_rps": drum_rps,
+        "drum_circumference_mm": circumference,
+        "drum_tangential_mm_s": drum_tangential_mm_s,
+        "drum_angle_rad": drum_angle_rad,
+    }
