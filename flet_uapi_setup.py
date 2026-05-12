@@ -393,6 +393,13 @@ def main(page: ft.Page):
                 _set_wdog_button_state(None)
             except NameError:
                 pass
+            try:
+                clear_flexlink_live_state()
+                redraw_flexlink_sim()
+                update_flexlink_diagnostics(time.perf_counter(), force=True)
+                _update_if_mounted(flexlink_sim_container)
+            except NameError:
+                pass
             show_snack("Connection lost. Motion controls disabled.", "error")
             page.update()
 
@@ -1738,6 +1745,18 @@ def main(page: ft.Page):
                 except NameError:
                     pass
 
+                try:
+                    if update_flexlink_sim_from_reads(
+                        mpos_val_m,
+                        mpos_val_s,
+                        mspeed_val_m,
+                        mspeed_val_s,
+                        frame_start,
+                    ):
+                        dirty = True
+                except NameError:
+                    pass
+
                 # Update FPS display
                 if len(fps_timestamps) >= 2:
                     span = fps_timestamps[-1] - fps_timestamps[0]
@@ -1761,6 +1780,10 @@ def main(page: ft.Page):
                     _update_if_mounted(params_panel)
                     try:
                         _update_if_mounted(rotary_sim_container)
+                    except NameError:
+                        pass
+                    try:
+                        _update_if_mounted(flexlink_sim_container)
                     except NameError:
                         pass
             except Exception as ex:
@@ -7276,7 +7299,9 @@ def main(page: ft.Page):
         except NameError:
             pass
         try:
-            flexlink_line_speed_slider.value = max(0, min(1000, flexlink_line_speed))
+            redraw_flexlink_sim()
+            update_flexlink_diagnostics(time.perf_counter(), force=True)
+            _update_if_mounted(flexlink_sim_container)
         except NameError:
             pass
         page.update()
@@ -7442,9 +7467,72 @@ def main(page: ft.Page):
     flexlink_sim_running = False
     flexlink_sim_state = {
         "u": 0.0,
-        "playing": True,
+        "live_mode": False,
         "belt_offset_px": 0.0,
+        "master_mpos": None,
+        "slave_mpos": None,
+        "master_mspeed": None,
+        "slave_mspeed": None,
+        "phase_origin_mpos": None,
+        "slave_origin_mpos": None,
+        "actual_slave_position": None,
+        "expected_slave_position": None,
+        "sync_error": None,
+        "last_live_update": 0.0,
+        "last_diag_update": 0.0,
     }
+
+    def flexlink_profile_snapshot(master_delta=None):
+        flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
+        flexlink_excite_dist = flexlink_setting_float("excite_dist", 20)
+        flexlink_base_in = flexlink_setting_float("base_in", 70)
+        flexlink_base_out = flexlink_setting_float("base_out", 5)
+        flexlink_excite_acc = flexlink_setting_float("excite_acc", 50)
+        flexlink_excite_dec = flexlink_setting_float("excite_dec", 50)
+        flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
+        flexlink_base_dist = flexlink_cycle_pitch * flexlink_base_in / 100.0
+
+        flexlink_cycles = 0
+        flexlink_u = 0.0
+        if master_delta is not None:
+            flexlink_cycles = math.floor(float(master_delta) / flexlink_cycle_pitch)
+            flexlink_phase = float(master_delta) - flexlink_cycles * flexlink_cycle_pitch
+            flexlink_u = (flexlink_phase / flexlink_cycle_pitch) % 1.0
+
+        flexlink_excite_progress, flexlink_in_excite = flexlink_excitation_progress(
+            flexlink_u,
+            flexlink_base_in,
+            flexlink_base_out,
+            flexlink_excite_acc,
+            flexlink_excite_dec,
+            flexlink_curve_type,
+        )
+        flexlink_expected_phase = flexlink_u * flexlink_base_dist + (
+            flexlink_excite_dist * flexlink_excite_progress
+        )
+        flexlink_cycle_slave_dist = flexlink_base_dist + flexlink_excite_dist
+        flexlink_expected_position = (
+            flexlink_cycles * flexlink_cycle_slave_dist + flexlink_expected_phase
+        )
+        return {
+            "cycle_pitch": flexlink_cycle_pitch,
+            "base_dist": flexlink_base_dist,
+            "excite_dist": flexlink_excite_dist,
+            "base_in": flexlink_base_in,
+            "base_out": flexlink_base_out,
+            "u": flexlink_u,
+            "excite_progress": flexlink_excite_progress,
+            "in_excite": flexlink_in_excite,
+            "expected_phase_position": flexlink_expected_phase,
+            "expected_position": flexlink_expected_position,
+        }
+
+    def flexlink_format_live_value(value, suffix="", digits=3):
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return "--"
+        return f"{val:.{digits}f}{suffix}"
 
     def flexlink_curve_progress(flexlink_t, flexlink_curve_type):
         flexlink_t = max(0.0, min(1.0, float(flexlink_t)))
@@ -7596,30 +7684,32 @@ def main(page: ft.Page):
             flexlink_sim_state["belt_offset_px"],
         )
 
-        flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
-        flexlink_excite_dist = flexlink_setting_float("excite_dist", 20)
-        flexlink_base_in = flexlink_setting_float("base_in", 70)
-        flexlink_base_out = flexlink_setting_float("base_out", 5)
-        flexlink_excite_acc = flexlink_setting_float("excite_acc", 50)
-        flexlink_excite_dec = flexlink_setting_float("excite_dec", 50)
-        flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
-        flexlink_base_dist = flexlink_cycle_pitch * flexlink_base_in / 100.0
-        flexlink_u = float(flexlink_sim_state.get("u", 0.0)) % 1.0
-        flexlink_excite_progress, flexlink_in_excite = flexlink_excitation_progress(
-            flexlink_u,
-            flexlink_base_in,
-            flexlink_base_out,
-            flexlink_excite_acc,
-            flexlink_excite_dec,
-            flexlink_curve_type,
-        )
-        flexlink_slave_position = flexlink_u * flexlink_base_dist + flexlink_excite_dist * flexlink_excite_progress
+        flexlink_snapshot = flexlink_profile_snapshot()
+        flexlink_cycle_pitch = flexlink_snapshot["cycle_pitch"]
+        flexlink_base_in = flexlink_snapshot["base_in"]
+        flexlink_base_out = flexlink_snapshot["base_out"]
+        flexlink_u = flexlink_snapshot["u"]
+        flexlink_excite_progress = flexlink_snapshot["excite_progress"]
+        flexlink_in_excite = flexlink_snapshot["in_excite"]
+        flexlink_expected_position = flexlink_snapshot["expected_position"]
+        flexlink_slave_position = flexlink_expected_position
+        flexlink_live = bool(flexlink_sim_state.get("live_mode"))
+        if flexlink_live and flexlink_sim_state.get("expected_slave_position") is not None:
+            flexlink_expected_position = flexlink_sim_state["expected_slave_position"]
+            flexlink_slave_position = flexlink_expected_position
+        flexlink_actual_position = flexlink_sim_state.get("actual_slave_position")
+        if flexlink_live and flexlink_actual_position is not None:
+            flexlink_slave_position = flexlink_actual_position
 
         flexlink_left = PULLEY_SIZE + 10
         flexlink_right = flexlink_width - PULLEY_SIZE - 10
         flexlink_travel = max(80.0, flexlink_right - flexlink_left - 50)
         flexlink_jaw_x = flexlink_left + (flexlink_slave_position % flexlink_cycle_pitch) / flexlink_cycle_pitch * flexlink_travel
         flexlink_jaw_x = max(flexlink_left, min(flexlink_right - 44, flexlink_jaw_x))
+        flexlink_expected_x = flexlink_left + (
+            flexlink_expected_position % flexlink_cycle_pitch
+        ) / flexlink_cycle_pitch * flexlink_travel
+        flexlink_expected_x = max(flexlink_left, min(flexlink_right - 44, flexlink_expected_x))
         flexlink_seal_u = flexlink_base_in / 100.0 + max(0.0, 100.0 - flexlink_base_in - flexlink_base_out) / 200.0
         flexlink_seal_x = flexlink_left + flexlink_seal_u * flexlink_travel
 
@@ -7645,6 +7735,26 @@ def main(page: ft.Page):
             cv.Line(flexlink_left, flexlink_track_y + 10, flexlink_right, flexlink_track_y + 10,
                     paint=canvas_paint("#263038", 2)),
         ])
+        if flexlink_live and flexlink_actual_position is not None:
+            flexlink_shapes.append(
+                cv.Line(
+                    flexlink_expected_x + 22,
+                    flexlink_track_y - 9,
+                    flexlink_expected_x + 22,
+                    flexlink_track_y + 88,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.55, ft.Colors.CYAN_200), 1.1, dash=[4, 4]),
+                )
+            )
+            add_profile_text(
+                flexlink_shapes,
+                flexlink_expected_x + 28,
+                flexlink_track_y + 48,
+                "target",
+                size=10,
+                color=ft.Colors.CYAN_100,
+                align=ft.Alignment.TOP_LEFT,
+                max_width=70,
+            )
 
         flexlink_gap = 4 if flexlink_in_excite else 30
         flexlink_jaw_color = SUCCESS_COLOR if flexlink_in_excite else "#8fa1ad"
@@ -7724,11 +7834,19 @@ def main(page: ft.Page):
             flexlink_shapes,
             flexlink_left,
             flexlink_sim_height - 28,
-            f"u={flexlink_u:.2f}  excite={flexlink_excite_progress * 100:.0f}%",
+            (
+                f"{'LIVE' if flexlink_live else 'CONTROLLER REQUIRED'}  "
+                f"u={flexlink_u:.2f}  excite={flexlink_excite_progress * 100:.0f}%"
+                + (
+                    f"  err={flexlink_sim_state.get('sync_error'):+.2f}"
+                    if flexlink_live and flexlink_sim_state.get("sync_error") is not None
+                    else ""
+                )
+            ),
             size=11,
             color=ft.Colors.GREY_300,
             align=ft.Alignment.TOP_LEFT,
-            max_width=220,
+            max_width=360,
         )
         flexlink_sim_canvas.shapes = flexlink_shapes
         return True
@@ -7744,64 +7862,190 @@ def main(page: ft.Page):
         bgcolor=DARKER_BG,
     )
 
-    def flexlink_on_speed_slider_change(e):
-        flexlink_value = float(e.control.value or 0)
-        flexlink_line_speed_input.value = f"{flexlink_value:.0f}"
-        flexlink_recalc(e)
-
-    flexlink_line_speed_slider = ft.Slider(
-        min=0,
-        max=1000,
-        value=max(0, min(1000, flexlink_setting_float("line_speed", 500))),
-        width=360,
-        label="{value} mm/s",
-        round=1,
-        active_color=ft.Colors.CYAN_300,
-        inactive_color=ft.Colors.GREY_700,
-        thumb_color=ft.Colors.CYAN_200,
-        on_change=flexlink_on_speed_slider_change,
-        tooltip="Preview line speed; also updates the FLEXLINK calculator line speed.",
-    )
-
-    flexlink_play_pause_btn = ft.FilledButton(
-        "Pause",
-        icon=ft.Icons.PAUSE,
-        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
-        height=38,
-    )
     flexlink_reset_btn = ft.OutlinedButton(
-        "Reset",
+        "Re-zero",
         icon=ft.Icons.RESTART_ALT,
         height=38,
+        disabled=True,
+        tooltip="Use current live master/slave positions as the simulation origin.",
     )
 
+    flexlink_source_label = ft.Text("Controller required", size=15, color=WARNING_COLOR, weight=ft.FontWeight.BOLD)
+    flexlink_master_speed_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
+    flexlink_slave_speed_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
+    flexlink_phase_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
+    flexlink_sync_error_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    flexlink_status_text = ft.Text(
+        "Connect to a controller to enable this simulation.",
+        size=12,
+        color=MUTED_TEXT,
+    )
+
+    def clear_flexlink_live_state(reset_origin=True):
+        flexlink_sim_state["live_mode"] = False
+        flexlink_sim_state["u"] = 0.0
+        flexlink_sim_state["belt_offset_px"] = 0.0
+        flexlink_sim_state["master_mpos"] = None
+        flexlink_sim_state["slave_mpos"] = None
+        flexlink_sim_state["master_mspeed"] = None
+        flexlink_sim_state["slave_mspeed"] = None
+        flexlink_sim_state["actual_slave_position"] = None
+        flexlink_sim_state["expected_slave_position"] = None
+        flexlink_sim_state["sync_error"] = None
+        if reset_origin:
+            flexlink_sim_state["phase_origin_mpos"] = None
+            flexlink_sim_state["slave_origin_mpos"] = None
+
+    def flexlink_diag_card(label, value_control, width=185, col=None):
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(label, size=11, color=ft.Colors.GREY_400),
+                value_control,
+            ], spacing=4, tight=True),
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=10,
+            width=width,
+            col=col or {"xs": 12, "sm": 6, "lg": 3},
+        )
+
+    def update_flexlink_diagnostics(now, force=False):
+        if not force and now - flexlink_sim_state["last_diag_update"] < 0.12:
+            return False
+        flexlink_sim_state["last_diag_update"] = now
+
+        flexlink_live = bool(flexlink_sim_state.get("live_mode")) and trio_conn.is_connected()
+        try:
+            flexlink_master_axis = int(axis_m_dropdown.value or "0")
+            flexlink_slave_axis = int(axis_s_dropdown.value or "1")
+        except ValueError:
+            flexlink_master_axis, flexlink_slave_axis = 0, 1
+
+        if flexlink_live:
+            flexlink_source_label.value = f"LIVE {flexlink_master_axis}->{flexlink_slave_axis}"
+            flexlink_source_label.color = SUCCESS_COLOR
+            flexlink_status_text.value = "Live MPOS/MSPEED from controller. Reset sets the current phase origin."
+            flexlink_status_text.color = SUCCESS_COLOR
+        elif trio_conn.is_connected():
+            flexlink_source_label.value = "Waiting"
+            flexlink_source_label.color = WARNING_COLOR
+            flexlink_status_text.value = "Connected; waiting for monitor reads."
+            flexlink_status_text.color = WARNING_COLOR
+        else:
+            flexlink_source_label.value = "Controller required"
+            flexlink_source_label.color = WARNING_COLOR
+            flexlink_status_text.value = "Connect to a controller to enable this simulation."
+            flexlink_status_text.color = MUTED_TEXT
+
+        flexlink_reset_btn.disabled = not flexlink_live
+        if flexlink_live:
+            flexlink_master_speed_label.value = flexlink_format_live_value(
+                flexlink_sim_state.get("master_mspeed"),
+                " u/s",
+            )
+            flexlink_slave_speed_label.value = flexlink_format_live_value(
+                flexlink_sim_state.get("slave_mspeed"),
+                " u/s",
+            )
+        else:
+            flexlink_master_speed_label.value = "--"
+            flexlink_slave_speed_label.value = "--"
+
+        if flexlink_live:
+            flexlink_phase_label.value = f"{float(flexlink_sim_state.get('u', 0.0)) * 100.0:.1f}%"
+        else:
+            flexlink_phase_label.value = "--"
+
+        flexlink_error = flexlink_sim_state.get("sync_error")
+        if flexlink_live and flexlink_error is not None:
+            flexlink_sync_error_label.value = flexlink_format_live_value(flexlink_error, " u")
+            flexlink_tolerance = max(0.02, flexlink_profile_snapshot()["cycle_pitch"] * 0.005)
+            if abs(float(flexlink_error)) <= flexlink_tolerance:
+                flexlink_sync_error_label.color = SUCCESS_COLOR
+            elif abs(float(flexlink_error)) <= flexlink_tolerance * 4.0:
+                flexlink_sync_error_label.color = WARNING_COLOR
+            else:
+                flexlink_sync_error_label.color = ERROR_COLOR
+        else:
+            flexlink_sync_error_label.value = "--"
+            flexlink_sync_error_label.color = MUTED_TEXT
+
+        return True
+
+    def update_flexlink_sim_from_reads(master_mpos, slave_mpos, master_mspeed, slave_mspeed, now):
+        dirty = False
+        if master_mspeed is not None:
+            flexlink_sim_state["master_mspeed"] = master_mspeed
+            dirty = True
+        if slave_mspeed is not None:
+            flexlink_sim_state["slave_mspeed"] = slave_mspeed
+            dirty = True
+
+        if master_mpos is not None:
+            flexlink_sim_state["live_mode"] = True
+            flexlink_sim_state["last_live_update"] = now
+            flexlink_sim_state["master_mpos"] = master_mpos
+            if flexlink_sim_state["phase_origin_mpos"] is None:
+                flexlink_sim_state["phase_origin_mpos"] = master_mpos
+
+            flexlink_master_delta = master_mpos - flexlink_sim_state["phase_origin_mpos"]
+            flexlink_snapshot = flexlink_profile_snapshot(flexlink_master_delta)
+            flexlink_sim_state["u"] = flexlink_snapshot["u"]
+            flexlink_sim_state["expected_slave_position"] = flexlink_snapshot["expected_position"]
+            flexlink_sim_state["belt_offset_px"] = (
+                CONVEYOR_VISUAL_DIRECTION * flexlink_master_delta * scale_px_per_unit[0]
+            ) % BELT_SPACING
+            dirty = True
+
+        if slave_mpos is not None:
+            flexlink_sim_state["live_mode"] = True
+            flexlink_sim_state["last_live_update"] = now
+            flexlink_sim_state["slave_mpos"] = slave_mpos
+            if flexlink_sim_state["slave_origin_mpos"] is None:
+                flexlink_sim_state["slave_origin_mpos"] = slave_mpos
+            flexlink_actual = slave_mpos - flexlink_sim_state["slave_origin_mpos"]
+            flexlink_sim_state["actual_slave_position"] = flexlink_actual
+            flexlink_expected = flexlink_sim_state.get("expected_slave_position")
+            if flexlink_expected is not None:
+                flexlink_sim_state["sync_error"] = flexlink_actual - flexlink_expected
+            dirty = True
+
+        if dirty:
+            redraw_flexlink_sim()
+        if update_flexlink_diagnostics(now):
+            dirty = True
+        return dirty
+
     async def flexlink_sim_loop():
-        flexlink_last = time.perf_counter()
         while flexlink_sim_running:
             flexlink_frame_start = time.perf_counter()
-            flexlink_dt = max(0.0, flexlink_frame_start - flexlink_last)
-            flexlink_last = flexlink_frame_start
-            if flexlink_sim_state.get("playing", True):
-                flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
-                try:
-                    flexlink_line_speed = max(0.0, float(flexlink_line_speed_slider.value or 0))
-                except (TypeError, ValueError):
-                    flexlink_line_speed = flexlink_setting_float("line_speed", 500)
-                flexlink_sim_state["u"] = (
-                    flexlink_sim_state["u"] + flexlink_dt * (flexlink_line_speed / flexlink_cycle_pitch)
-                ) % 1.0
-                flexlink_sim_state["belt_offset_px"] = (
-                    flexlink_sim_state["belt_offset_px"]
-                    + CONVEYOR_VISUAL_DIRECTION * flexlink_dt * flexlink_line_speed
-                ) % BELT_SPACING
+            if not trio_conn.is_connected() and flexlink_sim_state.get("live_mode"):
+                clear_flexlink_live_state()
                 redraw_flexlink_sim()
-                _update_if_mounted(flexlink_sim_canvas_holder)
+                update_flexlink_diagnostics(flexlink_frame_start, force=True)
+                _update_if_mounted(flexlink_sim_container)
+            if trio_conn.is_connected() and flexlink_sim_state.get("live_mode"):
+                if update_flexlink_diagnostics(flexlink_frame_start):
+                    _update_if_mounted(flexlink_sim_container)
+            elif trio_conn.is_connected():
+                if update_flexlink_diagnostics(flexlink_frame_start):
+                    _update_if_mounted(flexlink_sim_container)
+            else:
+                if update_flexlink_diagnostics(flexlink_frame_start):
+                    _update_if_mounted(flexlink_sim_container)
             flexlink_elapsed = time.perf_counter() - flexlink_frame_start
             flexlink_remaining = FRAME_BUDGET - flexlink_elapsed
             await asyncio.sleep(flexlink_remaining if flexlink_remaining > 0 else 0)
 
     def flexlink_start_sim():
         nonlocal flexlink_sim_running
+        if not trio_conn.is_connected():
+            clear_flexlink_live_state()
+            redraw_flexlink_sim()
+            update_flexlink_diagnostics(time.perf_counter(), force=True)
+            _update_if_mounted(flexlink_sim_container)
+            return
         if flexlink_sim_running:
             return
         flexlink_sim_running = True
@@ -7811,37 +8055,48 @@ def main(page: ft.Page):
         nonlocal flexlink_sim_running
         flexlink_sim_running = False
 
-    def flexlink_toggle_play(e):
-        flexlink_sim_state["playing"] = not bool(flexlink_sim_state.get("playing", True))
-        flexlink_play_pause_btn.text = "Pause" if flexlink_sim_state["playing"] else "Play"
-        flexlink_play_pause_btn.icon = ft.Icons.PAUSE if flexlink_sim_state["playing"] else ft.Icons.PLAY_ARROW
-        page.update()
-
     def flexlink_reset_sim(e):
+        if not flexlink_sim_state.get("live_mode"):
+            return
         flexlink_sim_state["u"] = 0.0
         flexlink_sim_state["belt_offset_px"] = 0.0
+        flexlink_sim_state["phase_origin_mpos"] = flexlink_sim_state.get("master_mpos")
+        flexlink_sim_state["slave_origin_mpos"] = flexlink_sim_state.get("slave_mpos")
+        flexlink_sim_state["actual_slave_position"] = 0.0
+        flexlink_sim_state["expected_slave_position"] = 0.0
+        flexlink_sim_state["sync_error"] = 0.0
         redraw_flexlink_sim()
+        update_flexlink_diagnostics(time.perf_counter(), force=True)
         page.update()
 
-    flexlink_play_pause_btn.on_click = flexlink_toggle_play
     flexlink_reset_btn.on_click = flexlink_reset_sim
 
     flexlink_sim_container = ft.Container(
         content=ft.Column(
             [
-                section_header("Flow Wrapper Simulation", "Animated FLEXLINK jaw advance preview", ft.Icons.PLAY_CIRCLE),
+                section_header("Flow Wrapper Simulation", "Live FLEXLINK axis preview", ft.Icons.PLAY_CIRCLE),
                 flexlink_sim_canvas_holder,
-                control_cluster(
-                    "Preview controls",
+                ft.ResponsiveRow(
                     [
-                        ft.Text("Line speed", size=12, color=ft.Colors.GREY_400),
-                        flexlink_line_speed_slider,
-                        flexlink_play_pause_btn,
+                        flexlink_diag_card("Source", flexlink_source_label),
+                        flexlink_diag_card("Master speed", flexlink_master_speed_label),
+                        flexlink_diag_card("Jaw speed", flexlink_slave_speed_label),
+                        flexlink_diag_card("Cycle phase", flexlink_phase_label),
+                        flexlink_diag_card("Position error", flexlink_sync_error_label),
+                    ],
+                    columns=12,
+                    spacing=10,
+                    run_spacing=10,
+                ),
+                control_cluster(
+                    "Simulation controls",
+                    [
                         flexlink_reset_btn,
                     ],
                     icon=ft.Icons.TUNE,
                     col={"xs": 12},
                 ),
+                flexlink_status_text,
             ],
             spacing=14,
             scroll=ft.ScrollMode.AUTO,
@@ -8155,7 +8410,6 @@ def main(page: ft.Page):
                     ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
                     axis_connection_page,
                 ),
-                (ft.Tab(label="Live Monitor", icon=ft.Icons.ANALYTICS), flying_shear_monitor_page),
             ]
         else:
             tab_specs = [
