@@ -7226,7 +7226,7 @@ def main(page: ft.Page):
         visible=False,
     )
 
-    rotarylink_profile_canvas = cv.Canvas(width=660, height=210, shapes=[])
+    rotarylink_profile_canvas = cv.Canvas(width=620, height=210, shapes=[])
     rotarylink_code_output = ft.TextField(
         value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
         bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
@@ -7286,7 +7286,7 @@ def main(page: ft.Page):
         )
 
     def rotarylink_build_phase_shapes(profile):
-        width = 660
+        width = 620
         height = 210
         left = 68
         right = 32
@@ -7855,7 +7855,6 @@ def main(page: ft.Page):
                 spacing=8,
                 tight=True,
             ),
-            rotarylink_phase_bar,
             rotarylink_warning_banner,
             ft.Text("Link/master axis drives ROTARYLINK. Rotary/base axis is selected with BASE in the generated program.",
                     size=12, color=ft.Colors.GREY_400),
@@ -7876,7 +7875,8 @@ def main(page: ft.Page):
                 rotarylink_copy_btn,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             rotarylink_code_output,
-        ], expand=True, spacing=12),
+            rotarylink_phase_bar,
+        ], expand=True, spacing=12, horizontal_alignment=ft.CrossAxisAlignment.START),
         bgcolor=PANEL_BG,
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,

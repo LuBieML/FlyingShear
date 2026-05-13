@@ -72,10 +72,10 @@
   },
   "master_speed": "3.93",
   "shear_calc": {
-    "cut": 36.0,
+    "cut": 100.0,
     "vline": 30.0,
     "amax": 300.0,
-    "tsync": 100.0,
+    "tsync": 1000.0,
     "safety": 1.5,
     "vmax": 210.0,
     "link_pos": 0.0,
@@ -90,7 +90,7 @@
   "cam_calc": {
     "cut": 30.0,
     "drum_dia": 20.0,
-    "n_knives": 1,
+    "n_knives": 2,
     "cut_window": 30.0,
     "cpr": 8388608,
     "n_points": 10000,
@@ -106,8 +106,8 @@
     "show_debug": false
   },
   "cam_profile_view": {
-    "start_deg": 161.0,
-    "end_deg": 199.0,
+    "start_deg": 0.0,
+    "end_deg": 360.0,
     "metric": "rpm"
   },
   "flexlink_calc": {
@@ -136,7 +136,7 @@
     "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
-    "merge": false,
+    "merge": true,
     "repeat_mode": "single",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
