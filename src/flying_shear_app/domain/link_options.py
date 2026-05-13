@@ -1,4 +1,4 @@
-"""Link option bit helpers for Trio MOVELINK and FLEXLINK commands."""
+"""Link option bit helpers for Trio linked-motion commands."""
 
 
 def option_bit(index):
@@ -95,3 +95,55 @@ def build_flexlink_options(
         options |= option_bit(2)
 
     return options
+
+
+def build_rotarylink_options(start_mode, profile, link_source, merge):
+    """Build ROTARYLINK link_options.
+
+    ROTARYLINK encodes start mode in bits 0..1 and profile type in bits 2..4.
+    This differs from MOVELINK/FLEXLINK, where start modes are separate bits.
+    """
+    start_modes = {
+        "immediate": 0,
+        "absolute": 0,
+        "mark": 1,
+        "markb": 2,
+        "rmark": 3,
+    }
+    profile_modes = {
+        "trapezoid": 0,
+        "sine": 1,
+        "power9": 2,
+        "power7": 3,
+        "power5": 4,
+    }
+
+    options = start_modes.get(start_mode, 0)
+    options |= profile_modes.get(profile, 0) << 2
+
+    if merge:
+        options |= option_bit(5)
+    if link_source == "dpos":
+        options |= option_bit(6)
+
+    return options
+
+
+def format_rotarylink(distance, link_dist, acc, sync, link_axis, options=None, sync_pos=None):
+    args = [
+        f"{distance:.3f}",
+        f"{link_dist:.3f}",
+        f"{acc:.3f}",
+        f"{sync:.3f}",
+        str(link_axis),
+    ]
+
+    if options is not None:
+        args.append(str(int(options)))
+        if sync_pos is not None:
+            if isinstance(sync_pos, str):
+                args.append(sync_pos)
+            else:
+                args.append(f"{sync_pos:.3f}")
+
+    return f"ROTARYLINK({', '.join(args)})"

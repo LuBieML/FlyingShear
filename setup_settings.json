@@ -70,7 +70,7 @@
       "FS_LIMIT": "100000000"
     }
   },
-  "master_speed": "0.00",
+  "master_speed": "3.93",
   "shear_calc": {
     "cut": 36.0,
     "vline": 30.0,
@@ -124,5 +124,19 @@
     "link_source": "mpos",
     "direction_mode": "any",
     "repeat_mode": "program_loop"
+  },
+  "rotarylink_calc": {
+    "distance": 62.3,
+    "link_dist": 40.0,
+    "acc": 20.0,
+    "sync": 20.0,
+    "sync_pos": 60.0,
+    "repeat_step": 330.0,
+    "buffered_commands": 1,
+    "profile": "trapezoid",
+    "start_mode": "immediate",
+    "link_source": "mpos",
+    "merge": false,
+    "repeat_mode": "single"
   }
 }
