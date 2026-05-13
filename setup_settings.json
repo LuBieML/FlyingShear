@@ -126,7 +126,7 @@
     "repeat_mode": "program_loop"
   },
   "rotarylink_calc": {
-    "distance": 62.3,
+    "distance": 62.832,
     "link_dist": 40.0,
     "acc": 20.0,
     "sync": 20.0,
@@ -137,6 +137,10 @@
     "start_mode": "immediate",
     "link_source": "mpos",
     "merge": false,
-    "repeat_mode": "single"
+    "repeat_mode": "single",
+    "rl_drum_dia": 20.0,
+    "rl_n_knives": 1,
+    "rl_vline": 500.0,
+    "rl_distance": 62.83185307179586
   }
 }

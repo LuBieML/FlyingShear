@@ -6975,6 +6975,9 @@ def main(page: ft.Page):
         ("acc", 50),
         ("sync", 100),
         ("sync_pos", 60),
+        ("rl_drum_dia", 200),
+        ("rl_n_knives", 1),
+        ("rl_vline", 500),
         ("repeat_step", 330),
         ("buffered_commands", 4),
         ("profile", "sine"),
@@ -6991,6 +6994,9 @@ def main(page: ft.Page):
         "acc": "Base-axis distance used during the acceleration phase.",
         "sync": "Base-axis distance used during the synchronized phase.",
         "sync_pos": "Absolute link-axis position where sync starts, or R_MARK channel when R_MARK is selected.",
+        "drum_dia": "Physical drum diameter used to calculate base distance from circumference.",
+        "n_knives": "Number of equally spaced knives on the drum.",
+        "vline": "Master/link axis line speed used to estimate the slave acceleration demand.",
         "repeat_step": "Distance between consecutive sync positions in buffered merge mode.",
         "buffered_commands": "Number of future ROTARYLINK commands queued per loop pass in buffered merge mode.",
         "profile": "ROTARYLINK acceleration/deceleration profile encoded into link_options bits 2..4.",
@@ -7008,11 +7014,24 @@ def main(page: ft.Page):
         "rotarylink_link_acc": "Link-axis distance consumed during acceleration: acc / distance * link_dist.",
         "rotarylink_link_sync": "Link-axis distance consumed during synchronized travel: sync / distance * link_dist.",
         "rotarylink_link_decel": "Link-axis distance consumed during deceleration.",
+        "rotarylink_est_accel": "Estimated slave-axis acceleration required to reach synchronized speed.",
         "rotarylink_options": "Decimal ROTARYLINK link_options value from start, profile, source, and merge bits.",
         "rotarylink_sync_window": "Absolute sync start/end positions on the link axis when sync_pos is positional.",
         "rotarylink_profile_label": "Human-readable ROTARYLINK acceleration/deceleration profile.",
         "rotarylink_start_label": "Human-readable ROTARYLINK start mode.",
     })
+
+    rotarylink_drum_dia_input = make_input(
+        "Drum diameter", "rl_drum_dia", rotarylink_settings.get("rl_drum_dia", 200), suffix="mm"
+    )
+    rotarylink_drum_dia_input.value = str(rotarylink_settings.get("rl_drum_dia", 200))
+    rotarylink_drum_dia_input.tooltip = rotarylink_tooltips["drum_dia"]
+
+    rotarylink_n_knives_input = make_input(
+        "Knives on drum", "rl_n_knives", rotarylink_settings.get("rl_n_knives", 1), width=140
+    )
+    rotarylink_n_knives_input.value = str(rotarylink_settings.get("rl_n_knives", 1))
+    rotarylink_n_knives_input.tooltip = rotarylink_tooltips["n_knives"]
 
     rotarylink_distance_input = make_input(
         "Base distance", "distance", rotarylink_settings.get("distance", 360), suffix="u"
@@ -7037,6 +7056,12 @@ def main(page: ft.Page):
     )
     rotarylink_sync_input.value = str(rotarylink_settings.get("sync", 100))
     rotarylink_sync_input.tooltip = rotarylink_tooltips["sync"]
+
+    rotarylink_vline_input = make_input(
+        "Line speed", "rl_vline", rotarylink_settings.get("rl_vline", 500), suffix="u/s"
+    )
+    rotarylink_vline_input.value = str(rotarylink_settings.get("rl_vline", 500))
+    rotarylink_vline_input.tooltip = rotarylink_tooltips["vline"]
 
     rotarylink_sync_pos_input = make_input(
         "Sync pos / channel", "sync_pos", rotarylink_settings.get("sync_pos", 60), width=155
@@ -7114,6 +7139,33 @@ def main(page: ft.Page):
         tooltip=rotarylink_tooltips["merge"],
     )
 
+    def rotarylink_on_calc_geometry(e):
+        try:
+            rotarylink_drum_dia = float(rotarylink_drum_dia_input.value)
+            rotarylink_n_knives = max(1, int(float(rotarylink_n_knives_input.value)))
+            rotarylink_circumference = math.pi * rotarylink_drum_dia
+            rotarylink_distance_user = rotarylink_circumference / rotarylink_n_knives
+            rotarylink_distance_input.value = f"{rotarylink_distance_user:.3f}"
+            rotarylink_settings["rl_distance"] = rotarylink_distance_user
+            rotarylink_settings["rl_drum_dia"] = rotarylink_drum_dia
+            rotarylink_settings["rl_n_knives"] = rotarylink_n_knives
+            save_settings(settings)
+            rotarylink_recalc()
+        except (TypeError, ValueError) as ex:
+            show_snack(f"Geometry compute failed: {ex}", "error")
+        page.update()
+
+    rotarylink_calc_geometry_btn = ft.OutlinedButton(
+        "Compute distance",
+        icon=ft.Icons.CALCULATE,
+        height=38,
+        tooltip=(
+            "Fills Base distance = drum circumference / n_knives in mm. "
+            "Adjust manually if the slave axis uses different units."
+        ),
+        on_click=rotarylink_on_calc_geometry,
+    )
+
     def on_rotarylink_axis_m_change(e):
         on_axis_m_change(e)
         rotarylink_recalc(e)
@@ -7143,6 +7195,7 @@ def main(page: ft.Page):
         "rotarylink_link_acc",
         "rotarylink_link_sync",
         "rotarylink_link_decel",
+        "rotarylink_est_accel",
         "rotarylink_options",
         "rotarylink_sync_window",
         "rotarylink_profile_label",
@@ -7198,6 +7251,39 @@ def main(page: ft.Page):
         "markb": "MARKB",
         "rmark": "R_MARK channel",
     }
+
+    def rotarylink_build_options(start_mode, profile, link_source, merge):
+        rotarylink_options = 0
+
+        rotarylink_start_map = {"immediate": None, "mark": 1, "markb": 2, "rmark": 3}
+        rotarylink_start_val = rotarylink_start_map.get(start_mode)
+        if rotarylink_start_val is not None:
+            rotarylink_options |= rotarylink_start_val
+
+        rotarylink_profile_map = {
+            "trapezoid": 0,
+            "sine": 1,
+            "power9": 2,
+            "power7": 3,
+            "power5": 4,
+        }
+        rotarylink_profile_val = rotarylink_profile_map.get(profile, 0)
+        rotarylink_options |= rotarylink_profile_val << 2
+
+        if merge:
+            rotarylink_options |= 32
+
+        if link_source == "dpos":
+            rotarylink_options |= 64
+
+        return rotarylink_options
+
+    def rotarylink_apply_sync_pos_state(start_mode):
+        rotarylink_sync_pos_unused = start_mode == "immediate"
+        rotarylink_sync_pos_input.disabled = rotarylink_sync_pos_unused
+        rotarylink_sync_pos_input.label = (
+            "Sync pos / channel (unused)" if rotarylink_sync_pos_unused else "Sync pos / channel"
+        )
 
     def rotarylink_build_phase_shapes(profile):
         width = 660
@@ -7298,6 +7384,22 @@ def main(page: ft.Page):
                          "link distance", size=12, color=ft.Colors.WHITE, max_width=135)
         add_profile_text(shapes, (x1 + x2) / 2, peak - 22, "Sync",
                          size=17, color=ft.Colors.WHITE, max_width=max(70, x2 - x1))
+        try:
+            rotarylink_vline = float(rotarylink_vline_input.value)
+            if rotarylink_vline > 0 and profile["link_dist"] > 0:
+                rotarylink_v_sync_slave = rotarylink_vline * (profile["distance"] / profile["link_dist"])
+                add_profile_text(
+                    shapes,
+                    x1 + 8,
+                    peak - 40,
+                    f"{rotarylink_v_sync_slave:.1f} u/s",
+                    size=10,
+                    color=label_color,
+                    align=ft.Alignment.TOP_LEFT,
+                    max_width=120,
+                )
+        except (TypeError, ValueError):
+            pass
 
         phase_specs = [
             (x0, x1, "acc", profile["link_acc"]),
@@ -7311,7 +7413,7 @@ def main(page: ft.Page):
                 shapes,
                 (start_x + end_x) / 2,
                 baseline + 16,
-                f"{label} {fmt_distance(value)} u",
+                f"{label} {value:.1f} u",
                 size=10,
                 color=label_color,
                 max_width=max(58, end_x - start_x - 4),
@@ -7330,9 +7432,13 @@ def main(page: ft.Page):
         ),
     ], spacing=6)
 
-    def rotarylink_recalc(e=None):
+    def rotarylink_recalc(e=None, distance_override=None):
         try:
-            rotarylink_distance = float(rotarylink_distance_input.value)
+            if distance_override is None:
+                rotarylink_distance = float(rotarylink_distance_input.value)
+            else:
+                rotarylink_distance = float(distance_override)
+                rotarylink_distance_input.value = f"{rotarylink_distance:.3f}"
             rotarylink_link_dist = float(rotarylink_link_dist_input.value)
             rotarylink_acc = float(rotarylink_acc_input.value)
             rotarylink_sync = float(rotarylink_sync_input.value)
@@ -7348,29 +7454,57 @@ def main(page: ft.Page):
 
         rotarylink_profile = rotarylink_profile_dropdown.value or "trapezoid"
         rotarylink_start_mode = rotarylink_start_dropdown.value or "immediate"
+        rotarylink_apply_sync_pos_state(rotarylink_start_mode)
         rotarylink_link_source = rotarylink_source_dropdown.value or "mpos"
         rotarylink_repeat_mode = rotarylink_repeat_dropdown.value or "single"
-        rotarylink_merge = bool(rotarylink_merge_checkbox.value) or rotarylink_repeat_mode == "buffered_merge"
-        rotarylink_positional_sync = rotarylink_start_mode == "absolute" or rotarylink_repeat_mode == "buffered_merge" or rotarylink_merge
-        rotarylink_calc_sync_pos = rotarylink_sync_pos if rotarylink_positional_sync else None
+        rotarylink_merge = bool(rotarylink_merge_checkbox.value)
 
-        rotarylink_options = build_rotarylink_options(
+        rotarylink_options = rotarylink_build_options(
             rotarylink_start_mode,
             rotarylink_profile,
             rotarylink_link_source,
             rotarylink_merge,
         )
-        rotarylink_optional_sync_pos = None
-        if rotarylink_positional_sync:
-            rotarylink_optional_sync_pos = rotarylink_sync_pos
-        elif rotarylink_start_mode == "rmark":
-            rotarylink_optional_sync_pos = rotarylink_sync_pos
+        if rotarylink_merge:
+            rotarylink_options |= 32
 
-        rotarylink_include_optional = (
-            rotarylink_options != 0
-            or rotarylink_optional_sync_pos is not None
-            or rotarylink_start_mode != "immediate"
-        )
+        rotarylink_include_optional = rotarylink_start_mode != "immediate" or rotarylink_options > 0
+        rotarylink_optional_sync_pos = rotarylink_sync_pos if rotarylink_include_optional else None
+
+        def rotarylink_save_current_settings():
+            rotarylink_settings["distance"] = rotarylink_distance
+            rotarylink_settings["link_dist"] = rotarylink_link_dist
+            rotarylink_settings["acc"] = rotarylink_acc
+            rotarylink_settings["sync"] = rotarylink_sync
+            rotarylink_settings["sync_pos"] = rotarylink_sync_pos
+            rotarylink_settings["repeat_step"] = rotarylink_repeat_step
+            rotarylink_settings["buffered_commands"] = rotarylink_buffered_commands
+            rotarylink_settings["profile"] = rotarylink_profile
+            rotarylink_settings["start_mode"] = rotarylink_start_mode
+            rotarylink_settings["link_source"] = rotarylink_link_source
+            rotarylink_settings["merge"] = rotarylink_merge
+            rotarylink_settings["repeat_mode"] = rotarylink_repeat_mode
+            try:
+                rotarylink_settings["rl_drum_dia"] = float(rotarylink_drum_dia_input.value)
+            except (TypeError, ValueError):
+                pass
+            try:
+                rotarylink_settings["rl_n_knives"] = max(1, int(float(rotarylink_n_knives_input.value)))
+            except (TypeError, ValueError):
+                pass
+            try:
+                rotarylink_settings["rl_vline"] = float(rotarylink_vline_input.value)
+            except (TypeError, ValueError):
+                pass
+            save_settings(settings)
+
+        if rotarylink_distance == 0:
+            rotarylink_warning_text.value = "Base distance is 0 — use Compute distance or enter manually."
+            _apply_warning_severity("error", rotarylink_warning_banner, rotarylink_warning_icon, rotarylink_warning_text)
+            rotarylink_code_output.value = ""
+            rotarylink_save_current_settings()
+            page.update()
+            return
 
         rotarylink_errors = []
         try:
@@ -7379,7 +7513,7 @@ def main(page: ft.Page):
                 rotarylink_link_dist,
                 rotarylink_acc,
                 rotarylink_sync,
-                rotarylink_calc_sync_pos,
+                None,
             )
         except ValueError as ex:
             rotarylink_errors.append(str(ex))
@@ -7392,31 +7526,34 @@ def main(page: ft.Page):
                 "link_acc": 0.0,
                 "link_sync": 0.0,
                 "link_decel": 0.0,
-                "sync_pos": rotarylink_calc_sync_pos,
+                "sync_pos": None,
                 "sync_end": None,
             }
+        else:
+            if rotarylink_optional_sync_pos is not None:
+                rotarylink_profile_diag["sync_pos"] = rotarylink_optional_sync_pos
+                rotarylink_profile_diag["start_link_pos"] = (
+                    rotarylink_optional_sync_pos - rotarylink_profile_diag["link_acc"]
+                )
+                rotarylink_profile_diag["sync_end"] = (
+                    rotarylink_optional_sync_pos + rotarylink_profile_diag["link_sync"]
+                )
+                rotarylink_profile_diag["cycle_end"] = (
+                    rotarylink_profile_diag["sync_end"] + rotarylink_profile_diag["link_decel"]
+                )
 
         if rotarylink_start_mode == "rmark":
             if rotarylink_sync_pos < 0 or int(rotarylink_sync_pos) != rotarylink_sync_pos:
                 rotarylink_errors.append("R_MARK channel must be a whole number >= 0")
-        elif rotarylink_start_mode in ("absolute",) and rotarylink_sync_pos < 0:
+        elif rotarylink_start_mode != "immediate" and rotarylink_sync_pos < 0:
             rotarylink_errors.append("sync_pos must be >= 0")
-
-        if rotarylink_repeat_mode == "buffered_merge":
-            if rotarylink_repeat_step <= 0:
-                rotarylink_errors.append("Repeat spacing must be > 0 in buffered merge mode")
-            if rotarylink_buffered_commands < 1:
-                rotarylink_errors.append("Buffered commands must be at least 1")
-            link_sync = rotarylink_profile_diag.get("link_sync", 0.0)
-            if rotarylink_repeat_step <= link_sync:
-                rotarylink_errors.append("Repeat spacing must exceed the link-axis sync phase distance")
 
         rotarylink_profile_label = rotarylink_profile_labels.get(rotarylink_profile, rotarylink_profile)
         if rotarylink_start_mode == "absolute":
             rotarylink_start_label = f"Abs {rotarylink_sync_pos:g}"
         elif rotarylink_start_mode == "rmark":
             rotarylink_start_label = f"R_MARK {rotarylink_sync_pos:g}"
-        elif rotarylink_repeat_mode == "buffered_merge" or rotarylink_merge:
+        elif rotarylink_merge:
             rotarylink_start_label = f"Sync pos {rotarylink_sync_pos:g}"
         else:
             rotarylink_start_label = rotarylink_start_labels.get(rotarylink_start_mode, rotarylink_start_mode)
@@ -7425,18 +7562,38 @@ def main(page: ft.Page):
         result_labels["rotarylink_link_acc"].value = f"{rotarylink_profile_diag['link_acc']:.3f} u"
         result_labels["rotarylink_link_sync"].value = f"{rotarylink_profile_diag['link_sync']:.3f} u"
         result_labels["rotarylink_link_decel"].value = f"{rotarylink_profile_diag['link_decel']:.3f} u"
+        result_labels["rotarylink_est_accel"].value = "---"
         result_labels["rotarylink_options"].value = str(rotarylink_options)
-        if rotarylink_profile_diag.get("sync_end") is not None:
-            result_labels["rotarylink_sync_window"].value = (
-                f"{rotarylink_sync_pos:.3f}..{rotarylink_profile_diag['sync_end']:.3f}"
-            )
-        elif rotarylink_start_mode == "rmark":
-            result_labels["rotarylink_sync_window"].value = f"R_MARK {rotarylink_sync_pos:g}"
-        else:
-            result_labels["rotarylink_sync_window"].value = "Immediate"
+        result_labels["rotarylink_sync_window"].value = f"{rotarylink_profile_diag['link_sync']:.3f} u"
         result_labels["rotarylink_profile_label"].value = rotarylink_profile_label
         result_labels["rotarylink_start_label"].value = rotarylink_start_label
         rotarylink_profile_canvas.shapes = rotarylink_build_phase_shapes(rotarylink_profile_diag)
+
+        try:
+            rotarylink_vline = float(rotarylink_vline_input.value)
+            if rotarylink_vline > 0 and rotarylink_distance > 0 and rotarylink_link_dist > 0:
+                rotarylink_v_sync_slave = rotarylink_vline * (rotarylink_distance / rotarylink_link_dist)
+                if rotarylink_acc > 0:
+                    rotarylink_estimated_accel = (rotarylink_v_sync_slave ** 2) / (2.0 * rotarylink_acc)
+                    result_labels["rotarylink_est_accel"].value = f"{rotarylink_estimated_accel:.1f} u/s²"
+        except (TypeError, ValueError):
+            pass
+
+        if (
+            not rotarylink_errors
+            and rotarylink_start_mode != "immediate"
+            and rotarylink_sync_pos <= rotarylink_profile_diag["link_acc"]
+        ):
+            rotarylink_warning_text.value = (
+                f"✗ sync_pos ({rotarylink_sync_pos:.3f}) must be greater than "
+                f"link_acc ({rotarylink_profile_diag['link_acc']:.3f}). Controller will throw "
+                f"'parameter 7 out of range'."
+            )
+            _apply_warning_severity("error", rotarylink_warning_banner, rotarylink_warning_icon, rotarylink_warning_text)
+            rotarylink_code_output.value = ""
+            rotarylink_save_current_settings()
+            page.update()
+            return
 
         rotarylink_messages = []
         rotarylink_severity = "ok"
@@ -7471,42 +7628,84 @@ def main(page: ft.Page):
             except ValueError:
                 rotarylink_link_axis, rotarylink_base_axis = 0, 1
 
-            rotarylink_code_output.value = emit_rotarylink_basic_program(
-                rotarylink_distance,
-                rotarylink_link_dist,
-                rotarylink_acc,
-                rotarylink_sync,
-                link_axis=rotarylink_link_axis,
-                base_axis=rotarylink_base_axis,
-                link_options=rotarylink_options,
-                sync_pos=rotarylink_optional_sync_pos,
-                include_optional_args=rotarylink_include_optional,
-                repeat_mode=rotarylink_repeat_mode,
-                merge=rotarylink_merge,
-                repeat_step=rotarylink_repeat_step,
-                buffered_commands=rotarylink_buffered_commands,
-            )
+            def rotarylink_command(options_arg=None, sync_arg=None):
+                rotarylink_args = [
+                    f"{rotarylink_distance:.3f}",
+                    f"{rotarylink_link_dist:.3f}",
+                    f"{rotarylink_acc:.3f}",
+                    f"{rotarylink_sync:.3f}",
+                    "link_ax",
+                ]
+                if options_arg is not None:
+                    rotarylink_args.append(str(options_arg))
+                    if sync_arg is not None:
+                        rotarylink_args.append(str(sync_arg))
+                return f"ROTARYLINK({', '.join(rotarylink_args)})"
 
-        rotarylink_settings["distance"] = rotarylink_distance
-        rotarylink_settings["link_dist"] = rotarylink_link_dist
-        rotarylink_settings["acc"] = rotarylink_acc
-        rotarylink_settings["sync"] = rotarylink_sync
-        rotarylink_settings["sync_pos"] = rotarylink_sync_pos
-        rotarylink_settings["repeat_step"] = rotarylink_repeat_step
-        rotarylink_settings["buffered_commands"] = rotarylink_buffered_commands
-        rotarylink_settings["profile"] = rotarylink_profile
-        rotarylink_settings["start_mode"] = rotarylink_start_mode
-        rotarylink_settings["link_source"] = rotarylink_link_source
-        rotarylink_settings["merge"] = rotarylink_merge
-        rotarylink_settings["repeat_mode"] = rotarylink_repeat_mode
-        save_settings(settings)
+            if rotarylink_merge:
+                rotarylink_code_lines = [
+                    "' ROTARYLINK merge mode — consecutive cuts blend without stopping",
+                    f"base_ax      = {rotarylink_base_axis}",
+                    f"link_ax      = {rotarylink_link_axis}",
+                    f"link_options = {rotarylink_options}   ' bit 5 set = merge enabled",
+                    f"repeat_dist  = {rotarylink_link_dist:.3f}",
+                    "",
+                    "BASE(base_ax)",
+                    "SERVO = ON",
+                    "DEFPOS(0)",
+                    "",
+                    f"start_pos = {rotarylink_sync_pos:.3f}",
+                    "",
+                    "WHILE TRUE",
+                    "    " + rotarylink_command("link_options", "start_pos"),
+                    "    start_pos = start_pos + repeat_dist",
+                    "    WAIT UNTIL MOVES_BUFFERED < 2",
+                    "WEND",
+                ]
+            else:
+                rotarylink_code_lines = [
+                    f"base_ax      = {rotarylink_base_axis}",
+                    f"link_ax      = {rotarylink_link_axis}",
+                ]
+                if rotarylink_include_optional:
+                    rotarylink_code_lines.extend([
+                        f"link_options = {rotarylink_options}",
+                        f"sync_pos     = {rotarylink_sync_pos:.3f}",
+                    ])
+                rotarylink_code_lines.extend([
+                    "",
+                    "BASE(base_ax)",
+                    "SERVO = ON",
+                    "DEFPOS(0)",
+                    "",
+                ])
+                if rotarylink_include_optional:
+                    rotarylink_single_command = rotarylink_command("link_options", "sync_pos")
+                else:
+                    rotarylink_single_command = rotarylink_command()
+                if rotarylink_repeat_mode == "program_loop":
+                    rotarylink_code_lines.extend([
+                        "WHILE TRUE",
+                        "    " + rotarylink_single_command,
+                        "    WAIT IDLE",
+                        "WEND",
+                    ])
+                else:
+                    rotarylink_code_lines.append(rotarylink_single_command)
+
+            rotarylink_code_output.value = "\n".join(rotarylink_code_lines)
+
+        rotarylink_save_current_settings()
         page.update()
 
     for rotarylink_input in (
+        rotarylink_drum_dia_input,
+        rotarylink_n_knives_input,
         rotarylink_distance_input,
         rotarylink_link_dist_input,
         rotarylink_acc_input,
         rotarylink_sync_input,
+        rotarylink_vline_input,
         rotarylink_sync_pos_input,
         rotarylink_repeat_step_input,
         rotarylink_buffered_commands_input,
@@ -7514,15 +7713,20 @@ def main(page: ft.Page):
         rotarylink_input.on_change = rotarylink_recalc
         rotarylink_input.on_blur = rotarylink_recalc
 
+    def rotarylink_on_start_mode_change(e):
+        rotarylink_apply_sync_pos_state(rotarylink_start_dropdown.value or "immediate")
+        rotarylink_recalc(e)
+
     for rotarylink_dropdown in (
         rotarylink_profile_dropdown,
-        rotarylink_start_dropdown,
         rotarylink_source_dropdown,
         rotarylink_repeat_dropdown,
     ):
         rotarylink_dropdown.on_change = rotarylink_recalc
         rotarylink_dropdown.on_select = rotarylink_recalc
 
+    rotarylink_start_dropdown.on_change = rotarylink_on_start_mode_change
+    rotarylink_start_dropdown.on_select = rotarylink_on_start_mode_change
     rotarylink_merge_checkbox.on_change = rotarylink_recalc
     def rotarylink_copy_code(e):
         rotarylink_text = rotarylink_code_output.value
@@ -7569,12 +7773,36 @@ def main(page: ft.Page):
                 icon=ft.Icons.ACCOUNT_TREE,
                 col={"xs": 12},
             ),
+            ft.Column(
+                [
+                    ft.Row(
+                        [
+                            rotarylink_drum_dia_input,
+                            rotarylink_n_knives_input,
+                            rotarylink_calc_geometry_btn,
+                        ],
+                        wrap=True,
+                        spacing=15,
+                        run_spacing=12,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Text(
+                        "Result in mm — assumes slave axis UNITS = 1 count/mm "
+                        "(or equivalent). Adjust manually if UNITS differ.",
+                        size=11,
+                        color=MUTED_TEXT,
+                    ),
+                ],
+                spacing=4,
+                tight=True,
+            ),
             ft.Row(
                 [
                     rotarylink_distance_input,
                     rotarylink_link_dist_input,
                     rotarylink_acc_input,
                     rotarylink_sync_input,
+                    rotarylink_vline_input,
                     rotarylink_sync_pos_input,
                     rotarylink_repeat_step_input,
                     rotarylink_buffered_commands_input,
@@ -7613,6 +7841,7 @@ def main(page: ft.Page):
                             result_card("Link accel", "rotarylink_link_acc"),
                             result_card("Link sync", "rotarylink_link_sync"),
                             result_card("Link decel", "rotarylink_link_decel"),
+                            result_card("Est. slave accel", "rotarylink_est_accel"),
                             result_card("link_options", "rotarylink_options"),
                             result_card("Sync window", "rotarylink_sync_window"),
                             result_card("Profile", "rotarylink_profile_label"),
@@ -7636,7 +7865,7 @@ def main(page: ft.Page):
         border_radius=8,
         padding=16,
         height=950,
-        col={"xs": 12, "xl": 6},
+        col={"xs": 12, "xl": 7},
     )
 
     rotarylink_trio_basic_panel = ft.Container(
@@ -7653,7 +7882,7 @@ def main(page: ft.Page):
         border_radius=8,
         padding=16,
         height=950,
-        col={"xs": 12, "xl": 6},
+        col={"xs": 12, "xl": 5},
     )
 
     rotarylink_calc_container = ft.ResponsiveRow(
