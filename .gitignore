@@ -9,6 +9,12 @@ venv/
 env/
 ENV/
 
+# Build outputs
+.build/
+build/
+dist/
+*.spec
+
 # OS generated files
 .DS_Store
 Thumbs.db
