@@ -14,6 +14,22 @@ def compute_rotary_mpos_counts_per_physical_rev(encoder_counts_per_rev, drum_axi
     return cpr / units
 
 
+def compute_rotary_drum_circumference_mm(drum_diameter_mm):
+    """Return drum circumference in millimetres from diameter."""
+    diameter = float(drum_diameter_mm)
+    if diameter <= 0:
+        raise ValueError("Drum diameter must be > 0")
+    return math.pi * diameter
+
+
+def compute_rotary_units_per_mm(encoder_counts_per_rev, drum_diameter_mm):
+    """Return Trio UNITS when one user unit is one millimetre of drum surface."""
+    cpr = float(encoder_counts_per_rev)
+    if cpr <= 0:
+        raise ValueError("Encoder counts/rev must be > 0")
+    return cpr / compute_rotary_drum_circumference_mm(drum_diameter_mm)
+
+
 def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
     divisor = float(mpos_counts_per_physical_rev)
     if divisor <= 0:
@@ -23,6 +39,20 @@ def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
 
 def shortest_angle_distance_rad(angle, target):
     return abs(((float(angle) - float(target) + math.pi) % (2.0 * math.pi)) - math.pi)
+
+
+def compute_rotarylink_sync_window_deg(distance, sync, n_knives, minimum_deg=0.1):
+    """Convert ROTARYLINK base-axis sync distance into a per-knife drum angle."""
+    n = max(1, int(float(n_knives)))
+    segment_angle = 360.0 / n
+    base_distance = float(distance)
+    sync_distance = float(sync)
+    min_angle = max(0.0, float(minimum_deg))
+    if base_distance <= 0:
+        raise ValueError("ROTARYLINK distance must be > 0")
+    if sync_distance < 0:
+        raise ValueError("ROTARYLINK sync distance must be >= 0")
+    return min(segment_angle, max(min_angle, sync_distance / base_distance * segment_angle))
 
 
 def rotary_blade_direction_for_angle(drum_angle):

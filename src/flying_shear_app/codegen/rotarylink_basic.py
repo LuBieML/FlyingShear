@@ -85,6 +85,9 @@ def emit_rotarylink_basic_program(
 
     lines.extend([
         "",
+        "BASE(link_ax)",
+        "DEFPOS(0)",
+        "",
         "BASE(base_ax)",
         "SERVO = ON",
         "DEFPOS(0)",

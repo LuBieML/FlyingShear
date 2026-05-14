@@ -15,62 +15,238 @@
   "master_axis": "3",
   "slave_axis": "0",
   "cutter_output": "8",
-  "scale_px_per_unit": 38.0,
-  "axis_params": {
-    "1": {
-      "UNITS": "2097152.0",
-      "SPEED": "10",
-      "ACCEL": "1000",
-      "DECEL": "1000",
-      "FASTDEC": "5000",
-      "JERK": "10000",
-      "DRIVE_FE_LIMIT": "100",
-      "FE_LIMIT": "100",
-      "FE_RANGE": "100",
-      "RS_LIMIT": "-10000",
-      "FS_LIMIT": "10000"
+  "scale_px_per_unit": 45.0,
+  "solution_axis_params": {
+    "flying_shear": {
+      "target_axis": "1",
+      "axis_params": {
+        "1": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "0": {
+          "UNITS": "133510",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "2": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "3": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-100000000",
+          "FS_LIMIT": "100000000"
+        }
+      }
     },
-    "0": {
-      "UNITS": "133510",
-      "SPEED": "10",
-      "ACCEL": "1000",
-      "DECEL": "1000",
-      "FASTDEC": "5000",
-      "JERK": "10000",
-      "DRIVE_FE_LIMIT": "100",
-      "FE_LIMIT": "100",
-      "FE_RANGE": "100",
-      "RS_LIMIT": "-10000",
-      "FS_LIMIT": "10000"
+    "rotary_knife": {
+      "target_axis": "1",
+      "axis_params": {
+        "1": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "0": {
+          "UNITS": "133510",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "2": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "3": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-100000000",
+          "FS_LIMIT": "100000000"
+        }
+      }
     },
-    "2": {
-      "UNITS": "2097152.0",
-      "SPEED": "10",
-      "ACCEL": "1000",
-      "DECEL": "1000",
-      "FASTDEC": "5000",
-      "JERK": "10000",
-      "DRIVE_FE_LIMIT": "100",
-      "FE_LIMIT": "100",
-      "FE_RANGE": "100",
-      "RS_LIMIT": "-10000",
-      "FS_LIMIT": "10000"
+    "flow_wrapper": {
+      "target_axis": "1",
+      "axis_params": {
+        "1": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "0": {
+          "UNITS": "133510",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "2": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "3": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-100000000",
+          "FS_LIMIT": "100000000"
+        }
+      }
     },
-    "3": {
-      "UNITS": "2097152.0",
-      "SPEED": "10",
-      "ACCEL": "1000",
-      "DECEL": "1000",
-      "FASTDEC": "5000",
-      "JERK": "10000",
-      "DRIVE_FE_LIMIT": "100",
-      "FE_LIMIT": "100",
-      "FE_RANGE": "100",
-      "RS_LIMIT": "-100000000",
-      "FS_LIMIT": "100000000"
+    "rotarylink": {
+      "target_axis": "0",
+      "axis_params": {
+        "1": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "0": {
+          "UNITS": "133508.843",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "2": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
+        },
+        "3": {
+          "UNITS": "2097152.0",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-100000000",
+          "FS_LIMIT": "100000000"
+        }
+      }
     }
   },
-  "master_speed": "3.93",
+  "master_speed": "3.44",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -128,19 +304,22 @@
   "rotarylink_calc": {
     "distance": 62.832,
     "link_dist": 40.0,
-    "acc": 20.0,
-    "sync": 20.0,
+    "acc": 10.0,
+    "sync": 10.0,
     "sync_pos": 60.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
     "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
-    "merge": true,
+    "merge": false,
     "repeat_mode": "single",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
     "rl_vline": 500.0,
-    "rl_distance": 62.83185307179586
+    "rl_distance": 62.83185307179586,
+    "rl_encoder_counts_per_rev": 8388608.0,
+    "rl_circumference": 62.83185307179586,
+    "rl_units": 133508.8428860218
   }
 }

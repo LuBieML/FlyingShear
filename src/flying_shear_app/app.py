@@ -3,6 +3,7 @@ import flet.canvas as cv
 import flet_charts as fc
 import matplotlib.pyplot as plt
 import collections
+import copy
 import math
 import time
 import asyncio
@@ -37,9 +38,12 @@ from .domain.profile_points import (
 )
 from .domain.rotary_math import (
     compute_rotary_drum_angle_rad,
+    compute_rotary_drum_circumference_mm,
     compute_rotary_drum_kinematics,
     compute_rotary_drum_tangential_mm_s,
     compute_rotary_mpos_counts_per_physical_rev,
+    compute_rotary_units_per_mm,
+    compute_rotarylink_sync_window_deg,
     rotary_blade_direction_for_angle,
     shortest_angle_distance_rad,
 )
@@ -82,6 +86,95 @@ def main(page: ft.Page):
 
     # Load persisted settings
     settings = load_settings()
+    SOLUTION_AXIS_PARAMS_KEY = "solution_axis_params"
+    DEFAULT_SOLUTION = "flying_shear"
+    SOLUTION_LABELS = {
+        "flying_shear": "Flying Shear",
+        "rotary_knife": "Rotary Knife",
+        "flow_wrapper": "Flow Wrapper",
+        "rotarylink": "RotaryLink",
+    }
+    current_solution = {"value": None}
+
+    def active_solution_key(solution=None):
+        return solution or current_solution.get("value") or DEFAULT_SOLUTION
+
+    def solution_label(solution=None):
+        return SOLUTION_LABELS.get(active_solution_key(solution), "Flying Shear")
+
+    def _copy_axis_params(axis_params):
+        if not isinstance(axis_params, dict):
+            return {}
+        return {
+            str(axis): dict(params)
+            for axis, params in axis_params.items()
+            if isinstance(params, dict)
+        }
+
+    def ensure_solution_axis_param_defaults():
+        """Seed per-solution stores from the legacy global axis_params block."""
+        solution_params = settings.get(SOLUTION_AXIS_PARAMS_KEY)
+        if not isinstance(solution_params, dict):
+            solution_params = {}
+            settings[SOLUTION_AXIS_PARAMS_KEY] = solution_params
+
+        legacy_axis_params = _copy_axis_params(settings.get("axis_params"))
+        legacy_target_axis = str(settings.get("target_axis", "0"))
+
+        for solution in SOLUTION_LABELS:
+            solution_block = solution_params.get(solution)
+            if not isinstance(solution_block, dict):
+                solution_block = {}
+                solution_params[solution] = solution_block
+            if "target_axis" not in solution_block:
+                solution_block["target_axis"] = legacy_target_axis
+            if not isinstance(solution_block.get("axis_params"), dict):
+                solution_block["axis_params"] = copy.deepcopy(legacy_axis_params)
+
+    ensure_solution_axis_param_defaults()
+
+    def get_solution_axis_block(solution=None, create=True):
+        solution_key = active_solution_key(solution)
+        solution_params = settings.get(SOLUTION_AXIS_PARAMS_KEY)
+        if not isinstance(solution_params, dict):
+            if not create:
+                return {}
+            solution_params = {}
+            settings[SOLUTION_AXIS_PARAMS_KEY] = solution_params
+
+        solution_block = solution_params.get(solution_key)
+        if not isinstance(solution_block, dict):
+            if not create:
+                return {}
+            solution_block = {
+                "target_axis": str(settings.get("target_axis", "0")),
+                "axis_params": _copy_axis_params(settings.get("axis_params")),
+            }
+            solution_params[solution_key] = solution_block
+
+        if create and not isinstance(solution_block.get("axis_params"), dict):
+            solution_block["axis_params"] = {}
+        return solution_block
+
+    def get_axis_params_store(solution=None, create=True):
+        solution_block = get_solution_axis_block(solution, create=create)
+        axis_params = solution_block.get("axis_params") if isinstance(solution_block, dict) else None
+        if not isinstance(axis_params, dict):
+            if not create:
+                return {}
+            axis_params = {}
+            solution_block["axis_params"] = axis_params
+        return axis_params
+
+    def get_solution_target_axis(solution=None):
+        solution_block = get_solution_axis_block(solution, create=True)
+        return str(solution_block.get("target_axis", settings.get("target_axis", "0")))
+
+    def set_solution_target_axis(axis, solution=None):
+        axis_key = str(axis)
+        solution_block = get_solution_axis_block(solution, create=True)
+        solution_block["target_axis"] = axis_key
+        settings["target_axis"] = axis_key
 
     def _update_if_mounted(control):
         if getattr(control, "parent", None) is None:
@@ -1742,13 +1835,15 @@ def main(page: ft.Page):
             except NameError:
                 pass
             start_monitor()
-            saved_sets = get_saved_axis_param_sets()
+            solution_key = active_solution_key()
+            solution_name = solution_label(solution_key)
+            saved_sets = get_saved_axis_param_sets(solution_key)
             if saved_sets:
-                status_text.value = "Connected. Review saved axis parameters before applying."
+                status_text.value = f"Connected. Review {solution_name} axis parameters before applying."
                 status_text.color = WARNING_COLOR
-                show_saved_params_dialog(saved_sets)
+                show_saved_params_dialog(saved_sets, solution_key)
             else:
-                status_text.value = "Connected. No saved axis parameters found."
+                status_text.value = f"Connected. No saved {solution_name} axis parameters found."
                 status_text.color = SUCCESS_COLOR
                 page.update()
         else:
@@ -1782,11 +1877,11 @@ def main(page: ft.Page):
         options=[
             ft.dropdown.Option(
                 str(i),
-                f"Axis {i} ✓" if settings.get("axis_params", {}).get(str(i)) else f"Axis {i}"
+                f"Axis {i} ✓" if get_axis_params_store(create=False).get(str(i)) else f"Axis {i}"
             )
             for i in range(16)
         ],
-        value=settings.get("target_axis", "0"),
+        value=get_solution_target_axis(),
         bgcolor=DARKER_BG,
         color=TEXT_COLOR,
         border_color=BORDER_COLOR,
@@ -1831,7 +1926,7 @@ def main(page: ft.Page):
 
     def get_axis_param_settings(axis):
         axis_key = str(axis)
-        axis_params = settings.setdefault("axis_params", {})
+        axis_params = get_axis_params_store()
         return axis_params.setdefault(axis_key, {})
 
     def get_saved_param_value(axis, param_name, default):
@@ -1844,7 +1939,7 @@ def main(page: ft.Page):
         save_settings(settings)
 
     def refresh_axis_dropdown():
-        axis_params = settings.get("axis_params", {})
+        axis_params = get_axis_params_store(create=False)
         axis_dropdown.options = [
             ft.dropdown.Option(
                 str(i),
@@ -1864,7 +1959,7 @@ def main(page: ft.Page):
         return handler
 
     for param, default in parameters:
-        initial_axis = settings.get("target_axis", "0")
+        initial_axis = get_solution_target_axis()
         initial_val = get_saved_param_value(initial_axis, param, default)
 
         txt = ft.TextField(
@@ -1926,9 +2021,9 @@ def main(page: ft.Page):
 
     def on_target_axis_change(e):
         axis = e.control.value or "0"
-        settings["target_axis"] = axis
+        set_solution_target_axis(axis)
 
-        axis_has_params = bool(settings.get("axis_params", {}).get(str(axis), {}))
+        axis_has_params = bool(get_axis_params_store(create=False).get(str(axis), {}))
         for param_name, _ in parameters:
             param_inputs[param_name].value = (
                 get_saved_param_value(axis, param_name, parameter_defaults[param_name])
@@ -1948,7 +2043,7 @@ def main(page: ft.Page):
         options=[
             ft.dropdown.Option(str(i), f"Axis {i} ✓")
             for i in range(16)
-            if settings.get("axis_params", {}).get(str(i))
+            if get_axis_params_store(create=False).get(str(i))
         ],
         bgcolor=DARKER_BG,
         color=TEXT_COLOR,
@@ -1957,7 +2052,7 @@ def main(page: ft.Page):
     )
 
     def refresh_copy_dropdown():
-        axis_params = settings.get("axis_params", {})
+        axis_params = get_axis_params_store(create=False)
         copy_from_dropdown.options = [
             ft.dropdown.Option(str(i), f"Axis {i} ✓")
             for i in range(16)
@@ -1968,7 +2063,7 @@ def main(page: ft.Page):
         src = copy_from_dropdown.value
         if not src:
             return
-        src_params = settings.get("axis_params", {}).get(str(src), {})
+        src_params = get_axis_params_store(create=False).get(str(src), {})
         if not src_params:
             return
         dst = axis_dropdown.value or "0"
@@ -2014,53 +2109,54 @@ def main(page: ft.Page):
             except Exception as e:
                 print(f"Warning: Failed to set LIMIT_BUFFERED: {e}")
 
-    def get_saved_axis_param_sets():
-        """Returns a list of (axis, param_values) tuples from the saved settings.
-
-        Supports three formats (checked in priority order):
-          1. "axes": {"0": {"SPEED": "10.0", ...}, ...}  — recommended new format
-          2. "axis_params": {"0": {"SPEED": "10.0", ...}, ...}  — current code format
-          3. Legacy flat: target_axis + param_SPEED, param_ACCEL, ...
-        """
+    def _axis_param_sets_from_config(axis_params_config):
         saved_sets = []
+        if not isinstance(axis_params_config, dict):
+            return saved_sets
+        for axis_key, axis_params in axis_params_config.items():
+            try:
+                axis = int(axis_key)
+            except ValueError:
+                continue
+            if not isinstance(axis_params, dict):
+                continue
+            param_values = {
+                pn: str(axis_params[pn])
+                for pn, _ in parameters
+                if pn in axis_params
+            }
+            if param_values:
+                saved_sets.append((axis, param_values))
+        return saved_sets
+
+    def get_saved_axis_param_sets(solution=None):
+        """Returns saved axis parameter sets for one solution.
+
+        New settings live under solution_axis_params[solution]["axis_params"].
+        The legacy global formats remain readable for older JSON files.
+        """
+        solution_block = get_solution_axis_block(solution, create=False)
+        if isinstance(solution_block, dict):
+            axes_config = solution_block.get("axes")
+            saved_sets = _axis_param_sets_from_config(axes_config)
+            if saved_sets:
+                return saved_sets
+
+            saved_sets = _axis_param_sets_from_config(solution_block.get("axis_params"))
+            if saved_sets or "axis_params" in solution_block or "axes" in solution_block:
+                return saved_sets
 
         axes_config = settings.get("axes")
-        if isinstance(axes_config, dict):
-            for axis_key, axis_params in axes_config.items():
-                try:
-                    axis = int(axis_key)
-                except ValueError:
-                    continue
-                if not isinstance(axis_params, dict):
-                    continue
-                param_values = {
-                    pn: str(axis_params[pn])
-                    for pn, _ in parameters
-                    if pn in axis_params
-                }
-                if param_values:
-                    saved_sets.append((axis, param_values))
+        saved_sets = _axis_param_sets_from_config(axes_config)
+        if saved_sets:
             return saved_sets
 
-        axis_params_config = settings.get("axis_params")
-        if isinstance(axis_params_config, dict):
-            for axis_key, axis_params in axis_params_config.items():
-                try:
-                    axis = int(axis_key)
-                except ValueError:
-                    continue
-                if not isinstance(axis_params, dict):
-                    continue
-                param_values = {
-                    pn: str(axis_params[pn])
-                    for pn, _ in parameters
-                    if pn in axis_params
-                }
-                if param_values:
-                    saved_sets.append((axis, param_values))
+        saved_sets = _axis_param_sets_from_config(settings.get("axis_params"))
+        if saved_sets:
             return saved_sets
 
         # Legacy flat format
+        saved_sets = []
         target_axis = settings.get("target_axis")
         if target_axis is not None:
             try:
@@ -2077,11 +2173,13 @@ def main(page: ft.Page):
 
         return saved_sets
 
-    async def apply_saved_params_after_connection():
-        saved_sets = get_saved_axis_param_sets()
+    async def apply_saved_params_after_connection(solution=None):
+        solution_key = active_solution_key(solution)
+        solution_name = solution_label(solution_key)
+        saved_sets = get_saved_axis_param_sets(solution_key)
 
         if not saved_sets:
-            status_text.value = "Connected. No saved axis parameters found."
+            status_text.value = f"Connected. No saved {solution_name} axis parameters found."
             status_text.color = WARNING_COLOR
             page.update()
             return
@@ -2092,7 +2190,7 @@ def main(page: ft.Page):
 
         for axis, param_values in saved_sets:
             try:
-                status_text.value = f"Applying saved parameters to Axis {axis}..."
+                status_text.value = f"Applying {solution_name} parameters to Axis {axis}..."
                 status_text.color = ft.Colors.WHITE
                 page.update()
 
@@ -2109,41 +2207,43 @@ def main(page: ft.Page):
 
         if failed_axes:
             failed_text = ", ".join(str(a) for a, _ in failed_axes)
-            status_text.value = f"Connected. Some saved params failed. Failed axes: {failed_text}"
+            status_text.value = f"Connected. Some {solution_name} params failed. Failed axes: {failed_text}"
             status_text.color = WARNING_COLOR
-            show_snack(f"Some saved parameter sets failed: Axis {failed_text}.", "warning")
+            show_snack(f"Some {solution_name} parameter sets failed: Axis {failed_text}.", "warning")
         else:
             applied_text = ", ".join(str(a) for a in applied_axes)
-            status_text.value = f"Connected. Saved parameters applied to Axis {applied_text}."
+            status_text.value = f"Connected. {solution_name} parameters applied to Axis {applied_text}."
             status_text.color = SUCCESS_COLOR
-            show_snack(f"Saved parameters applied to Axis {applied_text}.", "success")
+            show_snack(f"{solution_name} parameters applied to Axis {applied_text}.", "success")
         page.update()
 
     saved_params_dialog = ft.AlertDialog(modal=True)
 
-    def show_saved_params_dialog(saved_sets):
+    def show_saved_params_dialog(saved_sets, solution=None):
+        solution_key = active_solution_key(solution)
+        solution_name = solution_label(solution_key)
         axis_list = ", ".join(f"Axis {axis}" for axis, _ in saved_sets)
 
         async def apply_saved_from_dialog(e):
             saved_params_dialog.open = False
             page.update()
-            await apply_saved_params_after_connection()
+            await apply_saved_params_after_connection(solution_key)
 
         def skip_saved_from_dialog(e):
             saved_params_dialog.open = False
-            status_text.value = "Connected. Saved parameters were not applied."
+            status_text.value = f"Connected. {solution_name} parameters were not applied."
             status_text.color = WARNING_COLOR
             page.update()
 
-        saved_params_dialog.title = ft.Text("Apply saved axis parameters?")
+        saved_params_dialog.title = ft.Text(f"Update controller with {solution_name} axis parameters?")
         saved_params_dialog.content = ft.Text(
-            f"Saved parameter sets were found for {axis_list}. "
-            "Apply them only if this controller and machine are the intended demo setup.",
+            f"Saved {solution_name} parameter sets were found for {axis_list}. "
+            "Update the connected controller now?",
             color=TEXT_COLOR,
         )
         saved_params_dialog.actions = [
             ft.OutlinedButton("Skip", on_click=skip_saved_from_dialog),
-            ft.FilledButton("Apply now", on_click=apply_saved_from_dialog,
+            ft.FilledButton("Update controller", on_click=apply_saved_from_dialog,
                             style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE)),
         ]
         saved_params_dialog.actions_alignment = ft.MainAxisAlignment.END
@@ -2153,6 +2253,36 @@ def main(page: ft.Page):
             page.dialog = saved_params_dialog
             saved_params_dialog.open = True
             page.update()
+
+    def load_axis_param_controls_for_solution(solution=None):
+        solution_key = active_solution_key(solution)
+        axis = get_solution_target_axis(solution_key)
+        axis_dropdown.value = axis
+        axis_params = get_axis_params_store(solution_key, create=True)
+        axis_has_params = bool(axis_params.get(str(axis), {}))
+
+        for param_name, _ in parameters:
+            param_inputs[param_name].value = (
+                get_saved_param_value(axis, param_name, parameter_defaults[param_name])
+                if axis_has_params
+                else parameter_defaults[param_name]
+            )
+            param_inputs[param_name].error_text = None
+
+        refresh_axis_dropdown()
+
+    def prompt_solution_axis_params_if_connected(solution=None):
+        if not trio_conn.is_connected():
+            return
+        solution_key = active_solution_key(solution)
+        saved_sets = get_saved_axis_param_sets(solution_key)
+        if not saved_sets:
+            return
+        solution_name = solution_label(solution_key)
+        status_text.value = f"{solution_name} selected. Review saved axis parameters before applying."
+        status_text.color = WARNING_COLOR
+        page.update()
+        show_saved_params_dialog(saved_sets, solution_key)
 
     apply_progress = ft.ProgressRing(width=18, height=18, stroke_width=2, color=ft.Colors.CYAN_200, visible=False)
 
@@ -2176,7 +2306,7 @@ def main(page: ft.Page):
         # the worker so the executor never reads Flet controls directly.
         param_values = {pn: tc.value for pn, tc in param_inputs.items()}
 
-        settings["target_axis"] = axis_dropdown.value
+        set_solution_target_axis(axis_dropdown.value)
 
         axis_settings = get_axis_param_settings(axis_dropdown.value)
         for pn, val in param_values.items():
@@ -4307,7 +4437,7 @@ def main(page: ft.Page):
         mark_cam_quicktest_table_stale(table, table_start)
         try:
             update_rotary_units_label()
-            redraw_rotary_sim()
+            refresh_rotary_sim_geometry()
         except NameError:
             pass
         page.update()
@@ -4814,6 +4944,48 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             return default
 
+    rotary_sim_mode = {"solution": "rotary_knife"}
+    rotarylink_sim_controls = {}
+
+    def rotarylink_setting_raw(key, default):
+        control = rotarylink_sim_controls.get(key)
+        if control is not None:
+            return control.value
+        return settings.get("rotarylink_calc", {}).get(key, default)
+
+    def rotarylink_setting_float(key, default):
+        try:
+            return float(rotarylink_setting_raw(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def rotarylink_setting_int(key, default):
+        try:
+            return max(1, int(float(rotarylink_setting_raw(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    def rotary_sim_geometry():
+        if rotary_sim_mode.get("solution") == "rotarylink":
+            n_knives = rotarylink_setting_int("rl_n_knives", 1)
+            drum_diameter = rotarylink_setting_float("rl_drum_dia", 200.0)
+            distance = rotarylink_setting_float("distance", 360.0)
+            sync = rotarylink_setting_float("sync", 100.0)
+            try:
+                cut_window = compute_rotarylink_sync_window_deg(distance, sync, n_knives)
+            except ValueError:
+                cut_window = min(30.0, 360.0 / max(1, n_knives))
+        else:
+            n_knives = cam_setting_int("n_knives", 1)
+            drum_diameter = cam_setting_float("drum_dia", 200.0)
+            cut_window = cam_setting_float("cut_window", 30.0)
+
+        return {
+            "n_knives": max(1, n_knives),
+            "drum_diameter_mm": drum_diameter if drum_diameter > 0 else 200.0,
+            "cut_window_deg": max(0.1, cut_window),
+        }
+
     def format_rotary_count(value):
         try:
             val = float(value)
@@ -4925,7 +5097,7 @@ def main(page: ft.Page):
             rotary_units_source_label.color = MUTED_TEXT
 
     def saved_drum_units_for_axis(axis):
-        axis_params = settings.get("axis_params", {}).get(str(axis), {})
+        axis_params = get_axis_params_store(create=False).get(str(axis), {})
         try:
             return float(axis_params.get("UNITS"))
         except (TypeError, ValueError):
@@ -5177,8 +5349,9 @@ def main(page: ft.Page):
         return knife_angles, closest_index, closest, in_cut, approaching
 
     def draw_rotary_drum(shapes, width, belt_y, drum_angle):
-        n_knives = cam_setting_int("n_knives", 1)
-        cut_window = max(0.1, cam_setting_float("cut_window", 30.0))
+        geometry = rotary_sim_geometry()
+        n_knives = geometry["n_knives"]
+        cut_window = geometry["cut_window_deg"]
         r = ROTARY_DRUM_RADIUS_PX
         horizontal_margin = r + ROTARY_KNIFE_LENGTH_PX + ROTARY_ACTIVE_KNIFE_EXTENSION_PX + 42
         if width >= horizontal_margin * 2:
@@ -5558,7 +5731,7 @@ def main(page: ft.Page):
         drum_mspeed = rotary_sim_state.get("drum_mspeed")
         drum_mpos = rotary_sim_state.get("drum_mpos")
         link_units_to_mm = rotary_setting_float("link_units_to_mm", 1.0)
-        drum_diameter = cam_setting_float("drum_dia", 200.0)
+        drum_diameter = rotary_sim_geometry()["drum_diameter_mm"]
         mpos_per_rev = rotary_recompute_mpos_per_rev()
         in_cut = bool(rotary_sim_state.get("in_cut"))
         approaching = bool(rotary_sim_state.get("approaching"))
@@ -5688,7 +5861,7 @@ def main(page: ft.Page):
                         drum_mpos,
                         rotary_sim_state.get("drum_mspeed"),
                         mpos_per_rev,
-                        cam_setting_float("drum_dia", 200.0),
+                        rotary_sim_geometry()["drum_diameter_mm"],
                         rotary_drum_direction_reversed(),
                     )
                     rotary_sim_state["last_kinematics"] = kinematics
@@ -5704,6 +5877,20 @@ def main(page: ft.Page):
         if update_rotary_diagnostics(now):
             dirty = True
         return dirty
+
+    def refresh_rotary_sim_geometry(update=False):
+        rotary_sim_state["speed_samples"].clear()
+        drum_mpos = rotary_sim_state.get("drum_mpos")
+        if drum_mpos is not None:
+            update_rotary_sim_from_reads(None, drum_mpos, None, None, None, time.perf_counter())
+        else:
+            redraw_rotary_sim()
+            update_rotary_diagnostics(time.perf_counter())
+        if update:
+            try:
+                _update_if_mounted(rotary_sim_container)
+            except NameError:
+                pass
 
     def on_rotary_reverse_change(e):
         rotary_sim_settings["drum_direction_reversed"] = bool(e.control.value)
@@ -6177,11 +6364,18 @@ def main(page: ft.Page):
 
     def set_rotary_sim_labels(solution):
         if solution == "rotarylink":
+            rotary_sim_mode["solution"] = "rotarylink"
             rotary_sim_title_text.value = "RotaryLink Simulation"
-            rotary_sim_subtitle_text.value = "Live rotary/base geometry from ROTARYLINK axes"
+            rotary_sim_subtitle_text.value = "Live rotary/base geometry from ROTARYLINK calculator and axes"
+            rotary_axis_m_dropdown.label = "Link / master axis"
+            rotary_axis_s_dropdown.label = "Rotary / base axis"
         else:
+            rotary_sim_mode["solution"] = "rotary_knife"
             rotary_sim_title_text.value = "Rotary Knife Simulation"
             rotary_sim_subtitle_text.value = "Live drum geometry from CAMBOX axes"
+            rotary_axis_m_dropdown.label = "Material / encoder axis"
+            rotary_axis_s_dropdown.label = "Drum axis"
+        refresh_rotary_sim_geometry()
 
     rotary_sim_container = ft.Container(
         content=ft.Column(
@@ -6976,6 +7170,7 @@ def main(page: ft.Page):
         ("sync", 100),
         ("sync_pos", 60),
         ("rl_drum_dia", 200),
+        ("rl_encoder_counts_per_rev", ROTARY_DEFAULT_AXIS_CPR),
         ("rl_n_knives", 1),
         ("rl_vline", 500),
         ("repeat_step", 330),
@@ -6995,6 +7190,7 @@ def main(page: ft.Page):
         "sync": "Base-axis distance used during the synchronized phase.",
         "sync_pos": "Absolute link-axis position where sync starts, or R_MARK channel when R_MARK is selected.",
         "drum_dia": "Physical drum diameter used to calculate base distance from circumference.",
+        "encoder_counts": "Raw drum motor encoder counts for one physical drum revolution.",
         "n_knives": "Number of equally spaced knives on the drum.",
         "vline": "Master/link axis line speed used to estimate the slave acceleration demand.",
         "repeat_step": "Distance between consecutive sync positions in buffered merge mode.",
@@ -7017,6 +7213,8 @@ def main(page: ft.Page):
         "rotarylink_est_accel": "Estimated slave-axis acceleration required to reach synchronized speed.",
         "rotarylink_options": "Decimal ROTARYLINK link_options value from start, profile, source, and merge bits.",
         "rotarylink_sync_window": "Absolute sync start/end positions on the link axis when sync_pos is positional.",
+        "rotarylink_circumference": "Drum circumference = pi * drum diameter.",
+        "rotarylink_units": "Rotary/base axis UNITS for millimetres: encoder counts per revolution / drum circumference.",
         "rotarylink_profile_label": "Human-readable ROTARYLINK acceleration/deceleration profile.",
         "rotarylink_start_label": "Human-readable ROTARYLINK start mode.",
     })
@@ -7026,6 +7224,17 @@ def main(page: ft.Page):
     )
     rotarylink_drum_dia_input.value = str(rotarylink_settings.get("rl_drum_dia", 200))
     rotarylink_drum_dia_input.tooltip = rotarylink_tooltips["drum_dia"]
+
+    rotarylink_encoder_cpr_input = make_input(
+        "Encoder cnts/rev",
+        "rl_encoder_counts_per_rev",
+        rotarylink_settings.get("rl_encoder_counts_per_rev", ROTARY_DEFAULT_AXIS_CPR),
+        width=170,
+    )
+    rotarylink_encoder_cpr_input.value = str(
+        rotarylink_settings.get("rl_encoder_counts_per_rev", ROTARY_DEFAULT_AXIS_CPR)
+    )
+    rotarylink_encoder_cpr_input.tooltip = rotarylink_tooltips["encoder_counts"]
 
     rotarylink_n_knives_input = make_input(
         "Knives on drum", "rl_n_knives", rotarylink_settings.get("rl_n_knives", 1), width=140
@@ -7082,6 +7291,12 @@ def main(page: ft.Page):
     )
     rotarylink_buffered_commands_input.value = str(rotarylink_settings.get("buffered_commands", 4))
     rotarylink_buffered_commands_input.tooltip = rotarylink_tooltips["buffered_commands"]
+    rotarylink_sim_controls.update({
+        "rl_drum_dia": rotarylink_drum_dia_input,
+        "rl_n_knives": rotarylink_n_knives_input,
+        "distance": rotarylink_distance_input,
+        "sync": rotarylink_sync_input,
+    })
 
     rotarylink_profile_dropdown = make_dropdown(
         "Profile", "profile", rotarylink_settings.get("profile", "sine"),
@@ -7139,29 +7354,63 @@ def main(page: ft.Page):
         tooltip=rotarylink_tooltips["merge"],
     )
 
+    def rotarylink_format_units(value):
+        try:
+            units = float(value)
+        except (TypeError, ValueError):
+            return "---"
+        if abs(units) >= 10000:
+            return f"{units:.3f}"
+        return f"{units:.6f}".rstrip("0").rstrip(".")
+
+    def rotarylink_save_calculated_axis_units(axis_units):
+        base_axis = str(rotarylink_axis_s_dropdown.value or axis_s_dropdown.value or "1")
+        axis_params = get_axis_params_store("rotarylink", create=True)
+        axis_settings = axis_params.setdefault(base_axis, {})
+        units_text = rotarylink_format_units(axis_units)
+        axis_settings["UNITS"] = units_text
+
+        if active_solution_key() == "rotarylink" and str(axis_dropdown.value or "") == base_axis:
+            param_inputs["UNITS"].value = units_text
+            param_inputs["UNITS"].error_text = None
+
+        refresh_axis_dropdown()
+        save_settings(settings)
+        return base_axis, units_text
+
     def rotarylink_on_calc_geometry(e):
         try:
             rotarylink_drum_dia = float(rotarylink_drum_dia_input.value)
+            rotarylink_encoder_cpr = float(rotarylink_encoder_cpr_input.value)
             rotarylink_n_knives = max(1, int(float(rotarylink_n_knives_input.value)))
-            rotarylink_circumference = math.pi * rotarylink_drum_dia
+            rotarylink_circumference = compute_rotary_drum_circumference_mm(rotarylink_drum_dia)
+            rotarylink_axis_units = compute_rotary_units_per_mm(rotarylink_encoder_cpr, rotarylink_drum_dia)
             rotarylink_distance_user = rotarylink_circumference / rotarylink_n_knives
             rotarylink_distance_input.value = f"{rotarylink_distance_user:.3f}"
             rotarylink_settings["rl_distance"] = rotarylink_distance_user
             rotarylink_settings["rl_drum_dia"] = rotarylink_drum_dia
+            rotarylink_settings["rl_encoder_counts_per_rev"] = rotarylink_encoder_cpr
             rotarylink_settings["rl_n_knives"] = rotarylink_n_knives
+            rotarylink_settings["rl_circumference"] = rotarylink_circumference
+            rotarylink_settings["rl_units"] = rotarylink_axis_units
+            base_axis, units_text = rotarylink_save_calculated_axis_units(rotarylink_axis_units)
             save_settings(settings)
             rotarylink_recalc()
+            show_snack(
+                f"Geometry computed. Saved UNITS {units_text} to RotaryLink axis {base_axis}.",
+                "success",
+            )
         except (TypeError, ValueError) as ex:
             show_snack(f"Geometry compute failed: {ex}", "error")
         page.update()
 
     rotarylink_calc_geometry_btn = ft.OutlinedButton(
-        "Compute distance",
+        "Compute geometry",
         icon=ft.Icons.CALCULATE,
         height=38,
         tooltip=(
-            "Fills Base distance = drum circumference / n_knives in mm. "
-            "Adjust manually if the slave axis uses different units."
+            "Fills Base distance = drum circumference / n_knives and saves "
+            "UNITS = encoder counts/rev / circumference to the rotary/base axis."
         ),
         on_click=rotarylink_on_calc_geometry,
     )
@@ -7198,6 +7447,8 @@ def main(page: ft.Page):
         "rotarylink_est_accel",
         "rotarylink_options",
         "rotarylink_sync_window",
+        "rotarylink_circumference",
+        "rotarylink_units",
         "rotarylink_profile_label",
         "rotarylink_start_label",
     ]
@@ -7252,34 +7503,8 @@ def main(page: ft.Page):
         "rmark": "R_MARK channel",
     }
 
-    def rotarylink_build_options(start_mode, profile, link_source, merge):
-        rotarylink_options = 0
-
-        rotarylink_start_map = {"immediate": None, "mark": 1, "markb": 2, "rmark": 3}
-        rotarylink_start_val = rotarylink_start_map.get(start_mode)
-        if rotarylink_start_val is not None:
-            rotarylink_options |= rotarylink_start_val
-
-        rotarylink_profile_map = {
-            "trapezoid": 0,
-            "sine": 1,
-            "power9": 2,
-            "power7": 3,
-            "power5": 4,
-        }
-        rotarylink_profile_val = rotarylink_profile_map.get(profile, 0)
-        rotarylink_options |= rotarylink_profile_val << 2
-
-        if merge:
-            rotarylink_options |= 32
-
-        if link_source == "dpos":
-            rotarylink_options |= 64
-
-        return rotarylink_options
-
-    def rotarylink_apply_sync_pos_state(start_mode):
-        rotarylink_sync_pos_unused = start_mode == "immediate"
+    def rotarylink_apply_sync_pos_state(start_mode, uses_sync_pos=False):
+        rotarylink_sync_pos_unused = start_mode == "immediate" and not uses_sync_pos
         rotarylink_sync_pos_input.disabled = rotarylink_sync_pos_unused
         rotarylink_sync_pos_input.label = (
             "Sync pos / channel (unused)" if rotarylink_sync_pos_unused else "Sync pos / channel"
@@ -7445,6 +7670,8 @@ def main(page: ft.Page):
             rotarylink_sync_pos = float(rotarylink_sync_pos_input.value or 0)
             rotarylink_repeat_step = float(rotarylink_repeat_step_input.value or 0)
             rotarylink_buffered_commands = int(float(rotarylink_buffered_commands_input.value or 1))
+            rotarylink_drum_dia = float(rotarylink_drum_dia_input.value)
+            rotarylink_encoder_cpr = float(rotarylink_encoder_cpr_input.value)
         except (TypeError, ValueError):
             rotarylink_warning_text.value = "Invalid inputs: enter numeric values for the ROTARYLINK calculator."
             _apply_warning_severity("error", rotarylink_warning_banner, rotarylink_warning_icon, rotarylink_warning_text)
@@ -7454,22 +7681,24 @@ def main(page: ft.Page):
 
         rotarylink_profile = rotarylink_profile_dropdown.value or "trapezoid"
         rotarylink_start_mode = rotarylink_start_dropdown.value or "immediate"
-        rotarylink_apply_sync_pos_state(rotarylink_start_mode)
         rotarylink_link_source = rotarylink_source_dropdown.value or "mpos"
         rotarylink_repeat_mode = rotarylink_repeat_dropdown.value or "single"
         rotarylink_merge = bool(rotarylink_merge_checkbox.value)
+        rotarylink_effective_merge = rotarylink_merge or rotarylink_repeat_mode == "buffered_merge"
+        rotarylink_uses_sync_pos = rotarylink_start_mode != "immediate" or rotarylink_effective_merge
+        rotarylink_apply_sync_pos_state(rotarylink_start_mode, rotarylink_uses_sync_pos)
 
-        rotarylink_options = rotarylink_build_options(
+        rotarylink_options = build_rotarylink_options(
             rotarylink_start_mode,
             rotarylink_profile,
             rotarylink_link_source,
-            rotarylink_merge,
+            rotarylink_effective_merge,
         )
-        if rotarylink_merge:
-            rotarylink_options |= 32
 
         rotarylink_include_optional = rotarylink_start_mode != "immediate" or rotarylink_options > 0
-        rotarylink_optional_sync_pos = rotarylink_sync_pos if rotarylink_include_optional else None
+        rotarylink_optional_sync_pos = rotarylink_sync_pos if rotarylink_uses_sync_pos else None
+        rotarylink_circumference = None
+        rotarylink_axis_units = None
 
         def rotarylink_save_current_settings():
             rotarylink_settings["distance"] = rotarylink_distance
@@ -7484,10 +7713,12 @@ def main(page: ft.Page):
             rotarylink_settings["link_source"] = rotarylink_link_source
             rotarylink_settings["merge"] = rotarylink_merge
             rotarylink_settings["repeat_mode"] = rotarylink_repeat_mode
-            try:
-                rotarylink_settings["rl_drum_dia"] = float(rotarylink_drum_dia_input.value)
-            except (TypeError, ValueError):
-                pass
+            rotarylink_settings["rl_drum_dia"] = rotarylink_drum_dia
+            rotarylink_settings["rl_encoder_counts_per_rev"] = rotarylink_encoder_cpr
+            if rotarylink_circumference is not None:
+                rotarylink_settings["rl_circumference"] = rotarylink_circumference
+            if rotarylink_axis_units is not None:
+                rotarylink_settings["rl_units"] = rotarylink_axis_units
             try:
                 rotarylink_settings["rl_n_knives"] = max(1, int(float(rotarylink_n_knives_input.value)))
             except (TypeError, ValueError):
@@ -7499,14 +7730,24 @@ def main(page: ft.Page):
             save_settings(settings)
 
         if rotarylink_distance == 0:
-            rotarylink_warning_text.value = "Base distance is 0 — use Compute distance or enter manually."
+            rotarylink_warning_text.value = "Base distance is 0 - use Compute geometry or enter manually."
             _apply_warning_severity("error", rotarylink_warning_banner, rotarylink_warning_icon, rotarylink_warning_text)
             rotarylink_code_output.value = ""
             rotarylink_save_current_settings()
+            try:
+                refresh_rotary_sim_geometry()
+            except NameError:
+                pass
             page.update()
             return
 
         rotarylink_errors = []
+        try:
+            rotarylink_circumference = compute_rotary_drum_circumference_mm(rotarylink_drum_dia)
+            rotarylink_axis_units = compute_rotary_units_per_mm(rotarylink_encoder_cpr, rotarylink_drum_dia)
+        except ValueError as ex:
+            rotarylink_errors.append(str(ex))
+
         try:
             rotarylink_profile_diag = calculate_rotarylink_profile(
                 rotarylink_distance,
@@ -7553,7 +7794,7 @@ def main(page: ft.Page):
             rotarylink_start_label = f"Abs {rotarylink_sync_pos:g}"
         elif rotarylink_start_mode == "rmark":
             rotarylink_start_label = f"R_MARK {rotarylink_sync_pos:g}"
-        elif rotarylink_merge:
+        elif rotarylink_effective_merge:
             rotarylink_start_label = f"Sync pos {rotarylink_sync_pos:g}"
         else:
             rotarylink_start_label = rotarylink_start_labels.get(rotarylink_start_mode, rotarylink_start_mode)
@@ -7565,6 +7806,12 @@ def main(page: ft.Page):
         result_labels["rotarylink_est_accel"].value = "---"
         result_labels["rotarylink_options"].value = str(rotarylink_options)
         result_labels["rotarylink_sync_window"].value = f"{rotarylink_profile_diag['link_sync']:.3f} u"
+        result_labels["rotarylink_circumference"].value = (
+            "---" if rotarylink_circumference is None else f"{rotarylink_circumference:.3f} mm"
+        )
+        result_labels["rotarylink_units"].value = (
+            "---" if rotarylink_axis_units is None else f"{rotarylink_format_units(rotarylink_axis_units)} cnt/mm"
+        )
         result_labels["rotarylink_profile_label"].value = rotarylink_profile_label
         result_labels["rotarylink_start_label"].value = rotarylink_start_label
         rotarylink_profile_canvas.shapes = rotarylink_build_phase_shapes(rotarylink_profile_diag)
@@ -7581,7 +7828,7 @@ def main(page: ft.Page):
 
         if (
             not rotarylink_errors
-            and rotarylink_start_mode != "immediate"
+            and rotarylink_uses_sync_pos
             and rotarylink_sync_pos <= rotarylink_profile_diag["link_acc"]
         ):
             rotarylink_warning_text.value = (
@@ -7592,6 +7839,10 @@ def main(page: ft.Page):
             _apply_warning_severity("error", rotarylink_warning_banner, rotarylink_warning_icon, rotarylink_warning_text)
             rotarylink_code_output.value = ""
             rotarylink_save_current_settings()
+            try:
+                refresh_rotary_sim_geometry()
+            except NameError:
+                pass
             page.update()
             return
 
@@ -7607,7 +7858,7 @@ def main(page: ft.Page):
             if rotarylink_profile != "trapezoid":
                 rotarylink_messages.append("S-profile changes peak acceleration; verify drive limits")
                 rotarylink_severity = "info"
-            if rotarylink_merge:
+            if rotarylink_effective_merge:
                 rotarylink_messages.append("Merge bit active; keep queued sync positions strictly increasing")
                 if rotarylink_severity == "ok":
                     rotarylink_severity = "info"
@@ -7628,78 +7879,32 @@ def main(page: ft.Page):
             except ValueError:
                 rotarylink_link_axis, rotarylink_base_axis = 0, 1
 
-            def rotarylink_command(options_arg=None, sync_arg=None):
-                rotarylink_args = [
-                    f"{rotarylink_distance:.3f}",
-                    f"{rotarylink_link_dist:.3f}",
-                    f"{rotarylink_acc:.3f}",
-                    f"{rotarylink_sync:.3f}",
-                    "link_ax",
-                ]
-                if options_arg is not None:
-                    rotarylink_args.append(str(options_arg))
-                    if sync_arg is not None:
-                        rotarylink_args.append(str(sync_arg))
-                return f"ROTARYLINK({', '.join(rotarylink_args)})"
-
-            if rotarylink_merge:
-                rotarylink_code_lines = [
-                    "' ROTARYLINK merge mode — consecutive cuts blend without stopping",
-                    f"base_ax      = {rotarylink_base_axis}",
-                    f"link_ax      = {rotarylink_link_axis}",
-                    f"link_options = {rotarylink_options}   ' bit 5 set = merge enabled",
-                    f"repeat_dist  = {rotarylink_link_dist:.3f}",
-                    "",
-                    "BASE(base_ax)",
-                    "SERVO = ON",
-                    "DEFPOS(0)",
-                    "",
-                    f"start_pos = {rotarylink_sync_pos:.3f}",
-                    "",
-                    "WHILE TRUE",
-                    "    " + rotarylink_command("link_options", "start_pos"),
-                    "    start_pos = start_pos + repeat_dist",
-                    "    WAIT UNTIL MOVES_BUFFERED < 2",
-                    "WEND",
-                ]
-            else:
-                rotarylink_code_lines = [
-                    f"base_ax      = {rotarylink_base_axis}",
-                    f"link_ax      = {rotarylink_link_axis}",
-                ]
-                if rotarylink_include_optional:
-                    rotarylink_code_lines.extend([
-                        f"link_options = {rotarylink_options}",
-                        f"sync_pos     = {rotarylink_sync_pos:.3f}",
-                    ])
-                rotarylink_code_lines.extend([
-                    "",
-                    "BASE(base_ax)",
-                    "SERVO = ON",
-                    "DEFPOS(0)",
-                    "",
-                ])
-                if rotarylink_include_optional:
-                    rotarylink_single_command = rotarylink_command("link_options", "sync_pos")
-                else:
-                    rotarylink_single_command = rotarylink_command()
-                if rotarylink_repeat_mode == "program_loop":
-                    rotarylink_code_lines.extend([
-                        "WHILE TRUE",
-                        "    " + rotarylink_single_command,
-                        "    WAIT IDLE",
-                        "WEND",
-                    ])
-                else:
-                    rotarylink_code_lines.append(rotarylink_single_command)
-
-            rotarylink_code_output.value = "\n".join(rotarylink_code_lines)
+            rotarylink_code_output.value = emit_rotarylink_basic_program(
+                rotarylink_distance,
+                rotarylink_link_dist,
+                rotarylink_acc,
+                rotarylink_sync,
+                link_axis=rotarylink_link_axis,
+                base_axis=rotarylink_base_axis,
+                link_options=rotarylink_options,
+                sync_pos=rotarylink_optional_sync_pos,
+                include_optional_args=rotarylink_include_optional,
+                repeat_mode=rotarylink_repeat_mode,
+                merge=rotarylink_effective_merge,
+                repeat_step=rotarylink_repeat_step if rotarylink_repeat_mode == "buffered_merge" else None,
+                buffered_commands=rotarylink_buffered_commands,
+            )
 
         rotarylink_save_current_settings()
+        try:
+            refresh_rotary_sim_geometry()
+        except NameError:
+            pass
         page.update()
 
     for rotarylink_input in (
         rotarylink_drum_dia_input,
+        rotarylink_encoder_cpr_input,
         rotarylink_n_knives_input,
         rotarylink_distance_input,
         rotarylink_link_dist_input,
@@ -7714,7 +7919,12 @@ def main(page: ft.Page):
         rotarylink_input.on_blur = rotarylink_recalc
 
     def rotarylink_on_start_mode_change(e):
-        rotarylink_apply_sync_pos_state(rotarylink_start_dropdown.value or "immediate")
+        rotarylink_current_repeat = rotarylink_repeat_dropdown.value or "single"
+        rotarylink_current_merge = bool(rotarylink_merge_checkbox.value)
+        rotarylink_apply_sync_pos_state(
+            rotarylink_start_dropdown.value or "immediate",
+            rotarylink_current_merge or rotarylink_current_repeat == "buffered_merge",
+        )
         rotarylink_recalc(e)
 
     for rotarylink_dropdown in (
@@ -7778,6 +7988,7 @@ def main(page: ft.Page):
                     ft.Row(
                         [
                             rotarylink_drum_dia_input,
+                            rotarylink_encoder_cpr_input,
                             rotarylink_n_knives_input,
                             rotarylink_calc_geometry_btn,
                         ],
@@ -7787,8 +7998,8 @@ def main(page: ft.Page):
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     ft.Text(
-                        "Result in mm — assumes slave axis UNITS = 1 count/mm "
-                        "(or equivalent). Adjust manually if UNITS differ.",
+                        "Base distance is in mm when the rotary/base axis uses the calculated "
+                        "UNITS value.",
                         size=11,
                         color=MUTED_TEXT,
                     ),
@@ -7844,6 +8055,8 @@ def main(page: ft.Page):
                             result_card("Est. slave accel", "rotarylink_est_accel"),
                             result_card("link_options", "rotarylink_options"),
                             result_card("Sync window", "rotarylink_sync_window"),
+                            result_card("Circumference", "rotarylink_circumference"),
+                            result_card("UNITS", "rotarylink_units"),
                             result_card("Profile", "rotarylink_profile_label"),
                             result_card("Start", "rotarylink_start_label"),
                         ],
@@ -9264,7 +9477,6 @@ def main(page: ft.Page):
         )
 
     app_root = ft.Container(expand=True)
-    current_solution = {"value": None}
 
     def set_workspace_appbar(solution_name):
         page.appbar = ft.AppBar(
@@ -9289,6 +9501,7 @@ def main(page: ft.Page):
 
     def show_solution_workspace(solution):
         current_solution["value"] = solution
+        load_axis_param_controls_for_solution(solution)
         if solution != "flow_wrapper":
             flexlink_stop_sim()
         set_rotary_sim_labels(solution)
@@ -9302,6 +9515,7 @@ def main(page: ft.Page):
         set_workspace_appbar(solution_name)
         app_root.content = build_solution_tabs(solution)
         page.update()
+        prompt_solution_axis_params_if_connected(solution)
 
     def solution_card(label, subtitle, icon, solution):
         base_bg = PANEL_BG

@@ -8,6 +8,11 @@ from src.flying_shear_app.domain.link_options import (
     build_rotarylink_options,
     format_rotarylink,
 )
+from src.flying_shear_app.domain.rotary_math import (
+    compute_rotary_drum_circumference_mm,
+    compute_rotary_units_per_mm,
+    compute_rotarylink_sync_window_deg,
+)
 from src.flying_shear_app.domain.rotarylink_math import calculate_rotarylink_profile
 
 
@@ -39,6 +44,21 @@ class RotaryLinkTests(unittest.TestCase):
         self.assertAlmostEqual(profile["link_decel"], 75)
         self.assertAlmostEqual(profile["start_link_pos"], 35)
         self.assertAlmostEqual(profile["sync_end"], 210)
+
+    def test_rotarylink_sync_window_uses_per_knife_segment(self):
+        self.assertAlmostEqual(compute_rotarylink_sync_window_deg(100, 25, 2), 45.0)
+        self.assertAlmostEqual(compute_rotarylink_sync_window_deg(100, 25, 1), 90.0)
+
+    def test_rotarylink_sync_window_is_clamped_to_segment(self):
+        self.assertAlmostEqual(compute_rotarylink_sync_window_deg(100, 125, 2), 180.0)
+
+    def test_rotarylink_units_are_counts_per_circumference_mm(self):
+        circumference = compute_rotary_drum_circumference_mm(20)
+        self.assertAlmostEqual(circumference, 20 * 3.141592653589793)
+        self.assertAlmostEqual(
+            compute_rotary_units_per_mm(8_388_608, 20),
+            8_388_608 / circumference,
+        )
 
     def test_rotarylink_rejects_bad_sync_positions(self):
         with self.assertRaisesRegex(ValueError, "sync_pos must be greater"):
@@ -94,6 +114,22 @@ class RotaryLinkTests(unittest.TestCase):
         self.assertIn("'   bits 2..4 = 3: power 7 polynomial speed profile", program)
         self.assertIn("'   bit 5 = ON: merge consecutive ROTARYLINK commands", program)
         self.assertIn("'   bit 6 = ON: follow master DPOS", program)
+
+    def test_rotarylink_basic_defines_link_axis_before_base_axis_setup(self):
+        program = emit_rotarylink_basic_program(
+            360,
+            360,
+            50,
+            100,
+            link_axis=0,
+            base_axis=1,
+            link_options=0,
+        )
+
+        link_setup = "BASE(link_ax)\nDEFPOS(0)"
+        base_setup = "BASE(base_ax)\nSERVO = ON\nDEFPOS(0)"
+        self.assertIn(link_setup, program)
+        self.assertLess(program.index(link_setup), program.index(base_setup))
 
     def test_rotarylink_option_breakdown_reports_no_bits(self):
         self.assertEqual(
