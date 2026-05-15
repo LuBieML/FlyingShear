@@ -69,46 +69,57 @@ def emit_rotarylink_basic_program(
     base_decel=None,
     base_idle=None,
     link_idle=None,
+    cut_length=None,
+    line_per_idle=None,
+    required_merge=None,
+    start_pos=None,
 ):
-    command_options = link_options if include_optional_args else None
-    command_sync_pos = sync_pos if include_optional_args and sync_pos is not None else None
+    cut_length_value = float(link_dist if cut_length is None else cut_length)
+    required_merge_value = (
+        cut_length_value < float(link_dist)
+        if required_merge is None
+        else bool(required_merge)
+    )
+    base_options = int(link_options) & ~32
+    command_options = base_options | (32 if required_merge_value else 0)
+    start_pos_value = float(acc if start_pos is None else start_pos)
 
     lines = [
         "' ROTARYLINK generated setup",
-        "' distance is circumference/knives; link_dist is cut length; acc/sync are base-axis phase distances.",
-        "' sync is 1:1: base_sync = link_sync = sync distance during the cut.",
+        "' distance is circumference/knives; linkdist is the master travel inside one ROTARYLINK command.",
+        "' cut_length is the product pitch; any idle travel happens between loop iterations.",
+        "' sync is 1:1 by construction: base_sync speed equals link speed during the cut.",
         f"base_ax      = {int(base_axis)}",
         f"link_ax      = {int(link_axis)}",
-        f"link_options = {int(link_options)}",
+        f"distance     = {float(distance):.3f}",
+        f"linkdist     = {float(link_dist):.3f}",
+        f"cut_length   = {cut_length_value:.3f}",
+        f"base_acc     = {float(acc):.3f}",
+        f"base_sync    = {float(sync):.3f}",
+        f"base_decel   = {float(base_decel):.3f}" if base_decel is not None else "' base_decel not supplied",
+        f"moveoptions  = {base_options}",
+        f"moveoptions.5 = {'TRUE' if required_merge_value else 'FALSE'}",
+        f"start_pos    = {start_pos_value:.3f}",
     ]
-    if base_decel is not None:
-        lines.append(f"' computed base_decel = {float(base_decel):.3f}")
     if base_idle is not None:
-        lines.append(f"' computed base_idle  = {float(base_idle):.3f}")
-    if link_idle is not None:
-        lines.append(f"' computed link_idle  = {float(link_idle):.3f}")
-    if (
-        (base_idle is not None and float(base_idle) > 1e-9)
-        or (link_idle is not None and float(link_idle) > 1e-9)
-    ):
+        lines.append(f"' base_idle drum dwell = {float(base_idle):.3f}")
+    if line_per_idle is None:
+        line_per_idle = link_idle
+    if line_per_idle is not None:
+        lines.append(f"' line_idle between ROTARYLINK calls = {float(line_per_idle):.3f}")
+    if line_per_idle is not None and abs(float(line_per_idle)) > 1e-9:
         lines.append(
-            "' NOTE: ROTARYLINK has no separate idle argument; realise dwell/repeat "
-            "spacing in the surrounding loop or queued sync positions."
+            "' NOTE: ROTARYLINK has no idle phase; this value is handled by start_pos += cut_length."
         )
-    lines.extend(describe_rotarylink_options(link_options))
-    if sync_pos is not None:
-        lines.append(f"sync_pos     = {float(sync_pos):.3f}")
-    if repeat_step is not None:
-        lines.append(f"repeat_dist  = {float(repeat_step):.3f}")
+    lines.extend(describe_rotarylink_options(command_options))
 
     lines.extend([
-        "",
-        "BASE(link_ax)",
-        "DEFPOS(0)",
         "",
         "BASE(base_ax)",
         "SERVO = ON",
         "DEFPOS(0)",
+        "' Add controller-specific axis setup here.",
+        "FORWARD AXIS(link_ax)",
         "",
     ])
 
@@ -119,49 +130,17 @@ def emit_rotarylink_basic_program(
         sync,
         "link_ax",
         command_options,
-        command_sync_pos,
+        "start_pos",
     )
 
-    if repeat_mode == "program_loop":
-        lines.extend([
-            "WHILE TRUE",
-            f"    {command}",
-            "    WAIT IDLE",
-            "WEND",
-        ])
-    elif repeat_mode == "buffered_merge":
-        start_pos = float(sync_pos or 0.0)
-        step = float(repeat_step if repeat_step is not None else link_dist)
-        count = max(1, int(buffered_commands))
-        lines.extend([
-            "' Buffered merged loop keeps loading future sync positions.",
-            "MERGE = 0",
-            "WHILE TRUE",
-        ])
-        for idx in range(count):
-            pos_expr = "sync_pos" if idx == 0 else f"sync_pos + repeat_dist * {idx}"
-            pos_value = start_pos + step * idx
-            lines.append(f"    ' buffered command {idx + 1}: sync_pos {pos_value:.3f}")
-            lines.append(
-                "    "
-                + format_rotarylink(
-                    distance,
-                    link_dist,
-                    acc,
-                    sync,
-                    "link_ax",
-                    link_options,
-                    pos_expr,
-                )
-            )
-        lines.extend([
-            "    sync_pos = sync_pos + repeat_dist * " + str(count),
-            "    WAIT UNTIL MOVES_BUFFERED < 2",
-            "WEND",
-        ])
-    else:
-        if merge:
-            lines.append("' Merge bit is set; load another ROTARYLINK before this one decelerates.")
-        lines.append(command)
+    lines.extend([
+        "WHILE (1)",
+        "    TRIGGER",
+        f"    {command}",
+        "    start_pos = start_pos + cut_length",
+        "    WA(10)",
+        "    WAIT UNTIL MOVES_BUFFERED < 2",
+        "WEND",
+    ])
 
     return "\n".join(lines)

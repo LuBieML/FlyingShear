@@ -1,7 +1,7 @@
 {
-  "controller_ip": "192.168.0.245",
+  "controller_ip": "192.168.0.250",
   "param_UNITS": "2097152.0",
-  "target_axis": "0",
+  "target_axis": "3",
   "param_SPEED": "10",
   "param_ACCEL": "3000",
   "param_DECEL": "3000",
@@ -189,7 +189,7 @@
       }
     },
     "rotarylink": {
-      "target_axis": "0",
+      "target_axis": "3",
       "axis_params": {
         "1": {
           "UNITS": "2097152.0",
@@ -231,7 +231,7 @@
           "FS_LIMIT": "10000"
         },
         "3": {
-          "UNITS": "2097152.0",
+          "UNITS": "133508.843",
           "SPEED": "10",
           "ACCEL": "1000",
           "DECEL": "1000",
@@ -246,7 +246,7 @@
       }
     }
   },
-  "master_speed": "3.44",
+  "master_speed": "10.0",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -303,20 +303,20 @@
   },
   "rotarylink_calc": {
     "distance": 62.83185307179586,
-    "link_dist": 100.0,
+    "link_dist": 43.0,
     "acc": 10.0,
     "sync": 3.0,
-    "sync_pos": 60.0,
+    "sync_pos": 10.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
     "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
     "merge": false,
-    "repeat_mode": "single",
+    "repeat_mode": "program_loop",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
-    "rl_vline": 50.0,
+    "rl_vline": 10.0,
     "rl_distance": 62.83185307179586,
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
