@@ -66,17 +66,35 @@ def emit_rotarylink_basic_program(
     merge=False,
     repeat_step=None,
     buffered_commands=4,
+    base_decel=None,
+    base_idle=None,
+    link_idle=None,
 ):
     command_options = link_options if include_optional_args else None
     command_sync_pos = sync_pos if include_optional_args and sync_pos is not None else None
 
     lines = [
         "' ROTARYLINK generated setup",
-        "' distance/link_dist are total base/link travel; acc/sync are base-axis phase distances.",
+        "' distance is circumference/knives; link_dist is cut length; acc/sync are base-axis phase distances.",
+        "' sync is 1:1: base_sync = link_sync = sync distance during the cut.",
         f"base_ax      = {int(base_axis)}",
         f"link_ax      = {int(link_axis)}",
         f"link_options = {int(link_options)}",
     ]
+    if base_decel is not None:
+        lines.append(f"' computed base_decel = {float(base_decel):.3f}")
+    if base_idle is not None:
+        lines.append(f"' computed base_idle  = {float(base_idle):.3f}")
+    if link_idle is not None:
+        lines.append(f"' computed link_idle  = {float(link_idle):.3f}")
+    if (
+        (base_idle is not None and float(base_idle) > 1e-9)
+        or (link_idle is not None and float(link_idle) > 1e-9)
+    ):
+        lines.append(
+            "' NOTE: ROTARYLINK has no separate idle argument; realise dwell/repeat "
+            "spacing in the surrounding loop or queued sync positions."
+        )
     lines.extend(describe_rotarylink_options(link_options))
     if sync_pos is not None:
         lines.append(f"sync_pos     = {float(sync_pos):.3f}")
