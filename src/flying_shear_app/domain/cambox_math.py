@@ -2,6 +2,11 @@
 
 import math
 
+from .rotary_math import (
+    compute_rotary_drum_circumference_mm,
+    compute_rotary_units_per_mm,
+)
+
 
 def generate_rotary_knife_cam_table(
     cut_length_mm,
@@ -14,7 +19,11 @@ def generate_rotary_knife_cam_table(
     line_speed_mm_s=500,
 ):
     drum_radius = drum_diameter_mm / 2.0
-    drum_circumference = math.pi * drum_diameter_mm
+    drum_circumference = compute_rotary_drum_circumference_mm(drum_diameter_mm)
+    drum_axis_units_per_mm = compute_rotary_units_per_mm(
+        encoder_counts_per_rev,
+        drum_diameter_mm,
+    )
     cut_segment_counts = encoder_counts_per_rev / n_knives
     alpha_max = math.radians(cut_window_deg / 2.0)
 
@@ -116,6 +125,7 @@ def generate_rotary_knife_cam_table(
         "cosine_correction_at_edge": 1.0 / math.cos(alpha_max),
         "drum_radius": drum_radius,
         "drum_circumference": drum_circumference,
+        "drum_axis_units_per_mm": drum_axis_units_per_mm,
         "cut_segment_counts": cut_segment_counts,
         "drum_rps_cut": drum_rps_cut,
         "drum_rps_out": drum_rps_out,

@@ -7,6 +7,7 @@ from src.flying_shear_app.domain.rotary_math import (
     compute_rotary_drum_angle_rad,
     compute_rotary_drum_kinematics,
     compute_rotary_drum_tangential_mm_s,
+    compute_rotary_units_per_mm,
     compute_rotary_mpos_counts_per_physical_rev,
     rotary_blade_direction_for_angle,
     shortest_angle_distance_rad,
@@ -125,6 +126,12 @@ def main():
     )
 
     expected_center_slope = encoder_counts_per_rev / (math.pi * drum_diameter_mm)
+    assert_close(
+        "Rotary knife drum UNITS",
+        diag["drum_axis_units_per_mm"],
+        compute_rotary_units_per_mm(encoder_counts_per_rev, drum_diameter_mm),
+        1e-12,
+    )
     mid = (len(table) - 1) // 2
     slope_center = slope_counts_per_mm(table, mid, cut_length_mm)
     assert_close("Cut center slope", slope_center, expected_center_slope, 0.001)

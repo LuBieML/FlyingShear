@@ -42,6 +42,7 @@ from .domain.rotary_math import (
     compute_rotary_drum_kinematics,
     compute_rotary_drum_tangential_mm_s,
     compute_rotary_mpos_counts_per_physical_rev,
+    compute_rotary_units_per_mm,
     compute_rotarylink_sync_window_deg,
     rotary_blade_direction_for_angle,
     shortest_angle_distance_rad,
@@ -3538,8 +3539,20 @@ def main(page: ft.Page):
         "cosine_corr":"Velocity boost at the cut-window edges. The drum speeds up by 1/cos(alpha) so the knife's horizontal speed still matches the material.",
         "peak_accel": "Peak drum angular acceleration from the corrected cut profile or sinusoidal blend transitions. Check against drum motor torque/inertia limits.",
         "table_res":  "Angular resolution of the cam table on the drum.",
+        "circumference": "Drum circumference calculated from the drum diameter: pi * diameter.",
+        "units":      "Drum axis UNITS for millimetres: encoder counts per revolution / drum circumference.",
+        "save_units": "Save the calculated UNITS value into the rotary knife drum-axis parameter set.",
         "code":       "Generated Trio BASIC TABLE() loader and CAMBOX() call. Copy this into the controller.",
     }
+
+    def format_rotary_axis_units(value):
+        try:
+            units = float(value)
+        except (TypeError, ValueError):
+            return "---"
+        if abs(units) >= 10000:
+            return f"{units:.3f}"
+        return f"{units:.6f}".rstrip("0").rstrip(".")
 
     def make_cam_input(label, key, default, width=160, suffix=None):
         return ft.TextField(
@@ -3563,10 +3576,25 @@ def main(page: ft.Page):
 
     cam_result_labels = {
         k: ft.Text("---", size=18, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
-        for k in ("R", "cut_zone", "rps_cut", "rps_out", "cosine_corr", "peak_accel", "table_res")
+        for k in (
+            "R",
+            "cut_zone",
+            "rps_cut",
+            "rps_out",
+            "cosine_corr",
+            "peak_accel",
+            "table_res",
+            "circumference",
+            "units",
+        )
     }
     cam_warning_text = ft.Text("", size=13, color=ft.Colors.AMBER_300)
     cam_review_text  = ft.Text("", size=12, color=ft.Colors.GREY_300)
+
+    def clear_cam_result_labels():
+        for label in cam_result_labels.values():
+            label.value = "—"
+            label.color = ft.Colors.CYAN_200
 
     def cam_result_card(label, key):
         return ft.Container(
@@ -4299,6 +4327,58 @@ def main(page: ft.Page):
 
     refresh_rotary_profile_view(update=False)
 
+    def cam_save_calculated_axis_units(axis_units):
+        drum_axis = str(axis_s_dropdown.value or "1")
+        axis_params = get_axis_params_store("rotary_knife", create=True)
+        axis_settings = axis_params.setdefault(drum_axis, {})
+        units_text = format_rotary_axis_units(axis_units)
+        axis_settings["UNITS"] = units_text
+
+        if active_solution_key() == "rotary_knife" and str(axis_dropdown.value or "") == drum_axis:
+            param_inputs["UNITS"].value = units_text
+            param_inputs["UNITS"].error_text = None
+
+        try:
+            if str(rotary_sim_state.get("units_axis")) in (drum_axis, "None"):
+                rotary_sim_state["axis_units"] = float(axis_units)
+                rotary_sim_state["units_axis"] = drum_axis
+                rotary_sim_state["units_source"] = f"saved UNITS {format_rotary_count(axis_units)}"
+                rotary_sim_state["units_error"] = None
+                rotary_sim_state["units_warning"] = None
+                update_rotary_units_label()
+        except NameError:
+            pass
+
+        refresh_axis_dropdown()
+        save_settings(settings)
+        return drum_axis, units_text
+
+    def cam_on_save_units(e):
+        try:
+            drum_dia = float(cam_drum_dia_input.value)
+            cpr = float(cam_cpr_input.value)
+            circumference = compute_rotary_drum_circumference_mm(drum_dia)
+            axis_units = compute_rotary_units_per_mm(cpr, drum_dia)
+        except (TypeError, ValueError) as ex:
+            show_snack(f"UNITS compute failed: {ex}", "error")
+            page.update()
+            return
+
+        cam_settings["drum_circumference"] = circumference
+        cam_settings["units"] = axis_units
+        drum_axis, units_text = cam_save_calculated_axis_units(axis_units)
+        cam_result_labels["circumference"].value = f"{circumference:.3f} mm"
+        cam_result_labels["units"].value = f"{units_text} cnt/mm"
+        show_snack(
+            f"Saved UNITS {units_text} to Rotary Knife drum axis {drum_axis}.",
+            "success",
+        )
+        try:
+            refresh_rotary_sim_geometry()
+        except NameError:
+            pass
+        page.update()
+
     def cam_recalc(e=None):
         try:
             cut_len   = float(cam_cut_input.value)
@@ -4315,6 +4395,7 @@ def main(page: ft.Page):
             cam_warning_text.color = ERROR_COLOR
             set_cam_code_output("", "")
             clear_cam_quicktest_table_state("Generate a valid profile before sending table data.")
+            clear_cam_result_labels()
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
@@ -4338,6 +4419,7 @@ def main(page: ft.Page):
             cam_warning_text.color = ERROR_COLOR
             set_cam_code_output("", "")
             clear_cam_quicktest_table_state("Fix profile inputs before sending table data.")
+            clear_cam_result_labels()
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
@@ -4360,8 +4442,7 @@ def main(page: ft.Page):
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
             refresh_rotary_profile_view(update=False)
-            for k in cam_result_labels:
-                cam_result_labels[k].value = "—"
+            clear_cam_result_labels()
             page.update()
             return
 
@@ -4373,6 +4454,13 @@ def main(page: ft.Page):
         cam_result_labels["cosine_corr"].value = f"{diag['cosine_correction_at_edge']:.3f}× boost"
         cam_result_labels["peak_accel"].value  = f"{diag['peak_ang_accel_rev_s2']:.1f} rev/s²"
         cam_result_labels["table_res"].value   = f"{diag['table_resolution_deg']:.4f} °/pt"
+        cam_result_labels["circumference"].value = f"{diag['drum_circumference']:.3f} mm"
+        cam_result_labels["units"].value = (
+            f"{format_rotary_axis_units(diag['drum_axis_units_per_mm'])} cnt/mm"
+        )
+        cam_settings["drum_circumference"] = diag["drum_circumference"]
+        cam_settings["units"] = diag["drum_axis_units_per_mm"]
+        save_settings(settings)
 
         # Color-code R against sane band
         R = diag["R"]
@@ -4561,6 +4649,13 @@ def main(page: ft.Page):
         height=38,
         tooltip="Write generated values with SetMultiTableValues(start_index, count, values)",
     )
+    cam_save_units_btn = ft.OutlinedButton(
+        "Save UNITS",
+        icon=ft.Icons.CALCULATE,
+        on_click=cam_on_save_units,
+        height=38,
+        tooltip=CAM_TOOLTIPS["save_units"],
+    )
 
     cam_panel_height = 1000
 
@@ -4570,7 +4665,7 @@ def main(page: ft.Page):
                             "Generate a CAMBOX position table from drum geometry",
                             ft.Icons.AUTORENEW),
             ft.Row([cam_cut_input, cam_drum_dia_input, cam_n_knives_input,
-                    cam_cut_window_input, cam_cpr_input],
+                    cam_cut_window_input, cam_cpr_input, cam_save_units_btn],
                    wrap=True, spacing=15, run_spacing=12),
             ft.Row([cam_n_points_input, cam_blend_input, cam_vline_input,
                     cam_table_start_input],
@@ -4583,6 +4678,8 @@ def main(page: ft.Page):
                 cam_result_card("Cosine correction",     "cosine_corr"),
                 cam_result_card("Peak ang. accel",       "peak_accel"),
                 cam_result_card("Table resolution",      "table_res"),
+                cam_result_card("Circumference",         "circumference"),
+                cam_result_card("UNITS",                 "units"),
             ], wrap=True, spacing=10, run_spacing=10),
             ft.Column([
                 ft.Text("Drum velocity profile (cut window shaded)",
@@ -4721,6 +4818,8 @@ def main(page: ft.Page):
                             ),
                             formula_block(
                                 [
+                                    "drum_circumference = pi * drum_diameter",
+                                    "drum_axis_UNITS = drum_encoder_counts_per_rev / drum_circumference",
                                     "drum_counts_per_cut = drum_encoder_counts_per_rev / number_of_knives",
                                     "table_value[i] = round(normalized_drum_angle[i] * drum_counts_per_cut)",
                                     "final table value must equal drum_counts_per_cut",
@@ -4728,7 +4827,8 @@ def main(page: ft.Page):
                             ),
                             help_text(
                                 "This matters because CAMBOX TABLE values do not use UNITS. "
-                                "If the count value is wrong, the controller receives a correctly shaped profile at the wrong scale."
+                                "The calculated UNITS value is still saved for the drum axis so controller position units and live MPOS checks "
+                                "represent millimetres of drum surface."
                             ),
                         ],
                         icon=ft.Icons.WARNING_AMBER,

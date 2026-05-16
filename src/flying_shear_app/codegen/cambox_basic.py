@@ -1,6 +1,13 @@
 """Trio BASIC generation for rotary-knife CAMBOX profiles."""
 
 
+def _format_axis_units(value):
+    units = float(value)
+    if abs(units) >= 10000:
+        return f"{units:.3f}"
+    return f"{units:.6f}".rstrip("0").rstrip(".")
+
+
 def emit_cam_basic_program(
     table_values,
     diag,
@@ -18,6 +25,11 @@ def emit_cam_basic_program(
                  f"{diag['table_resolution_deg']:.4f}°/point on drum")
     lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
                  f"{int(diag['cut_segment_counts'])} counts per cut segment")
+    if "drum_axis_units_per_mm" in diag:
+        lines.append(
+            "' Drum axis UNITS for mm: "
+            f"{_format_axis_units(diag['drum_axis_units_per_mm'])} counts/mm"
+        )
     lines.append("' Drum zero: blade at top. Material contact/cut is 180 deg from zero.")
     lines.append(f"' Cut zone: {diag['cut_zone_master_mm']:.2f} mm of material "
                  f"(R={diag['R']:.4f})")
@@ -63,6 +75,11 @@ def emit_cam_quicktest_basic_program(
                  f"{diag['table_resolution_deg']:.4f}°/point on drum")
     lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
                  f"{int(diag['cut_segment_counts'])} counts per cut segment")
+    if "drum_axis_units_per_mm" in diag:
+        lines.append(
+            "' Drum axis UNITS for mm: "
+            f"{_format_axis_units(diag['drum_axis_units_per_mm'])} counts/mm"
+        )
     lines.append("' Drum zero: blade at top. Material contact/cut is 180 deg from zero.")
     lines.append(f"' Cut zone: {diag['cut_zone_master_mm']:.2f} mm of material "
                  f"(R={diag['R']:.4f})")

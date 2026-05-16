@@ -1,7 +1,7 @@
 {
   "controller_ip": "192.168.0.250",
   "param_UNITS": "2097152.0",
-  "target_axis": "3",
+  "target_axis": "0",
   "param_SPEED": "10",
   "param_ACCEL": "3000",
   "param_DECEL": "3000",
@@ -75,7 +75,7 @@
       }
     },
     "rotary_knife": {
-      "target_axis": "1",
+      "target_axis": "0",
       "axis_params": {
         "1": {
           "UNITS": "2097152.0",
@@ -91,7 +91,7 @@
           "FS_LIMIT": "10000"
         },
         "0": {
-          "UNITS": "133510",
+          "UNITS": "133508.843",
           "SPEED": "10",
           "ACCEL": "1000",
           "DECEL": "1000",
@@ -266,20 +266,22 @@
   "cam_calc": {
     "cut": 30.0,
     "drum_dia": 20.0,
-    "n_knives": 2,
+    "n_knives": 3,
     "cut_window": 30.0,
     "cpr": 8388608,
     "n_points": 10000,
-    "blend": 1.0,
+    "blend": 0.5,
     "vline": 10.0,
-    "table_start": 1000
+    "table_start": 1000,
+    "drum_circumference": 62.83185307179586,
+    "units": 133508.8428860218
   },
   "rotary_sim": {
     "drum_direction_reversed": true,
     "link_units_to_mm": 1.0,
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
-    "show_debug": false
+    "show_debug": true
   },
   "cam_profile_view": {
     "start_deg": 0.0,
