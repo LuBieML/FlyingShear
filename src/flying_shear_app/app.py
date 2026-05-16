@@ -10,6 +10,7 @@ import asyncio
 import ctypes
 from concurrent.futures import ThreadPoolExecutor
 
+from .bootstrap.asyncio_windows import install_asyncio_windows_pipe_reset_filter
 from .bootstrap.flet_charts_patch import patch_flet_charts_matplotlib_lifecycle
 from .bootstrap.windows_timer import (
     begin_windows_timer_resolution,
@@ -62,6 +63,8 @@ patch_flet_charts_matplotlib_lifecycle()
 begin_windows_timer_resolution()
 
 def main(page: ft.Page):
+    install_asyncio_windows_pipe_reset_filter()
+
     page.title = "Trio Motion Setup"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0

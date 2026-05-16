@@ -15,7 +15,7 @@
   "master_axis": "3",
   "slave_axis": "0",
   "cutter_output": "8",
-  "scale_px_per_unit": 17.0,
+  "scale_px_per_unit": 15.0,
   "solution_axis_params": {
     "flying_shear": {
       "target_axis": "1",
@@ -246,7 +246,7 @@
       }
     }
   },
-  "master_speed": "30.0",
+  "master_speed": "4.43",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -264,13 +264,13 @@
     "use_base_dist": false
   },
   "cam_calc": {
-    "cut": 30.0,
+    "cut": 25.0,
     "drum_dia": 20.0,
     "n_knives": 1,
-    "cut_window": 30.0,
+    "cut_window": 10.0,
     "cpr": 8388608,
     "n_points": 10000,
-    "blend": 0.5,
+    "blend": 0.3,
     "vline": 10.0,
     "table_start": 1000,
     "drum_circumference": 62.83185307179586,
