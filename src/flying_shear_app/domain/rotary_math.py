@@ -30,6 +30,20 @@ def compute_rotary_units_per_mm(encoder_counts_per_rev, drum_diameter_mm):
     return cpr / compute_rotary_drum_circumference_mm(drum_diameter_mm)
 
 
+def compute_rotary_cutting_radius_px(drum_diameter_mm, scale_px_per_unit, link_units_to_mm=1.0):
+    """Return the visual cutting radius in pixels for the current conveyor scale."""
+    diameter = float(drum_diameter_mm)
+    scale = float(scale_px_per_unit)
+    units_to_mm = float(link_units_to_mm)
+    if diameter <= 0:
+        raise ValueError("Drum diameter must be > 0")
+    if scale <= 0:
+        raise ValueError("Visual scale must be > 0")
+    if units_to_mm <= 0:
+        raise ValueError("Link units to mm must be > 0")
+    return (diameter / units_to_mm) * scale / 2.0
+
+
 def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
     divisor = float(mpos_counts_per_physical_rev)
     if divisor <= 0:

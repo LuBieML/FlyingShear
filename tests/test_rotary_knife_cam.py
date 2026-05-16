@@ -3,6 +3,7 @@ import unittest
 
 from src.flying_shear_app.codegen.cambox_basic import emit_cam_basic_program
 from src.flying_shear_app.domain.cambox_math import generate_rotary_knife_cam_table
+from src.flying_shear_app.domain.rotary_math import compute_rotary_cutting_radius_px
 
 
 class RotaryKnifeCamTests(unittest.TestCase):
@@ -52,6 +53,24 @@ class RotaryKnifeCamTests(unittest.TestCase):
         self.assertIn(
             "' Drum axis UNITS for mm: 133508.843 counts/mm",
             program,
+        )
+
+    def test_rotary_visual_cutting_radius_uses_conveyor_scale(self):
+        self.assertAlmostEqual(
+            compute_rotary_cutting_radius_px(
+                drum_diameter_mm=20,
+                scale_px_per_unit=2,
+                link_units_to_mm=1,
+            ),
+            20.0,
+        )
+        self.assertAlmostEqual(
+            compute_rotary_cutting_radius_px(
+                drum_diameter_mm=20,
+                scale_px_per_unit=45,
+                link_units_to_mm=10,
+            ),
+            45.0,
         )
 
 
