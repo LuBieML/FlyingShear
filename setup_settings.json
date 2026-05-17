@@ -244,6 +244,10 @@
           "FS_LIMIT": "100000000"
         }
       }
+    },
+    "point_to_point": {
+      "target_axis": "0",
+      "axis_params": {}
     }
   },
   "master_speed": "7.71",
@@ -331,5 +335,21 @@
     "rl_units": 133508.8428860218,
     "cut_length": 100.0,
     "decel": 10.0
+  },
+  "point_to_point": {
+    "example": "single",
+    "axis": "0",
+    "move_mode": "relative",
+    "target": "100.0",
+    "x_axis": "0",
+    "y_axis": "1",
+    "origin_x": "0.0",
+    "origin_y": "0.0",
+    "side": "100.0",
+    "speed": "10.0",
+    "accel": "100.0",
+    "decel": "100.0",
+    "servo_on": true,
+    "wait_idle": true
   }
 }

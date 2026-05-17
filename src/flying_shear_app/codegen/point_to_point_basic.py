@@ -65,3 +65,95 @@ def emit_point_to_point_basic_program(
         lines.append("WAIT IDLE")
 
     return "\n".join(lines)
+
+
+def emit_square_move_basic_program(
+    x_axis,
+    y_axis,
+    move_mode,
+    origin_x,
+    origin_y,
+    side,
+    speed,
+    accel,
+    decel,
+    servo_on=True,
+    wait_idle=True,
+):
+    """Emit a beginner-friendly two-axis square path example."""
+    if move_mode not in ("relative", "absolute"):
+        raise ValueError("move_mode must be 'relative' or 'absolute'")
+
+    x_axis_value = int(x_axis)
+    y_axis_value = int(y_axis)
+    side_value = float(side)
+    if side_value <= 0:
+        raise ValueError("side must be > 0")
+
+    origin_x_value = float(origin_x)
+    origin_y_value = float(origin_y)
+    speed_value = _format_number(speed)
+    accel_value = _format_number(accel)
+    decel_value = _format_number(decel)
+
+    lines = [
+        "' Point To Point square path example",
+        "' X axis and Y axis are grouped with BASE, then each line is one simple move.",
+        f"x_axis = {x_axis_value}",
+        f"y_axis = {y_axis_value}",
+        f"side = {_format_number(side_value)}",
+        f"move_speed = {speed_value}",
+        f"move_accel = {accel_value}",
+        f"move_decel = {decel_value}",
+    ]
+
+    if move_mode == "absolute":
+        lines.extend(
+            [
+                f"x0 = {_format_number(origin_x_value)}",
+                f"y0 = {_format_number(origin_y_value)}",
+            ]
+        )
+    else:
+        lines.append("' Relative square starts from the current X/Y position.")
+
+    lines.extend(
+        [
+            "",
+            "BASE(x_axis, y_axis)",
+        ]
+    )
+    if servo_on:
+        lines.append("SERVO = ON")
+    lines.extend(
+        [
+            "SPEED = move_speed",
+            "ACCEL = move_accel",
+            "DECEL = move_decel",
+            "",
+        ]
+    )
+
+    if move_mode == "absolute":
+        moves = [
+            ("Start corner", "MOVEABS(x0, y0)"),
+            ("Bottom edge", "MOVEABS(x0 + side, y0)"),
+            ("Right edge", "MOVEABS(x0 + side, y0 + side)"),
+            ("Top edge", "MOVEABS(x0, y0 + side)"),
+            ("Left edge back home", "MOVEABS(x0, y0)"),
+        ]
+    else:
+        moves = [
+            ("Bottom edge", "MOVE(side, 0)"),
+            ("Right edge", "MOVE(0, side)"),
+            ("Top edge", "MOVE(-side, 0)"),
+            ("Left edge back home", "MOVE(0, -side)"),
+        ]
+
+    for label, command in moves:
+        lines.append(f"' {label}")
+        lines.append(command)
+        if wait_idle:
+            lines.append("WAIT IDLE")
+
+    return "\n".join(lines)

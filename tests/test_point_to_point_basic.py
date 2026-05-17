@@ -2,6 +2,7 @@ import unittest
 
 from src.flying_shear_app.codegen.point_to_point_basic import (
     emit_point_to_point_basic_program,
+    emit_square_move_basic_program,
 )
 
 
@@ -41,6 +42,48 @@ class PointToPointBasicTests(unittest.TestCase):
     def test_invalid_mode_is_rejected(self):
         with self.assertRaises(ValueError):
             emit_point_to_point_basic_program(0, "indexed", 10, 1, 1, 1)
+
+    def test_absolute_square_uses_moveabs_corner_coordinates(self):
+        program = emit_square_move_basic_program(
+            x_axis=0,
+            y_axis=1,
+            move_mode="absolute",
+            origin_x=10,
+            origin_y=20,
+            side=50,
+            speed=25,
+            accel=100,
+            decel=100,
+        )
+
+        self.assertIn("BASE(x_axis, y_axis)", program)
+        self.assertIn("x0 = 10.000", program)
+        self.assertIn("y0 = 20.000", program)
+        self.assertIn("MOVEABS(x0 + side, y0 + side)", program)
+        self.assertIn("MOVEABS(x0, y0)", program)
+
+    def test_relative_square_uses_move_edges(self):
+        program = emit_square_move_basic_program(
+            x_axis=0,
+            y_axis=1,
+            move_mode="relative",
+            origin_x=0,
+            origin_y=0,
+            side=50,
+            speed=25,
+            accel=100,
+            decel=100,
+        )
+
+        self.assertIn("MOVE(side, 0)", program)
+        self.assertIn("MOVE(0, side)", program)
+        self.assertIn("MOVE(-side, 0)", program)
+        self.assertIn("MOVE(0, -side)", program)
+        self.assertNotIn("\nMOVEABS", program)
+
+    def test_square_side_must_be_positive(self):
+        with self.assertRaises(ValueError):
+            emit_square_move_basic_program(0, 1, "absolute", 0, 0, 0, 1, 1, 1)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,10 @@ from .codegen.cambox_basic import (
     emit_cam_basic_program,
     emit_cam_quicktest_basic_program,
 )
-from .codegen.point_to_point_basic import emit_point_to_point_basic_program
+from .codegen.point_to_point_basic import (
+    emit_point_to_point_basic_program,
+    emit_square_move_basic_program,
+)
 from .codegen.rotarylink_basic import emit_rotarylink_basic_program
 from .config.settings import load_settings, save_settings
 from .controller.trio_connection import TrioConnection
@@ -10311,9 +10314,15 @@ def main(page: ft.Page):
         settings["point_to_point"] = point_to_point_settings
 
     point_to_point_defaults = {
+        "example": "square",
         "axis": "0",
         "move_mode": "relative",
         "target": "100.0",
+        "x_axis": "0",
+        "y_axis": "1",
+        "origin_x": "0.0",
+        "origin_y": "0.0",
+        "side": "100.0",
         "speed": "10.0",
         "accel": "100.0",
         "decel": "100.0",
@@ -10346,9 +10355,15 @@ def main(page: ft.Page):
     point_to_point_status = ft.Text("Ready", size=12, color=MUTED_TEXT)
 
     def point_to_point_save_settings():
+        point_to_point_settings["example"] = point_to_point_example_dropdown.value or "square"
         point_to_point_settings["axis"] = point_to_point_axis_dropdown.value or "0"
         point_to_point_settings["move_mode"] = point_to_point_mode_dropdown.value or "relative"
         point_to_point_settings["target"] = point_to_point_target_input.value or ""
+        point_to_point_settings["x_axis"] = point_to_point_x_axis_dropdown.value or "0"
+        point_to_point_settings["y_axis"] = point_to_point_y_axis_dropdown.value or "1"
+        point_to_point_settings["origin_x"] = point_to_point_origin_x_input.value or ""
+        point_to_point_settings["origin_y"] = point_to_point_origin_y_input.value or ""
+        point_to_point_settings["side"] = point_to_point_side_input.value or ""
         point_to_point_settings["speed"] = point_to_point_speed_input.value or ""
         point_to_point_settings["accel"] = point_to_point_accel_input.value or ""
         point_to_point_settings["decel"] = point_to_point_decel_input.value or ""
@@ -10363,6 +10378,16 @@ def main(page: ft.Page):
             axis = int(point_to_point_axis_dropdown.value or "0")
         except (TypeError, ValueError):
             axis = 0
+            valid = False
+        try:
+            x_axis = int(point_to_point_x_axis_dropdown.value or "0")
+        except (TypeError, ValueError):
+            x_axis = 0
+            valid = False
+        try:
+            y_axis = int(point_to_point_y_axis_dropdown.value or "1")
+        except (TypeError, ValueError):
+            y_axis = 1
             valid = False
 
         def parse_float(control, positive=False):
@@ -10387,9 +10412,15 @@ def main(page: ft.Page):
             return value
 
         values = {
+            "example": point_to_point_example_dropdown.value or "square",
             "axis": axis,
+            "x_axis": x_axis,
+            "y_axis": y_axis,
             "move_mode": point_to_point_mode_dropdown.value or "relative",
             "target": parse_float(point_to_point_target_input),
+            "origin_x": parse_float(point_to_point_origin_x_input),
+            "origin_y": parse_float(point_to_point_origin_y_input),
+            "side": parse_float(point_to_point_side_input, positive=True),
             "speed": parse_float(point_to_point_speed_input, positive=True),
             "accel": parse_float(point_to_point_accel_input, positive=True),
             "decel": parse_float(point_to_point_decel_input, positive=True),
@@ -10399,6 +10430,23 @@ def main(page: ft.Page):
         return valid, values
 
     def point_to_point_update_target_label():
+        example = point_to_point_example_dropdown.value or "square"
+        if example == "square":
+            point_to_point_target_input.label = "Distance"
+            point_to_point_target_input.tooltip = "Single-axis distance or target position."
+            if (point_to_point_mode_dropdown.value or "relative") == "absolute":
+                point_to_point_origin_x_input.disabled = False
+                point_to_point_origin_y_input.disabled = False
+                point_to_point_origin_x_input.tooltip = "Absolute X coordinate of the square start corner."
+                point_to_point_origin_y_input.tooltip = "Absolute Y coordinate of the square start corner."
+            else:
+                point_to_point_origin_x_input.disabled = True
+                point_to_point_origin_y_input.disabled = True
+                point_to_point_origin_x_input.tooltip = "Relative square starts at the current X position."
+                point_to_point_origin_y_input.tooltip = "Relative square starts at the current Y position."
+            return
+        point_to_point_origin_x_input.disabled = False
+        point_to_point_origin_y_input.disabled = False
         if (point_to_point_mode_dropdown.value or "relative") == "absolute":
             point_to_point_target_input.label = "Target position"
             point_to_point_target_input.tooltip = "Absolute axis target position used by MOVEABS(target_pos)."
@@ -10406,13 +10454,46 @@ def main(page: ft.Page):
             point_to_point_target_input.label = "Distance"
             point_to_point_target_input.tooltip = "Relative axis distance used by MOVE(distance)."
 
+    def point_to_point_update_example_visibility():
+        try:
+            is_square = (point_to_point_example_dropdown.value or "square") == "square"
+            point_to_point_single_cluster.visible = not is_square
+            point_to_point_square_cluster.visible = is_square
+        except NameError:
+            pass
+
     def point_to_point_update_code(e=None, show_errors=False, save=True):
         point_to_point_update_target_label()
+        point_to_point_update_example_visibility()
         if save:
             point_to_point_save_settings()
         valid, values = point_to_point_parse_inputs(show_errors=show_errors)
         if valid:
-            point_to_point_code_output.value = emit_point_to_point_basic_program(**values)
+            if values["example"] == "square":
+                point_to_point_code_output.value = emit_square_move_basic_program(
+                    x_axis=values["x_axis"],
+                    y_axis=values["y_axis"],
+                    move_mode=values["move_mode"],
+                    origin_x=values["origin_x"],
+                    origin_y=values["origin_y"],
+                    side=values["side"],
+                    speed=values["speed"],
+                    accel=values["accel"],
+                    decel=values["decel"],
+                    servo_on=values["servo_on"],
+                    wait_idle=values["wait_idle"],
+                )
+            else:
+                point_to_point_code_output.value = emit_point_to_point_basic_program(
+                    axis=values["axis"],
+                    move_mode=values["move_mode"],
+                    target=values["target"],
+                    speed=values["speed"],
+                    accel=values["accel"],
+                    decel=values["decel"],
+                    servo_on=values["servo_on"],
+                    wait_idle=values["wait_idle"],
+                )
         else:
             point_to_point_code_output.value = "' Enter valid point-to-point parameters to generate Trio BASIC."
         if e is not None:
@@ -10438,6 +10519,23 @@ def main(page: ft.Page):
             tooltip=tooltip,
         )
 
+    point_to_point_example_dropdown = ft.Dropdown(
+        label="Lesson",
+        width=190,
+        height=45,
+        options=[
+            ft.dropdown.Option("square", "Draw a square"),
+            ft.dropdown.Option("single", "Single axis move"),
+        ],
+        value=point_to_point_setting_text("example"),
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_size=12,
+        on_select=lambda e: point_to_point_update_code(e),
+        tooltip="Choose the beginner example used to generate Trio BASIC.",
+    )
     point_to_point_axis_dropdown = ft.Dropdown(
         label="Axis",
         width=130,
@@ -10469,12 +10567,60 @@ def main(page: ft.Page):
         on_select=lambda e: point_to_point_update_code(e),
         tooltip="Relative mode generates MOVE(distance); absolute mode generates MOVEABS(target_pos).",
     )
+    point_to_point_x_axis_dropdown = ft.Dropdown(
+        label="X axis",
+        width=130,
+        height=45,
+        options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
+        value=point_to_point_setting_text("x_axis"),
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_size=12,
+        on_select=lambda e: point_to_point_update_code(e),
+        tooltip="Horizontal square axis used by BASE(x_axis, y_axis).",
+    )
+    point_to_point_y_axis_dropdown = ft.Dropdown(
+        label="Y axis",
+        width=130,
+        height=45,
+        options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
+        value=point_to_point_setting_text("y_axis"),
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_size=12,
+        on_select=lambda e: point_to_point_update_code(e),
+        tooltip="Vertical square axis used by BASE(x_axis, y_axis).",
+    )
     point_to_point_target_input = point_to_point_text_field(
         "Distance",
         "target",
         "u",
         positive=False,
         tooltip="Relative distance or absolute target position.",
+    )
+    point_to_point_origin_x_input = point_to_point_text_field(
+        "Origin X",
+        "origin_x",
+        "u",
+        positive=False,
+        tooltip="Absolute X coordinate of the square start corner.",
+    )
+    point_to_point_origin_y_input = point_to_point_text_field(
+        "Origin Y",
+        "origin_y",
+        "u",
+        positive=False,
+        tooltip="Absolute Y coordinate of the square start corner.",
+    )
+    point_to_point_side_input = point_to_point_text_field(
+        "Side length",
+        "side",
+        "u",
+        tooltip="Square side length. Must be greater than zero.",
     )
     point_to_point_speed_input = point_to_point_text_field(
         "Speed",
@@ -10539,19 +10685,68 @@ def main(page: ft.Page):
             page.update()
             return
 
+        example = values["example"]
         axis = values["axis"]
         move_mode = values["move_mode"]
         target = values["target"]
         point_to_point_status.value = (
-            f"Submitting {'MOVE' if move_mode == 'relative' else 'MOVEABS'} on Axis {axis}..."
+            "Submitting square path..."
+            if example == "square"
+            else f"Submitting {'MOVE' if move_mode == 'relative' else 'MOVEABS'} on Axis {axis}..."
         )
         point_to_point_status.color = ft.Colors.CYAN_200
         page.update()
+
+        def _number(value):
+            return f"{float(value):.3f}"
 
         def _do():
             conn = trio_conn.connection
             if not conn or not trio_conn.is_connected():
                 raise RuntimeError("Controller connection is not available.")
+            if example == "square":
+                side = values["side"]
+                origin_x = values["origin_x"]
+                origin_y = values["origin_y"]
+                commands = [
+                    f"BASE({values['x_axis']}, {values['y_axis']})",
+                    f"SPEED={_number(values['speed'])}",
+                    f"ACCEL={_number(values['accel'])}",
+                    f"DECEL={_number(values['decel'])}",
+                ]
+                if values["servo_on"]:
+                    commands.insert(1, "SERVO=ON")
+                if move_mode == "absolute":
+                    corners = [
+                        (origin_x, origin_y),
+                        (origin_x + side, origin_y),
+                        (origin_x + side, origin_y + side),
+                        (origin_x, origin_y + side),
+                        (origin_x, origin_y),
+                    ]
+                    move_commands = [
+                        f"MOVEABS({_number(x)}, {_number(y)})"
+                        for x, y in corners
+                    ]
+                else:
+                    edges = [
+                        (side, 0),
+                        (0, side),
+                        (-side, 0),
+                        (0, -side),
+                    ]
+                    move_commands = [
+                        f"MOVE({_number(x)}, {_number(y)})"
+                        for x, y in edges
+                    ]
+                for move_command in move_commands:
+                    commands.append(move_command)
+                    if values["wait_idle"]:
+                        commands.append("WAIT IDLE")
+                for command in commands:
+                    conn.Execute(command)
+                return
+
             conn.SetAxisParameter_SPEED(axis, values["speed"])
             conn.SetAxisParameter_ACCEL(axis, values["accel"])
             conn.SetAxisParameter_DECEL(axis, values["decel"])
@@ -10566,7 +10761,11 @@ def main(page: ft.Page):
         future.add_done_callback(
             lambda done: point_to_point_finish_future(
                 done,
-                f"{'MOVE' if move_mode == 'relative' else 'MOVEABS'} submitted on Axis {axis}.",
+                (
+                    "Square path submitted."
+                    if example == "square"
+                    else f"{'MOVE' if move_mode == 'relative' else 'MOVEABS'} submitted on Axis {axis}."
+                ),
             )
         )
 
@@ -10581,8 +10780,21 @@ def main(page: ft.Page):
             axis = int(point_to_point_axis_dropdown.value or "0")
         except (TypeError, ValueError):
             axis = 0
+        try:
+            x_axis = int(point_to_point_x_axis_dropdown.value or "0")
+        except (TypeError, ValueError):
+            x_axis = 0
+        try:
+            y_axis = int(point_to_point_y_axis_dropdown.value or "1")
+        except (TypeError, ValueError):
+            y_axis = 1
+        is_square = (point_to_point_example_dropdown.value or "square") == "square"
 
-        point_to_point_status.value = f"Stopping Axis {axis}..."
+        point_to_point_status.value = (
+            f"Stopping Axis {x_axis} and Axis {y_axis}..."
+            if is_square
+            else f"Stopping Axis {axis}..."
+        )
         point_to_point_status.color = ft.Colors.CYAN_200
         page.update()
 
@@ -10590,11 +10802,23 @@ def main(page: ft.Page):
             conn = trio_conn.connection
             if not conn or not trio_conn.is_connected():
                 raise RuntimeError("Controller connection is not available.")
-            conn.Cancel(2, axis)
+            if is_square:
+                conn.Cancel(2, x_axis)
+                if y_axis != x_axis:
+                    conn.Cancel(2, y_axis)
+            else:
+                conn.Cancel(2, axis)
 
         future = uapi_executor.submit(_do)
         future.add_done_callback(
-            lambda done: point_to_point_finish_future(done, f"Cancel(2, {axis}) submitted.")
+            lambda done: point_to_point_finish_future(
+                done,
+                (
+                    f"Cancel submitted for Axis {x_axis} and Axis {y_axis}."
+                    if is_square
+                    else f"Cancel(2, {axis}) submitted."
+                ),
+            )
         )
 
     point_to_point_run_btn = ft.FilledButton(
@@ -10631,6 +10855,43 @@ def main(page: ft.Page):
 
     point_to_point_panel_height = 680
 
+    point_to_point_lesson_cluster = control_cluster(
+        "Learning example",
+        [point_to_point_example_dropdown, point_to_point_mode_dropdown],
+        icon=ft.Icons.SCHOOL,
+        col={"xs": 12},
+    )
+    point_to_point_single_cluster = control_cluster(
+        "Single-axis move",
+        [point_to_point_axis_dropdown, point_to_point_target_input],
+        icon=ft.Icons.MY_LOCATION,
+        col={"xs": 12},
+    )
+    point_to_point_square_cluster = control_cluster(
+        "Square path",
+        [
+            point_to_point_x_axis_dropdown,
+            point_to_point_y_axis_dropdown,
+            point_to_point_origin_x_input,
+            point_to_point_origin_y_input,
+            point_to_point_side_input,
+        ],
+        icon=ft.Icons.CROP_SQUARE,
+        col={"xs": 12},
+    )
+    point_to_point_dynamics_cluster = control_cluster(
+        "Dynamics",
+        [
+            point_to_point_speed_input,
+            point_to_point_accel_input,
+            point_to_point_decel_input,
+            point_to_point_servo_checkbox,
+            point_to_point_wait_checkbox,
+        ],
+        icon=ft.Icons.SPEED,
+        col={"xs": 12},
+    )
+
     point_to_point_control_panel = ft.Container(
         content=ft.Column(
             [
@@ -10641,28 +10902,10 @@ def main(page: ft.Page):
                 ),
                 ft.ResponsiveRow(
                     [
-                        control_cluster(
-                            "Move setup",
-                            [
-                                point_to_point_axis_dropdown,
-                                point_to_point_mode_dropdown,
-                                point_to_point_target_input,
-                            ],
-                            icon=ft.Icons.MY_LOCATION,
-                            col={"xs": 12, "lg": 6},
-                        ),
-                        control_cluster(
-                            "Dynamics",
-                            [
-                                point_to_point_speed_input,
-                                point_to_point_accel_input,
-                                point_to_point_decel_input,
-                                point_to_point_servo_checkbox,
-                                point_to_point_wait_checkbox,
-                            ],
-                            icon=ft.Icons.SPEED,
-                            col={"xs": 12, "lg": 6},
-                        ),
+                        point_to_point_lesson_cluster,
+                        point_to_point_single_cluster,
+                        point_to_point_square_cluster,
+                        point_to_point_dynamics_cluster,
                     ],
                     columns=12,
                     spacing=14,
