@@ -103,7 +103,7 @@ def main(page: ft.Page):
     SOLUTION_LABELS = {
         "flying_shear": "Flying Shear",
         "rotary_knife": "Rotary Knife",
-        "flow_wrapper": "Flow Wrapper",
+        "flow_wrapper": "VFFS",
         "rotarylink": "RotaryLink",
     }
     current_solution = {"value": None}
@@ -6776,17 +6776,18 @@ def main(page: ft.Page):
     update_rotary_debug_overlay()
 
     # ============================================================
-    # === Flow Wrapper FLEXLINK Calculator + Simulation ==========
+    # === Continuous VFFS Cross-Seal FLEXLINK Calculator =========
     # ============================================================
     flexlink_settings = settings.setdefault("flexlink_calc", {})
     for flexlink_key, flexlink_default in [
-        ("cycle_pitch", 300),
-        ("line_speed", 500),
-        ("excite_dist", 20),
-        ("base_in_mm", 210),
-        ("base_out_mm", 15),
-        ("excite_acc_mm", 37.5),
-        ("excite_dec_mm", 37.5),
+        ("cycle_pitch", 180),
+        ("line_speed", 400),
+        ("excite_dist", 5),
+        ("base_in_mm", 108),
+        ("base_out_mm", 9),
+        ("excite_acc_mm", 15),
+        ("excite_dec_mm", 15),
+        ("seal_dwell_min_ms", 80),
         ("curve_type", "sine"),
         ("start_mode", "immediate"),
         ("link_pos", 0),
@@ -6797,13 +6798,14 @@ def main(page: ft.Page):
         flexlink_settings.setdefault(flexlink_key, flexlink_default)
 
     flexlink_tooltips = {
-        "cycle_pitch": "FLEXLINK link_dist: positive master-axis distance for one complete jaw advance cycle.",
-        "line_speed": "Maximum film speed used for cycle-time and peak-speed estimates.",
-        "excite_dist": "Signed extra jaw travel during the seal impulse; positive advances the jaws ahead of the film.",
-        "base_in": "Master distance at base ratio before excitation starts.",
-        "base_out": "Master distance at base ratio after excitation ends.",
-        "excite_acc": "Master distance used to ramp into the advance impulse.",
-        "excite_dec": "Master distance used to ramp out of the advance impulse.",
+        "cycle_pitch": "FLEXLINK link_dist = bag length. Master (film pull) distance for one complete cross-seal cycle.",
+        "line_speed": "Film pull speed used for cycle-time, peak-speed, and heat-seal dwell estimates.",
+        "excite_dist": "Signed per-cycle registration correction applied while the jaws are open. Positive advances the jaw axis relative to the film.",
+        "base_in": "First 1:1 locked seal-contact distance before the open / registration-nudge window.",
+        "base_out": "Second 1:1 locked seal-contact distance after the open / registration-nudge window.",
+        "excite_acc": "Film distance used to ramp into the registration correction during the open window.",
+        "excite_dec": "Film distance used to ramp out of the registration correction during the open window.",
+        "seal_dwell_min_ms": "Minimum heat-seal dwell time required by the film material (PE ~80 ms, PP ~120 ms, PET ~150 ms). Used for the dwell warning.",
         "curve_type": "FLEXLINK curve type encoded into link_options bits 10..12.",
         "start_mode": "Optional trigger for the first FLEXLINK call.",
         "link_pos": "Absolute link-axis position or R_MARK channel, depending on the selected trigger.",
@@ -6816,10 +6818,11 @@ def main(page: ft.Page):
         "copy": "Copy the generated Trio BASIC FLEXLINK program to the Windows clipboard.",
     }
     CALC_TOOLTIPS.update({
-        "flexlink_excite_window_mm": "cycle_pitch - base_in - base_out.",
-        "flexlink_flat_mm": "Constant-velocity portion of the excitation window: excite_window - excite_acc - excite_dec.",
-        "flexlink_peak_speed": "Estimated slave peak speed during the excitation impulse.",
-        "flexlink_cycle_time": "cycle_pitch / line_speed, shown in milliseconds.",
+        "flexlink_excite_window_mm": "Open / registration-nudge window: bag_length - seal_contact_in - seal_contact_out.",
+        "flexlink_flat_mm": "Constant-correction portion of the open window: open_window - nudge_acc - nudge_dec.",
+        "flexlink_seal_dwell_ms": "Heat-seal dwell time: (seal_contact_in + seal_contact_out) / line_speed. This is the 1:1 locked contact time.",
+        "flexlink_peak_speed": "Peak jaw-axis speed during the open-window registration correction.",
+        "flexlink_cycle_time": "Time per bag = bag_length / line_speed.",
         "flexlink_options": "Decimal FLEXLINK link_options value from trigger, source, direction, repeat, and curve bits.",
         "flexlink_curve_label": "Human-readable FLEXLINK curve type.",
         "flexlink_start_label": "Human-readable start trigger selection.",
@@ -6832,46 +6835,53 @@ def main(page: ft.Page):
             return float(default)
 
     flexlink_cycle_pitch_input = make_input(
-        "Cycle pitch", "cycle_pitch", flexlink_settings.get("cycle_pitch", 300), suffix="mm"
+        "Bag length", "cycle_pitch", flexlink_settings.get("cycle_pitch", 180), suffix="mm"
     )
-    flexlink_cycle_pitch_input.value = str(flexlink_settings.get("cycle_pitch", 300))
+    flexlink_cycle_pitch_input.value = str(flexlink_settings.get("cycle_pitch", 180))
     flexlink_cycle_pitch_input.tooltip = flexlink_tooltips["cycle_pitch"]
 
     flexlink_line_speed_input = make_input(
-        "MAX line speed", "line_speed", flexlink_settings.get("line_speed", 500), suffix="mm/s"
+        "Film speed", "line_speed", flexlink_settings.get("line_speed", 400), suffix="mm/s"
     )
-    flexlink_line_speed_input.value = str(flexlink_settings.get("line_speed", 500))
+    flexlink_line_speed_input.value = str(flexlink_settings.get("line_speed", 400))
     flexlink_line_speed_input.tooltip = flexlink_tooltips["line_speed"]
 
     flexlink_excite_dist_input = make_input(
-        "Excite distance", "excite_dist", flexlink_settings.get("excite_dist", 20), suffix="mm"
+        "Reg. correction", "excite_dist", flexlink_settings.get("excite_dist", 5), suffix="mm"
     )
-    flexlink_excite_dist_input.value = str(flexlink_settings.get("excite_dist", 20))
+    flexlink_excite_dist_input.value = str(flexlink_settings.get("excite_dist", 5))
     flexlink_excite_dist_input.tooltip = flexlink_tooltips["excite_dist"]
 
     flexlink_base_in_input = make_input(
-        "Base-in", "base_in_mm", flexlink_settings.get("base_in_mm", 210), width=130, suffix="mm"
+        "Seal contact in", "base_in_mm", flexlink_settings.get("base_in_mm", 108), width=165, suffix="mm"
     )
-    flexlink_base_in_input.value = str(flexlink_settings.get("base_in_mm", 210))
+    flexlink_base_in_input.value = str(flexlink_settings.get("base_in_mm", 108))
     flexlink_base_in_input.tooltip = flexlink_tooltips["base_in"]
 
     flexlink_base_out_input = make_input(
-        "Base-out", "base_out_mm", flexlink_settings.get("base_out_mm", 15), width=130, suffix="mm"
+        "Seal contact out", "base_out_mm", flexlink_settings.get("base_out_mm", 9), width=175, suffix="mm"
     )
-    flexlink_base_out_input.value = str(flexlink_settings.get("base_out_mm", 15))
+    flexlink_base_out_input.value = str(flexlink_settings.get("base_out_mm", 9))
     flexlink_base_out_input.tooltip = flexlink_tooltips["base_out"]
 
     flexlink_excite_acc_input = make_input(
-        "Excite accel", "excite_acc_mm", flexlink_settings.get("excite_acc_mm", 37.5), width=135, suffix="mm"
+        "Nudge accel", "excite_acc_mm", flexlink_settings.get("excite_acc_mm", 15), width=135, suffix="mm"
     )
-    flexlink_excite_acc_input.value = str(flexlink_settings.get("excite_acc_mm", 37.5))
+    flexlink_excite_acc_input.value = str(flexlink_settings.get("excite_acc_mm", 15))
     flexlink_excite_acc_input.tooltip = flexlink_tooltips["excite_acc"]
 
     flexlink_excite_dec_input = make_input(
-        "Excite decel", "excite_dec_mm", flexlink_settings.get("excite_dec_mm", 37.5), width=135, suffix="mm"
+        "Nudge decel", "excite_dec_mm", flexlink_settings.get("excite_dec_mm", 15), width=135, suffix="mm"
     )
-    flexlink_excite_dec_input.value = str(flexlink_settings.get("excite_dec_mm", 37.5))
+    flexlink_excite_dec_input.value = str(flexlink_settings.get("excite_dec_mm", 15))
     flexlink_excite_dec_input.tooltip = flexlink_tooltips["excite_dec"]
+
+    flexlink_seal_dwell_min_input = make_input(
+        "Min seal dwell", "seal_dwell_min_ms",
+        flexlink_settings.get("seal_dwell_min_ms", 80), width=145, suffix="ms"
+    )
+    flexlink_seal_dwell_min_input.value = str(flexlink_settings.get("seal_dwell_min_ms", 80))
+    flexlink_seal_dwell_min_input.tooltip = flexlink_tooltips["seal_dwell_min_ms"]
 
     flexlink_curve_dropdown = make_dropdown(
         "Curve type", "curve_type", flexlink_settings.get("curve_type", "sine"),
@@ -6941,6 +6951,7 @@ def main(page: ft.Page):
     flexlink_result_keys = [
         "flexlink_excite_window_mm",
         "flexlink_flat_mm",
+        "flexlink_seal_dwell_ms",
         "flexlink_peak_speed",
         "flexlink_cycle_time",
         "flexlink_options",
@@ -7158,16 +7169,16 @@ def main(page: ft.Page):
         add_profile_text(flexlink_shapes, flexlink_plot_end - 50, flexlink_axis_y + 30,
                          "master distance", size=12, color=ft.Colors.WHITE, max_width=130)
         add_profile_text(flexlink_shapes, (flexlink_x0 + flexlink_x1) / 2, flexlink_base_y - 20,
-                         "1:1", size=12, color=ft.Colors.CYAN_100, max_width=70)
+                         "1:1 seal", size=12, color=ft.Colors.CYAN_100, max_width=86)
         flexlink_excite_label_y = (
             flexlink_peak_y - 20 if flexlink_peak_y <= flexlink_base_y else flexlink_peak_y + 6
         )
         flexlink_peak_ratio_value = 1.0 + flexlink_peak_extra_ratio
         add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x4) / 2, flexlink_excite_label_y,
-                         f"Excite  peak {flexlink_peak_ratio_value:.2f}:1",
+                         f"Open nudge peak {flexlink_peak_ratio_value:.2f}:1",
                          size=14, color=ft.Colors.WHITE, max_width=220)
         add_profile_text(flexlink_shapes, (flexlink_x4 + min(flexlink_x5, flexlink_plot_end)) / 2,
-                         flexlink_base_y - 20, "1:1", size=12, color=ft.Colors.CYAN_100, max_width=70)
+                         flexlink_base_y - 20, "1:1 seal", size=12, color=ft.Colors.CYAN_100, max_width=86)
 
         flexlink_label_specs = [
             (flexlink_x0, flexlink_x1, flexlink_base_in_mm),
@@ -7210,9 +7221,10 @@ def main(page: ft.Page):
             flexlink_base_out_mm = float(flexlink_base_out_input.value)
             flexlink_excite_acc_mm = float(flexlink_excite_acc_input.value)
             flexlink_excite_dec_mm = float(flexlink_excite_dec_input.value)
+            flexlink_seal_dwell_min_ms = float(flexlink_seal_dwell_min_input.value or 0)
             flexlink_link_pos = float(flexlink_link_pos_input.value or 0)
         except (TypeError, ValueError):
-            flexlink_warning_text.value = "Invalid inputs: enter numeric values for the FLEXLINK calculator."
+            flexlink_warning_text.value = "Invalid inputs: enter numeric values for the VFFS FLEXLINK calculator."
             _apply_warning_severity("error", flexlink_warning_banner, flexlink_warning_icon, flexlink_warning_text)
             flexlink_code_output.value = ""
             page.update()
@@ -7226,13 +7238,15 @@ def main(page: ft.Page):
 
         flexlink_errors = []
         if flexlink_cycle_pitch <= 0:
-            flexlink_errors.append("Cycle pitch must be > 0")
+            flexlink_errors.append("Bag length must be > 0")
         if flexlink_line_speed <= 0:
-            flexlink_errors.append("Line speed must be > 0")
+            flexlink_errors.append("Film speed must be > 0")
         if flexlink_base_in_mm < 0 or flexlink_base_out_mm < 0:
-            flexlink_errors.append("Base-in and base-out must be >= 0 mm")
+            flexlink_errors.append("Seal contact distances must be >= 0 mm")
         if flexlink_excite_acc_mm < 0 or flexlink_excite_dec_mm < 0:
-            flexlink_errors.append("Excite accel and decel must be >= 0 mm")
+            flexlink_errors.append("Nudge accel and decel distances must be >= 0 mm")
+        if flexlink_seal_dwell_min_ms < 0:
+            flexlink_errors.append("Min seal dwell must be >= 0 ms")
         if flexlink_start_mode in ("absolute", "rmark") and flexlink_link_pos < 0:
             flexlink_errors.append("Link position/channel must be >= 0 for selected start trigger")
         if flexlink_start_mode == "rmark" and int(flexlink_link_pos) != flexlink_link_pos:
@@ -7259,7 +7273,7 @@ def main(page: ft.Page):
         else:
             flexlink_excite_acc_pct = 0.0
             flexlink_excite_dec_pct = 0.0
-        # Flow-wrapper convention: 1:1 background sync, so slave base_dist == link_dist.
+        # VFFS convention: 1:1 background sync, so slave base_dist == link_dist (= bag length).
         flexlink_base_dist = flexlink_cycle_pitch
         flexlink_bump_denom_mm = (
             0.5 * flexlink_excite_acc_mm + flexlink_flat_mm + 0.5 * flexlink_excite_dec_mm
@@ -7270,6 +7284,9 @@ def main(page: ft.Page):
             flexlink_peak_extra_speed = 0.0
         flexlink_peak_speed = flexlink_line_speed + flexlink_peak_extra_speed if flexlink_line_speed > 0 else 0
         flexlink_cycle_time_ms = flexlink_cycle_pitch / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
+        # Heat-seal dwell is the 1:1 locked base motion, not the excitation window.
+        flexlink_seal_dwell_mm = flexlink_base_in_mm + flexlink_base_out_mm
+        flexlink_seal_dwell_ms = flexlink_seal_dwell_mm / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
 
         flexlink_options = flexlink_build_options(
             flexlink_curve_type,
@@ -7288,6 +7305,13 @@ def main(page: ft.Page):
 
         result_labels["flexlink_excite_window_mm"].value = f"{flexlink_excite_window_mm:.2f} mm"
         result_labels["flexlink_flat_mm"].value = f"{flexlink_flat_mm:.2f} mm"
+        result_labels["flexlink_seal_dwell_ms"].value = f"{flexlink_seal_dwell_ms:.1f} ms"
+        if flexlink_seal_dwell_min_ms > 0 and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms:
+            result_labels["flexlink_seal_dwell_ms"].color = ERROR_COLOR
+        elif flexlink_seal_dwell_min_ms > 0 and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms * 1.25:
+            result_labels["flexlink_seal_dwell_ms"].color = WARNING_COLOR
+        else:
+            result_labels["flexlink_seal_dwell_ms"].color = ft.Colors.CYAN_200
         result_labels["flexlink_peak_speed"].value = f"{fmt_speed(flexlink_peak_speed)} mm/s"
         result_labels["flexlink_peak_speed"].color = (
             ERROR_COLOR if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3
@@ -7311,21 +7335,41 @@ def main(page: ft.Page):
         flexlink_messages = []
         flexlink_severity = "ok"
         if flexlink_base_in_mm + flexlink_base_out_mm >= flexlink_cycle_pitch:
-            flexlink_messages.append("Excite window is zero - reduce base_in + base_out below cycle pitch")
+            flexlink_messages.append("Open / reg-nudge window is zero - reduce seal contact in + out below bag length")
             flexlink_severity = "error"
         if flexlink_excite_acc_mm + flexlink_excite_dec_mm > flexlink_excite_window_mm:
-            flexlink_messages.append("Accel + decel distance exceeds the excite window")
+            flexlink_messages.append("Nudge accel + decel distance exceeds the open / reg-nudge window")
             flexlink_severity = "error"
         if flexlink_errors:
             flexlink_messages.extend(flexlink_errors)
             flexlink_severity = "error"
         if flexlink_severity != "error":
+            if (
+                flexlink_seal_dwell_min_ms > 0
+                and flexlink_line_speed > 0
+                and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms
+            ):
+                flexlink_messages.append(
+                    f"Heat-seal dwell {flexlink_seal_dwell_ms:.0f} ms < required {flexlink_seal_dwell_min_ms:.0f} ms - increase seal contact in/out distance or slow film"
+                )
+                flexlink_severity = "error"
+        if flexlink_severity != "error":
             if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3:
-                flexlink_messages.append("High peak slave speed - verify servo capability")
+                flexlink_messages.append("High peak jaw speed - verify servo capability")
                 flexlink_severity = "warning"
             if flexlink_excite_window_mm < 5:
-                flexlink_messages.append("Very short excitation window")
+                flexlink_messages.append("Very short open / reg-nudge window")
                 flexlink_severity = "warning"
+            if (
+                flexlink_seal_dwell_min_ms > 0
+                and flexlink_line_speed > 0
+                and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms * 1.25
+            ):
+                flexlink_messages.append(
+                    f"Heat-seal dwell {flexlink_seal_dwell_ms:.0f} ms near minimum {flexlink_seal_dwell_min_ms:.0f} ms - little 1:1 contact margin"
+                )
+                if flexlink_severity == "ok":
+                    flexlink_severity = "warning"
         if flexlink_severity != "error":
             if flexlink_start_mode != "immediate":
                 flexlink_messages.append("Start trigger applies to first FLEXLINK call only")
@@ -7373,7 +7417,7 @@ def main(page: ft.Page):
                 f"\n"
                 f"{flexlink_repeat_comment}"
                 f"{flexlink_loop_start}"
-                f"{flexlink_line_prefix}' Flow wrapper: 1:1 background sync with excitation advance at seal point\n"
+                f"{flexlink_line_prefix}' VFFS cross-seal: 1:1 locked seal contact with registration nudge in the open arc\n"
                 f"{flexlink_line_prefix}FLEXLINK({flexlink_base_dist:.3f}, "
                 f"{flexlink_excite_dist:.3f}, {flexlink_cycle_pitch:.3f}, "
                 f"{flexlink_base_in_pct:.2f}, {flexlink_base_out_pct:.2f}, "
@@ -7390,6 +7434,7 @@ def main(page: ft.Page):
         flexlink_settings["base_out_mm"] = flexlink_base_out_mm
         flexlink_settings["excite_acc_mm"] = flexlink_excite_acc_mm
         flexlink_settings["excite_dec_mm"] = flexlink_excite_dec_mm
+        flexlink_settings["seal_dwell_min_ms"] = flexlink_seal_dwell_min_ms
         flexlink_settings["curve_type"] = flexlink_curve_type
         flexlink_settings["start_mode"] = flexlink_start_mode
         flexlink_settings["link_pos"] = flexlink_link_pos
@@ -7418,6 +7463,7 @@ def main(page: ft.Page):
         flexlink_base_out_input,
         flexlink_excite_acc_input,
         flexlink_excite_dec_input,
+        flexlink_seal_dwell_min_input,
         flexlink_link_pos_input,
     ):
         flexlink_input.on_change = flexlink_recalc
@@ -7471,7 +7517,7 @@ def main(page: ft.Page):
 
     flexlink_params_panel = ft.Container(
         content=ft.Column([
-            section_header("Flow Wrapper FLEXLINK Calculator", "Parametric jaw advance linked to film transport", ft.Icons.WAVES),
+            section_header("VFFS Cross-Seal FLEXLINK Calculator", "Continuous vertical form-fill-seal: cross-seal jaws synced to film pull", ft.Icons.WAVES),
             ft.Row(
                 [
                     flexlink_cycle_pitch_input,
@@ -7481,6 +7527,7 @@ def main(page: ft.Page):
                     flexlink_base_out_input,
                     flexlink_excite_acc_input,
                     flexlink_excite_dec_input,
+                    flexlink_seal_dwell_min_input,
                 ],
                 wrap=True,
                 spacing=15,
@@ -7513,9 +7560,10 @@ def main(page: ft.Page):
                     ),
                     ft.Row(
                         [
-                            result_card("Excite window", "flexlink_excite_window_mm"),
-                            result_card("Flat section", "flexlink_flat_mm"),
-                            result_card("Peak slave speed", "flexlink_peak_speed"),
+                            result_card("Open / reg-nudge", "flexlink_excite_window_mm"),
+                            result_card("Nudge flat", "flexlink_flat_mm"),
+                            result_card("Heat-seal dwell", "flexlink_seal_dwell_ms"),
+                            result_card("Peak open speed", "flexlink_peak_speed"),
                             result_card("Cycle time", "flexlink_cycle_time"),
                             result_card("link_options value", "flexlink_options"),
                             result_card("Curve", "flexlink_curve_label"),
@@ -7531,7 +7579,7 @@ def main(page: ft.Page):
             ),
             flexlink_phase_bar,
             flexlink_warning_banner,
-            ft.Text("Material axis = FLEXLINK link axis. Jaw carriage axis = generated BASIC BASE axis.",
+            ft.Text("Film pull axis = FLEXLINK link axis. Cross-seal jaw mechanism = generated BASIC BASE axis.",
                     size=12, color=ft.Colors.GREY_400),
         ], spacing=14, scroll=ft.ScrollMode.AUTO),
         bgcolor=PANEL_BG,
@@ -8634,7 +8682,7 @@ def main(page: ft.Page):
         flexlink_excite_acc_mm = flexlink_setting_float("excite_acc_mm", 37.5)
         flexlink_excite_dec_mm = flexlink_setting_float("excite_dec_mm", 37.5)
         flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
-        # Flow-wrapper convention: 1:1 background sync (base_dist == link_dist).
+        # VFFS convention: 1:1 background sync (base_dist == link_dist).
         flexlink_base_dist = flexlink_cycle_pitch
 
         flexlink_cycles = 0
@@ -8705,6 +8753,10 @@ def main(page: ft.Page):
                 cv.Path(elements=flexlink_elements, paint=canvas_paint(flexlink_stroke, flexlink_stroke_width))
             )
 
+    # TODO(VFFS): this draws a horizontal film web with horizontal packs (HFFS layout).
+    # For VFFS rework, redraw as a vertical film tube moving downward with the formed-tube
+    # cross-section visible (round/oval), and replace the pack rectangles with cross-seal
+    # crimp marks every bag_length down the tube.
     def flexlink_draw_foil_web(flexlink_shapes, flexlink_width, flexlink_web_offset_px,
                                flexlink_cycle_pitch):
         flexlink_web_left = 42.0
@@ -8850,6 +8902,12 @@ def main(page: ft.Page):
             "pack_pitch": flexlink_pack_pitch,
         }
 
+    # TODO(VFFS): jaw placement here uses horizontal travel along the film.
+    # For VFFS, the cross-seal jaws should close horizontally across the vertical film tube
+    # and translate downward together with the film at film speed during the seal contact,
+    # then retract for the next cycle. The slave-position-to-screen mapping needs to change
+    # from horizontal X to vertical Y, and jaw open/close should animate jaw width not just
+    # a clearance gap.
     def redraw_flexlink_sim():
         flexlink_width = float(flexlink_sim_canvas.width or visual_width)
         flexlink_shapes = []
@@ -8860,6 +8918,7 @@ def main(page: ft.Page):
         flexlink_u = flexlink_snapshot["u"]
         flexlink_excite_progress = flexlink_snapshot["excite_progress"]
         flexlink_in_excite = flexlink_snapshot["in_excite"]
+        flexlink_in_seal_contact = not flexlink_in_excite
         flexlink_expected_position = flexlink_snapshot["expected_position"]
         flexlink_slave_position = flexlink_expected_position
         flexlink_live = bool(flexlink_sim_state.get("live_mode"))
@@ -8886,11 +8945,11 @@ def main(page: ft.Page):
             flexlink_expected_position % flexlink_cycle_pitch
         ) / flexlink_cycle_pitch * flexlink_travel
         flexlink_expected_x = max(flexlink_left, min(flexlink_right - 58, flexlink_expected_x))
-        flexlink_seal_u = (flexlink_cycle_pitch + flexlink_base_in_mm - flexlink_base_out_mm) / (2.0 * flexlink_cycle_pitch)
-        flexlink_seal_x = flexlink_left + flexlink_seal_u * flexlink_travel
+        flexlink_open_u = (flexlink_cycle_pitch + flexlink_base_in_mm - flexlink_base_out_mm) / (2.0 * flexlink_cycle_pitch)
+        flexlink_open_x = flexlink_left + flexlink_open_u * flexlink_travel
 
         flexlink_shapes.append(
-            cv.Line(flexlink_seal_x, 34, flexlink_seal_x, flexlink_foil["y"] + flexlink_foil["height"] + 34,
+            cv.Line(flexlink_open_x, 34, flexlink_open_x, flexlink_foil["y"] + flexlink_foil["height"] + 34,
                     paint=canvas_paint(ft.Colors.with_opacity(0.55, ft.Colors.WHITE), 1.2, dash=[5, 5]))
         )
 
@@ -8906,7 +8965,7 @@ def main(page: ft.Page):
             cv.Line(flexlink_left, flexlink_track_y + 22, flexlink_right, flexlink_track_y + 22,
                     paint=canvas_paint("#182129", 1.4)),
         ])
-        flexlink_label_x = min(flexlink_seal_x + 12, flexlink_width - 92)
+        flexlink_label_x = min(flexlink_open_x + 12, flexlink_width - 92)
         flexlink_label_y = flexlink_track_y + 22
         flexlink_shapes.append(
             cv.Rect(
@@ -8925,7 +8984,7 @@ def main(page: ft.Page):
             flexlink_shapes,
             flexlink_label_x,
             flexlink_label_y,
-            "seal point",
+            "open arc",
             size=10,
             color=ft.Colors.GREY_200,
             align=ft.Alignment.TOP_LEFT,
@@ -8954,15 +9013,15 @@ def main(page: ft.Page):
 
         flexlink_jaw_w = 58
         flexlink_jaw_h = 20
-        flexlink_jaw_clearance = 2 if flexlink_in_excite else 16
+        flexlink_jaw_clearance = 2 if flexlink_in_seal_contact else 16
         flexlink_upper_y = flexlink_foil_y - flexlink_jaw_clearance - flexlink_jaw_h
         flexlink_lower_y = flexlink_foil_y + flexlink_foil_h + flexlink_jaw_clearance
         flexlink_jaw_center_x = flexlink_jaw_x + flexlink_jaw_w / 2.0
-        flexlink_jaw_fill = "#d8e3e8" if flexlink_in_excite else "#9aa8b0"
-        flexlink_jaw_edge = "#b8ffcf" if flexlink_in_excite else "#cad5da"
-        flexlink_jaw_dark = "#354049" if flexlink_in_excite else "#2b343b"
+        flexlink_jaw_fill = "#d8e3e8" if flexlink_in_seal_contact else "#9aa8b0"
+        flexlink_jaw_edge = "#b8ffcf" if flexlink_in_seal_contact else "#cad5da"
+        flexlink_jaw_dark = "#354049" if flexlink_in_seal_contact else "#2b343b"
 
-        if flexlink_in_excite:
+        if flexlink_in_seal_contact:
             flexlink_shapes.append(
                 cv.Oval(
                     flexlink_jaw_x - 18,
@@ -9083,7 +9142,9 @@ def main(page: ft.Page):
             flexlink_sim_height - 28,
             (
                 f"{'LIVE' if flexlink_live else 'CONTROLLER REQUIRED'}  "
-                f"u={flexlink_u:.2f}  excite={flexlink_excite_progress * 100:.0f}%"
+                f"u={flexlink_u:.2f}  "
+                f"{'seal' if flexlink_in_seal_contact else 'open'}  "
+                f"nudge={flexlink_excite_progress * 100:.0f}%"
                 + (
                     f"  err={flexlink_sim_state.get('sync_error'):+.2f}"
                     if flexlink_live and flexlink_sim_state.get("sync_error") is not None
@@ -9466,7 +9527,11 @@ def main(page: ft.Page):
     flexlink_sim_container = ft.Container(
         content=ft.Column(
             [
-                section_header("Flow Wrapper Simulation", "Live FLEXLINK axis preview", ft.Icons.PLAY_CIRCLE),
+                # TODO(VFFS): redraw functions still use the horizontal-flow-wrapper layout
+                # (horizontal film + horizontal jaws). Refactor to vertical film tube with
+                # horizontal cross-seal jaws closing across it. See redraw_flexlink_sim,
+                # flexlink_draw_foil_web, and the jaw-drawing block in this module.
+                section_header("VFFS Cross-Seal Simulation", "Live FLEXLINK axis preview (layout pending VFFS rework)", ft.Icons.PLAY_CIRCLE),
                 flexlink_machine_controls_panel,
                 flexlink_sim_controls_panel,
                 flexlink_sim_canvas_holder,
@@ -9537,15 +9602,15 @@ def main(page: ft.Page):
                     paint=canvas_paint("#4fc3f7", 3.5)),
         ])
         add_profile_text(flexlink_shapes, (flexlink_x0 + flexlink_x1) / 2, 126,
-                         "base_in", size=9, color=ft.Colors.CYAN_100, max_width=70)
+                         "seal in", size=9, color=ft.Colors.CYAN_100, max_width=70)
         add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x2) / 2, 126,
-                         "acc", size=9, color=ft.Colors.RED_100, max_width=40)
+                         "nudge", size=9, color=ft.Colors.RED_100, max_width=48)
         add_profile_text(flexlink_shapes, (flexlink_x2 + flexlink_x3) / 2, 126,
-                         "flat", size=9, color=ft.Colors.RED_100, max_width=48)
+                         "open", size=9, color=ft.Colors.RED_100, max_width=48)
         add_profile_text(flexlink_shapes, (flexlink_x3 + flexlink_x4) / 2, 126,
-                         "dec", size=9, color=ft.Colors.RED_100, max_width=40)
+                         "nudge", size=9, color=ft.Colors.RED_100, max_width=48)
         add_profile_text(flexlink_shapes, (flexlink_x4 + flexlink_x5) / 2, 126,
-                         "base_out", size=9, color=ft.Colors.CYAN_100, max_width=70)
+                         "seal out", size=9, color=ft.Colors.CYAN_100, max_width=70)
         add_profile_text(flexlink_shapes, 11, 74, "ratio", size=10, color=ft.Colors.WHITE, rotate=-1.5708)
         return flexlink_shapes
 
@@ -9554,39 +9619,53 @@ def main(page: ft.Page):
         height=160,
         shapes=flexlink_build_help_anatomy_shapes(),
     )
-    flexlink_example_cycle_pitch = 300.0
-    flexlink_example_line_speed = 500.0
-    flexlink_example_excite_dist = 20.0
-    flexlink_example_base_in_mm = 210.0
-    flexlink_example_base_out_mm = 15.0
-    flexlink_example_excite_acc_mm = 37.5
-    flexlink_example_excite_dec_mm = 37.5
+    flexlink_example_cycle_pitch = 180.0
+    flexlink_example_line_speed = 400.0
+    flexlink_example_excite_dist = 5.0
+    flexlink_example_base_in_mm = 108.0
+    flexlink_example_base_out_mm = 9.0
+    flexlink_example_excite_acc_mm = 15.0
+    flexlink_example_excite_dec_mm = 15.0
     flexlink_example_window = (
         flexlink_example_cycle_pitch
         - flexlink_example_base_in_mm
         - flexlink_example_base_out_mm
     )
-    flexlink_example_time = flexlink_example_window / flexlink_example_line_speed
-    flexlink_example_peak = flexlink_example_line_speed + flexlink_example_excite_dist / flexlink_example_time
+    flexlink_example_flat = (
+        flexlink_example_window
+        - flexlink_example_excite_acc_mm
+        - flexlink_example_excite_dec_mm
+    )
+    flexlink_example_dwell_mm = flexlink_example_base_in_mm + flexlink_example_base_out_mm
+    flexlink_example_dwell_ms = flexlink_example_dwell_mm / flexlink_example_line_speed * 1000.0
+    flexlink_example_bump_denom = (
+        0.5 * flexlink_example_excite_acc_mm
+        + flexlink_example_flat
+        + 0.5 * flexlink_example_excite_dec_mm
+    )
+    flexlink_example_peak = (
+        flexlink_example_line_speed
+        + flexlink_example_excite_dist * flexlink_example_line_speed / flexlink_example_bump_denom
+    )
 
     flexlink_help_list = ft.ListView(
         controls=[
-            section_header("FLEXLINK Math Help", "Flow-wrapper jaw advance with a parametric linked profile", ft.Icons.FUNCTIONS),
+            section_header("VFFS FLEXLINK Math Help", "Continuous VFFS cross-seal jaws synchronized to film pull", ft.Icons.FUNCTIONS),
             ft.ResponsiveRow(
                 [
                     help_card(
                         "Command Shape",
                         [
                             help_text("FLEXLINK(base_dist, excite_dist, link_dist, base_in, base_out, excite_acc, excite_dec, link_axis[, link_options[, start_pos]])"),
-                            help_text("base_dist is the slave constant-speed travel per cycle; the generator sets base_dist = link_dist for a 1:1 background. excite_dist is the signed advance or retard added on top during the seal impulse."),
-                            help_text("Args 4-7 are percentages per Trio FLEXLINK. The UI takes them in mm for readability and converts: base_in% = base_in_mm / link_dist, excite_acc% = excite_acc_mm / excite_window."),
+                            help_text("VFFS convention: base_dist = link_dist = bag length, so the cross-seal mechanism is locked 1:1 to film pull during the base_in/base_out portions. excite_dist is a signed registration correction applied only while the jaws are open."),
+                            help_text("Args 4-7 are percentages per Trio FLEXLINK. The UI takes them in mm for readability and converts: base_in% = seal_contact_in_mm / bag_length, excite_acc% = nudge_acc_mm / open_window."),
                             formula_block(
                                 [
-                                    "excite_window_mm = link_dist - base_in_mm - base_out_mm",
-                                    "flat_mm = excite_window_mm - excite_acc_mm - excite_dec_mm",
-                                    "excite_time = excite_window_mm / line_speed",
-                                    "peak_extra_speed = excite_dist / (excite_time * (acc_pct + 2*flat_pct + dec_pct) / 200)",
-                                    "peak_ratio = base_dist / link_dist + peak_extra_speed / line_speed",
+                                    "open_window_mm = bag_length - seal_contact_in_mm - seal_contact_out_mm",
+                                    "nudge_flat_mm = open_window_mm - nudge_acc_mm - nudge_dec_mm",
+                                    "seal_dwell_ms = (seal_contact_in_mm + seal_contact_out_mm) / line_speed * 1000",
+                                    "peak_extra_speed = excite_dist * line_speed / (nudge_acc/2 + nudge_flat + nudge_dec/2)",
+                                    "peak_jaw_ratio = 1 + peak_extra_speed / line_speed",
                                 ]
                             ),
                         ],
@@ -9602,7 +9681,7 @@ def main(page: ft.Page):
                                 border_radius=8,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                             ),
-                            help_text("The blue zones keep the jaw at the base film-transport ratio. The red impulse adds the sealing advance and then blends back to the base ratio."),
+                            help_text("Blue zones: jaws in 1:1 locked contact with the film. Red zone: jaws open while FLEXLINK applies the registration correction."),
                         ],
                         icon=ft.Icons.SHOW_CHART,
                         col={"xs": 12, "xl": 6},
@@ -9617,15 +9696,16 @@ def main(page: ft.Page):
                     help_card(
                         "Worked Example",
                         [
-                            help_text("Flow wrapper example: cycle pitch 300 mm, line speed 500 mm/s, 20 mm advance, base_in 210 mm, base_out 15 mm, accel/decel 37.5/37.5 mm."),
+                            help_text("VFFS example: 180 mm bag, 400 mm/s film, 5 mm reg correction, seal contact in/out 108/9 mm, nudge accel/decel 15/15 mm."),
                             formula_block(
                                 [
-                                    f"excite_window = 300 - 210 - 15 = {flexlink_example_window:.0f} mm",
-                                    "base_in% = 210/300*100 = 70, base_out% = 15/300*100 = 5",
-                                    "excite_acc% = 37.5/75*100 = 50, excite_dec% = 37.5/75*100 = 50",
-                                    f"excite_time = {flexlink_example_window:.0f} / 500 = {flexlink_example_time:.2f} s",
-                                    f"peak_speed = 500 + 20 / {flexlink_example_time:.2f} = {flexlink_example_peak:.0f} mm/s",
-                                    "FLEXLINK(300.000, 20.000, 300.000, 70.00, 5.00, 50.00, 50.00, link_ax)",
+                                    f"open_window = 180 - 108 - 9 = {flexlink_example_window:.0f} mm",
+                                    f"nudge_flat = {flexlink_example_window:.0f} - 15 - 15 = {flexlink_example_flat:.0f} mm",
+                                    "seal_contact_in% = 108/180*100 = 60, seal_contact_out% = 9/180*100 = 5",
+                                    "nudge_acc% = 15/63*100 = 23.8, nudge_dec% = 15/63*100 = 23.8",
+                                    f"seal_dwell = (108 + 9) / 400 * 1000 = {flexlink_example_dwell_ms:.0f} ms",
+                                    f"peak_jaw_speed = 400 + 5*400 / (7.5 + {flexlink_example_flat:.0f} + 7.5) = {flexlink_example_peak:.0f} mm/s",
+                                    "FLEXLINK(180.000, 5.000, 180.000, 60.00, 5.00, 23.81, 23.81, link_ax)",
                                 ]
                             ),
                         ],
@@ -9662,12 +9742,13 @@ def main(page: ft.Page):
             ft.ResponsiveRow(
                 [
                     help_card(
-                        "Flow Wrapper Application Notes",
+                        "VFFS Application Notes",
                         [
-                            help_text("base_in is the master dwell distance before the jaws begin their sealing advance. base_out is the remaining master dwell distance after the jaws return to the base film ratio."),
-                            help_text("excite_dist is signed: positive advances the jaws ahead of the film, while negative retards them. Sign depends on jaw mechanics and axis direction."),
-                            help_text("Typical starting points are base_in 60..80% of cycle pitch, base_out 0..10% of cycle pitch, and equal accel/decel ramps that share the excite window, with Sine or Poly5 curve type."),
-                            help_text("Horizontal pillow-pack machines usually use a modest positive advance. Vertical wrappers may need signed correction based on pull-belt direction and sealing jaw layout."),
+                            help_text("Seal contact in/out are the 1:1 locked portions where the jaws press the film. Their sum is the heat-seal dwell distance."),
+                            help_text("Reg. correction (excite_dist) is signed: positive advances jaws relative to film, negative retards. It belongs in the open arc, where jaw/film slip does not smear the seal."),
+                            help_text("Heat-seal dwell is the dominant constraint for VFFS. Set Min seal dwell to your film's spec (PE ~80 ms, PP ~120 ms, PET ~150 ms). The calculator warns if locked contact time falls below it."),
+                            help_text("Typical defaults keep enough open-window distance for the registration correction while assigning the required dwell to seal contact in/out. Use Sine or Poly5 for smooth open-arc correction."),
+                            help_text("This calculator targets continuous-motion VFFS only. Intermittent VFFS (film stops, jaws clamp, film pulls) is not FLEXLINK territory - use discrete MOVE commands instead."),
                         ],
                         icon=ft.Icons.NOTES,
                         col={"xs": 12, "xl": 6},
@@ -9678,7 +9759,7 @@ def main(page: ft.Page):
                             mini_table(
                                 ["Command", "Use when", "Tradeoff"],
                                 [
-                                    ("FLEXLINK", "Parametric flow-wrapper advance", "No table data; quick tuning"),
+                                    ("FLEXLINK", "Continuous-track tool (VFFS cross-seal, registration nudge)", "No table data; quick tuning"),
                                     ("CAMBOX", "Continuous rotary or complex cam law", "Most flexible, needs table generation"),
                                     ("MOVELINK", "Discrete linked move phases", "Best for cut-on-the-fly strokes and returns"),
                                 ],
@@ -10030,7 +10111,7 @@ def main(page: ft.Page):
         set_rotary_sim_labels(solution)
         solution_name = (
             "Rotary Knife" if solution == "rotary_knife"
-            else "Flow Wrapper" if solution == "flow_wrapper"
+            else "VFFS" if solution == "flow_wrapper"
             else "RotaryLink" if solution == "rotarylink"
             else "Flying Shear"
         )
@@ -10137,8 +10218,8 @@ def main(page: ft.Page):
                     "rotary_knife",
                 ),
                 solution_card(
-                    "Flow Wrapper",
-                    "Sinusoidal jaw advance linked to film transport via FLEXLINK - no cam table required.",
+                    "VFFS",
+                    "Continuous vertical form-fill-seal: cross-seal jaws synced 1:1 to film pull via FLEXLINK, with heat-seal dwell validation.",
                     ft.Icons.WAVES,
                     "flow_wrapper",
                 ),
