@@ -6783,10 +6783,10 @@ def main(page: ft.Page):
         ("cycle_pitch", 300),
         ("line_speed", 500),
         ("excite_dist", 20),
-        ("base_in", 70),
-        ("base_out", 5),
-        ("excite_acc", 50),
-        ("excite_dec", 50),
+        ("base_in_mm", 210),
+        ("base_out_mm", 15),
+        ("excite_acc_mm", 37.5),
+        ("excite_dec_mm", 37.5),
         ("curve_type", "sine"),
         ("start_mode", "immediate"),
         ("link_pos", 0),
@@ -6800,10 +6800,10 @@ def main(page: ft.Page):
         "cycle_pitch": "FLEXLINK link_dist: positive master-axis distance for one complete jaw advance cycle.",
         "line_speed": "Maximum film speed used for cycle-time and peak-speed estimates.",
         "excite_dist": "Signed extra jaw travel during the seal impulse; positive advances the jaws ahead of the film.",
-        "base_in": "Percentage of link_dist before excitation starts.",
-        "base_out": "Percentage of link_dist remaining after excitation ends.",
-        "excite_acc": "Percentage of excitation time used to ramp into the advance impulse.",
-        "excite_dec": "Percentage of excitation time used to ramp out of the advance impulse.",
+        "base_in": "Master distance at base ratio before excitation starts.",
+        "base_out": "Master distance at base ratio after excitation ends.",
+        "excite_acc": "Master distance used to ramp into the advance impulse.",
+        "excite_dec": "Master distance used to ramp out of the advance impulse.",
         "curve_type": "FLEXLINK curve type encoded into link_options bits 10..12.",
         "start_mode": "Optional trigger for the first FLEXLINK call.",
         "link_pos": "Absolute link-axis position or R_MARK channel, depending on the selected trigger.",
@@ -6816,8 +6816,8 @@ def main(page: ft.Page):
         "copy": "Copy the generated Trio BASIC FLEXLINK program to the Windows clipboard.",
     }
     CALC_TOOLTIPS.update({
-        "flexlink_excite_window_mm": "cycle_pitch * (1 - base_in/100 - base_out/100).",
-        "flexlink_base_dist_mm": "Slave travel at the base ratio before the excitation window.",
+        "flexlink_excite_window_mm": "cycle_pitch - base_in - base_out.",
+        "flexlink_flat_mm": "Constant-velocity portion of the excitation window: excite_window - excite_acc - excite_dec.",
         "flexlink_peak_speed": "Estimated slave peak speed during the excitation impulse.",
         "flexlink_cycle_time": "cycle_pitch / line_speed, shown in milliseconds.",
         "flexlink_options": "Decimal FLEXLINK link_options value from trigger, source, direction, repeat, and curve bits.",
@@ -6850,27 +6850,27 @@ def main(page: ft.Page):
     flexlink_excite_dist_input.tooltip = flexlink_tooltips["excite_dist"]
 
     flexlink_base_in_input = make_input(
-        "Base-in", "base_in", flexlink_settings.get("base_in", 70), width=130, suffix="%"
+        "Base-in", "base_in_mm", flexlink_settings.get("base_in_mm", 210), width=130, suffix="mm"
     )
-    flexlink_base_in_input.value = str(flexlink_settings.get("base_in", 70))
+    flexlink_base_in_input.value = str(flexlink_settings.get("base_in_mm", 210))
     flexlink_base_in_input.tooltip = flexlink_tooltips["base_in"]
 
     flexlink_base_out_input = make_input(
-        "Base-out", "base_out", flexlink_settings.get("base_out", 5), width=130, suffix="%"
+        "Base-out", "base_out_mm", flexlink_settings.get("base_out_mm", 15), width=130, suffix="mm"
     )
-    flexlink_base_out_input.value = str(flexlink_settings.get("base_out", 5))
+    flexlink_base_out_input.value = str(flexlink_settings.get("base_out_mm", 15))
     flexlink_base_out_input.tooltip = flexlink_tooltips["base_out"]
 
     flexlink_excite_acc_input = make_input(
-        "Excite accel", "excite_acc", flexlink_settings.get("excite_acc", 50), width=135, suffix="%"
+        "Excite accel", "excite_acc_mm", flexlink_settings.get("excite_acc_mm", 37.5), width=135, suffix="mm"
     )
-    flexlink_excite_acc_input.value = str(flexlink_settings.get("excite_acc", 50))
+    flexlink_excite_acc_input.value = str(flexlink_settings.get("excite_acc_mm", 37.5))
     flexlink_excite_acc_input.tooltip = flexlink_tooltips["excite_acc"]
 
     flexlink_excite_dec_input = make_input(
-        "Excite decel", "excite_dec", flexlink_settings.get("excite_dec", 50), width=135, suffix="%"
+        "Excite decel", "excite_dec_mm", flexlink_settings.get("excite_dec_mm", 37.5), width=135, suffix="mm"
     )
-    flexlink_excite_dec_input.value = str(flexlink_settings.get("excite_dec", 50))
+    flexlink_excite_dec_input.value = str(flexlink_settings.get("excite_dec_mm", 37.5))
     flexlink_excite_dec_input.tooltip = flexlink_tooltips["excite_dec"]
 
     flexlink_curve_dropdown = make_dropdown(
@@ -6940,7 +6940,7 @@ def main(page: ft.Page):
 
     flexlink_result_keys = [
         "flexlink_excite_window_mm",
-        "flexlink_base_dist_mm",
+        "flexlink_flat_mm",
         "flexlink_peak_speed",
         "flexlink_cycle_time",
         "flexlink_options",
@@ -6999,16 +6999,17 @@ def main(page: ft.Page):
         "rmark": "R_MARK channel",
     }
 
-    def flexlink_build_velocity_profile_shapes(flexlink_cycle_pitch, flexlink_base_in,
-                                               flexlink_base_out, flexlink_excite_acc,
-                                               flexlink_excite_dec, flexlink_curve_type):
+    def flexlink_build_velocity_profile_shapes(flexlink_cycle_pitch, flexlink_base_in_mm,
+                                               flexlink_base_out_mm, flexlink_excite_acc_mm,
+                                               flexlink_excite_dec_mm, flexlink_excite_dist,
+                                               flexlink_curve_type):
         flexlink_width = 660
         flexlink_height = 200
         flexlink_left = 64
         flexlink_right = 30
         flexlink_top = 22
         flexlink_base_y = 132
-        flexlink_peak_y = 48
+        flexlink_peak_y_max = flexlink_top + 8
         flexlink_axis_y = 156
         flexlink_plot_end = flexlink_width - flexlink_right
         flexlink_plot_width = flexlink_plot_end - flexlink_left
@@ -7018,13 +7019,38 @@ def main(page: ft.Page):
         flexlink_excite_paint = canvas_paint("#d24a35", 4.5)
         flexlink_label_color = ft.Colors.GREY_300
 
-        flexlink_window_pct = max(0.0, 100.0 - flexlink_base_in - flexlink_base_out)
-        flexlink_window_mm = max(0.0, flexlink_cycle_pitch * flexlink_window_pct / 100.0)
-        flexlink_acc_mm = flexlink_window_mm * max(0.0, flexlink_excite_acc) / 100.0
-        flexlink_dec_mm = flexlink_window_mm * max(0.0, flexlink_excite_dec) / 100.0
+        flexlink_base_in_mm = max(0.0, flexlink_base_in_mm)
+        flexlink_base_out_mm = max(0.0, flexlink_base_out_mm)
+        flexlink_window_mm = max(
+            0.0, flexlink_cycle_pitch - flexlink_base_in_mm - flexlink_base_out_mm
+        )
+        flexlink_acc_mm = max(0.0, min(flexlink_excite_acc_mm, flexlink_window_mm))
+        flexlink_dec_mm = max(0.0, min(flexlink_excite_dec_mm, flexlink_window_mm))
+        if flexlink_acc_mm + flexlink_dec_mm > flexlink_window_mm and flexlink_acc_mm + flexlink_dec_mm > 0:
+            flexlink_scale = flexlink_window_mm / (flexlink_acc_mm + flexlink_dec_mm)
+            flexlink_acc_mm *= flexlink_scale
+            flexlink_dec_mm *= flexlink_scale
         flexlink_flat_mm = max(0.0, flexlink_window_mm - flexlink_acc_mm - flexlink_dec_mm)
-        flexlink_base_in_mm = max(0.0, flexlink_cycle_pitch * flexlink_base_in / 100.0)
-        flexlink_base_out_mm = max(0.0, flexlink_cycle_pitch * flexlink_base_out / 100.0)
+
+        # Peak ratio above 1:1 baseline for a trapezoidal velocity bump whose
+        # area equals excite_dist: area = peak_extra * (acc/2 + flat + dec/2).
+        flexlink_bump_denom = 0.5 * flexlink_acc_mm + flexlink_flat_mm + 0.5 * flexlink_dec_mm
+        if flexlink_bump_denom > 0:
+            flexlink_peak_extra_ratio = flexlink_excite_dist / flexlink_bump_denom
+        else:
+            flexlink_peak_extra_ratio = 0.0
+        flexlink_peak_extra_abs = abs(flexlink_peak_extra_ratio)
+        flexlink_ratio_unit_px = 70.0  # pixels per +1.0 ratio unit above baseline
+        flexlink_peak_offset_px = min(
+            flexlink_base_y - flexlink_peak_y_max,
+            flexlink_peak_extra_abs * flexlink_ratio_unit_px,
+        )
+        if flexlink_peak_extra_ratio >= 0:
+            flexlink_peak_y = flexlink_base_y - flexlink_peak_offset_px
+        else:
+            flexlink_peak_y = flexlink_base_y + min(
+                flexlink_axis_y - flexlink_base_y - 4, flexlink_peak_offset_px
+            )
         flexlink_values = [
             flexlink_base_in_mm,
             flexlink_acc_mm,
@@ -7133,8 +7159,13 @@ def main(page: ft.Page):
                          "master distance", size=12, color=ft.Colors.WHITE, max_width=130)
         add_profile_text(flexlink_shapes, (flexlink_x0 + flexlink_x1) / 2, flexlink_base_y - 20,
                          "1:1", size=12, color=ft.Colors.CYAN_100, max_width=70)
-        add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x4) / 2, flexlink_peak_y - 20,
-                         "Excite", size=16, color=ft.Colors.WHITE, max_width=150)
+        flexlink_excite_label_y = (
+            flexlink_peak_y - 20 if flexlink_peak_y <= flexlink_base_y else flexlink_peak_y + 6
+        )
+        flexlink_peak_ratio_value = 1.0 + flexlink_peak_extra_ratio
+        add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x4) / 2, flexlink_excite_label_y,
+                         f"Excite  peak {flexlink_peak_ratio_value:.2f}:1",
+                         size=14, color=ft.Colors.WHITE, max_width=220)
         add_profile_text(flexlink_shapes, (flexlink_x4 + min(flexlink_x5, flexlink_plot_end)) / 2,
                          flexlink_base_y - 20, "1:1", size=12, color=ft.Colors.CYAN_100, max_width=70)
 
@@ -7175,10 +7206,10 @@ def main(page: ft.Page):
             flexlink_cycle_pitch = float(flexlink_cycle_pitch_input.value)
             flexlink_line_speed = float(flexlink_line_speed_input.value)
             flexlink_excite_dist = float(flexlink_excite_dist_input.value)
-            flexlink_base_in = float(flexlink_base_in_input.value)
-            flexlink_base_out = float(flexlink_base_out_input.value)
-            flexlink_excite_acc = float(flexlink_excite_acc_input.value)
-            flexlink_excite_dec = float(flexlink_excite_dec_input.value)
+            flexlink_base_in_mm = float(flexlink_base_in_input.value)
+            flexlink_base_out_mm = float(flexlink_base_out_input.value)
+            flexlink_excite_acc_mm = float(flexlink_excite_acc_input.value)
+            flexlink_excite_dec_mm = float(flexlink_excite_dec_input.value)
             flexlink_link_pos = float(flexlink_link_pos_input.value or 0)
         except (TypeError, ValueError):
             flexlink_warning_text.value = "Invalid inputs: enter numeric values for the FLEXLINK calculator."
@@ -7198,21 +7229,46 @@ def main(page: ft.Page):
             flexlink_errors.append("Cycle pitch must be > 0")
         if flexlink_line_speed <= 0:
             flexlink_errors.append("Line speed must be > 0")
-        if not 0 <= flexlink_base_in <= 100 or not 0 <= flexlink_base_out <= 100:
-            flexlink_errors.append("Base-in and base-out must be 0..100%")
-        if not 0 <= flexlink_excite_acc <= 100 or not 0 <= flexlink_excite_dec <= 100:
-            flexlink_errors.append("Excite accel and decel must be 0..100%")
+        if flexlink_base_in_mm < 0 or flexlink_base_out_mm < 0:
+            flexlink_errors.append("Base-in and base-out must be >= 0 mm")
+        if flexlink_excite_acc_mm < 0 or flexlink_excite_dec_mm < 0:
+            flexlink_errors.append("Excite accel and decel must be >= 0 mm")
         if flexlink_start_mode in ("absolute", "rmark") and flexlink_link_pos < 0:
             flexlink_errors.append("Link position/channel must be >= 0 for selected start trigger")
         if flexlink_start_mode == "rmark" and int(flexlink_link_pos) != flexlink_link_pos:
             flexlink_errors.append("R_MARK channel must be a whole number")
 
-        flexlink_excite_window_pct = 100 - flexlink_base_in - flexlink_base_out
-        flexlink_excite_window_mm = flexlink_cycle_pitch * flexlink_excite_window_pct / 100.0
+        flexlink_excite_window_mm = max(
+            0.0, flexlink_cycle_pitch - flexlink_base_in_mm - flexlink_base_out_mm
+        )
+        flexlink_flat_mm = max(
+            0.0, flexlink_excite_window_mm - flexlink_excite_acc_mm - flexlink_excite_dec_mm
+        )
         flexlink_excite_time_s = flexlink_excite_window_mm / flexlink_line_speed if flexlink_line_speed > 0 else 0
-        flexlink_base_dist_computed = (flexlink_base_in / 100.0) * flexlink_cycle_pitch
-        flexlink_peak_speed_estimate = abs(flexlink_excite_dist) / (flexlink_excite_time_s * 0.5) if flexlink_excite_time_s > 0 else 0
-        flexlink_peak_speed = flexlink_line_speed + flexlink_peak_speed_estimate if flexlink_line_speed > 0 else 0
+        # Convert UI distances to the percentages that Trio FLEXLINK actually expects
+        # (FLEXLINK.md: args 4-7 are percentages of the base / excite move time).
+        if flexlink_cycle_pitch > 0:
+            flexlink_base_in_pct = flexlink_base_in_mm / flexlink_cycle_pitch * 100.0
+            flexlink_base_out_pct = flexlink_base_out_mm / flexlink_cycle_pitch * 100.0
+        else:
+            flexlink_base_in_pct = 0.0
+            flexlink_base_out_pct = 0.0
+        if flexlink_excite_window_mm > 0:
+            flexlink_excite_acc_pct = flexlink_excite_acc_mm / flexlink_excite_window_mm * 100.0
+            flexlink_excite_dec_pct = flexlink_excite_dec_mm / flexlink_excite_window_mm * 100.0
+        else:
+            flexlink_excite_acc_pct = 0.0
+            flexlink_excite_dec_pct = 0.0
+        # Flow-wrapper convention: 1:1 background sync, so slave base_dist == link_dist.
+        flexlink_base_dist = flexlink_cycle_pitch
+        flexlink_bump_denom_mm = (
+            0.5 * flexlink_excite_acc_mm + flexlink_flat_mm + 0.5 * flexlink_excite_dec_mm
+        )
+        if flexlink_bump_denom_mm > 0 and flexlink_line_speed > 0:
+            flexlink_peak_extra_speed = abs(flexlink_excite_dist) * flexlink_line_speed / flexlink_bump_denom_mm
+        else:
+            flexlink_peak_extra_speed = 0.0
+        flexlink_peak_speed = flexlink_line_speed + flexlink_peak_extra_speed if flexlink_line_speed > 0 else 0
         flexlink_cycle_time_ms = flexlink_cycle_pitch / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
 
         flexlink_options = flexlink_build_options(
@@ -7231,7 +7287,7 @@ def main(page: ft.Page):
             flexlink_start_label = flexlink_start_labels.get(flexlink_start_mode, flexlink_start_mode)
 
         result_labels["flexlink_excite_window_mm"].value = f"{flexlink_excite_window_mm:.2f} mm"
-        result_labels["flexlink_base_dist_mm"].value = f"{flexlink_base_dist_computed:.2f} mm"
+        result_labels["flexlink_flat_mm"].value = f"{flexlink_flat_mm:.2f} mm"
         result_labels["flexlink_peak_speed"].value = f"{fmt_speed(flexlink_peak_speed)} mm/s"
         result_labels["flexlink_peak_speed"].color = (
             ERROR_COLOR if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3
@@ -7244,20 +7300,21 @@ def main(page: ft.Page):
 
         flexlink_profile_canvas.shapes = flexlink_build_velocity_profile_shapes(
             max(flexlink_cycle_pitch, 0),
-            flexlink_base_in,
-            flexlink_base_out,
-            flexlink_excite_acc,
-            flexlink_excite_dec,
+            flexlink_base_in_mm,
+            flexlink_base_out_mm,
+            flexlink_excite_acc_mm,
+            flexlink_excite_dec_mm,
+            flexlink_excite_dist,
             flexlink_curve_type,
         )
 
         flexlink_messages = []
         flexlink_severity = "ok"
-        if flexlink_base_in + flexlink_base_out >= 100:
-            flexlink_messages.append("Excite window is zero - reduce base_in + base_out below 100%")
+        if flexlink_base_in_mm + flexlink_base_out_mm >= flexlink_cycle_pitch:
+            flexlink_messages.append("Excite window is zero - reduce base_in + base_out below cycle pitch")
             flexlink_severity = "error"
-        if flexlink_excite_acc + flexlink_excite_dec > 100:
-            flexlink_messages.append("Accel + decel exceeds 100% of excite time")
+        if flexlink_excite_acc_mm + flexlink_excite_dec_mm > flexlink_excite_window_mm:
+            flexlink_messages.append("Accel + decel distance exceeds the excite window")
             flexlink_severity = "error"
         if flexlink_errors:
             flexlink_messages.extend(flexlink_errors)
@@ -7316,11 +7373,11 @@ def main(page: ft.Page):
                 f"\n"
                 f"{flexlink_repeat_comment}"
                 f"{flexlink_loop_start}"
-                f"{flexlink_line_prefix}' Flow wrapper: base transport with excitation advance at seal point\n"
-                f"{flexlink_line_prefix}FLEXLINK({flexlink_base_dist_computed:.3f}, "
+                f"{flexlink_line_prefix}' Flow wrapper: 1:1 background sync with excitation advance at seal point\n"
+                f"{flexlink_line_prefix}FLEXLINK({flexlink_base_dist:.3f}, "
                 f"{flexlink_excite_dist:.3f}, {flexlink_cycle_pitch:.3f}, "
-                f"{flexlink_base_in:.1f}, {flexlink_base_out:.1f}, "
-                f"{flexlink_excite_acc:.1f}, {flexlink_excite_dec:.1f}, "
+                f"{flexlink_base_in_pct:.2f}, {flexlink_base_out_pct:.2f}, "
+                f"{flexlink_excite_acc_pct:.2f}, {flexlink_excite_dec_pct:.2f}, "
                 f"link_ax{flexlink_options_args})\n"
                 f"{flexlink_line_prefix}WAIT IDLE\n"
                 f"{flexlink_loop_end}"
@@ -7329,10 +7386,10 @@ def main(page: ft.Page):
         flexlink_settings["cycle_pitch"] = flexlink_cycle_pitch
         flexlink_settings["line_speed"] = flexlink_line_speed
         flexlink_settings["excite_dist"] = flexlink_excite_dist
-        flexlink_settings["base_in"] = flexlink_base_in
-        flexlink_settings["base_out"] = flexlink_base_out
-        flexlink_settings["excite_acc"] = flexlink_excite_acc
-        flexlink_settings["excite_dec"] = flexlink_excite_dec
+        flexlink_settings["base_in_mm"] = flexlink_base_in_mm
+        flexlink_settings["base_out_mm"] = flexlink_base_out_mm
+        flexlink_settings["excite_acc_mm"] = flexlink_excite_acc_mm
+        flexlink_settings["excite_dec_mm"] = flexlink_excite_dec_mm
         flexlink_settings["curve_type"] = flexlink_curve_type
         flexlink_settings["start_mode"] = flexlink_start_mode
         flexlink_settings["link_pos"] = flexlink_link_pos
@@ -7457,7 +7514,7 @@ def main(page: ft.Page):
                     ft.Row(
                         [
                             result_card("Excite window", "flexlink_excite_window_mm"),
-                            result_card("Base distance", "flexlink_base_dist_mm"),
+                            result_card("Flat section", "flexlink_flat_mm"),
                             result_card("Peak slave speed", "flexlink_peak_speed"),
                             result_card("Cycle time", "flexlink_cycle_time"),
                             result_card("link_options value", "flexlink_options"),
@@ -8572,12 +8629,13 @@ def main(page: ft.Page):
     def flexlink_profile_snapshot(master_delta=None):
         flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
         flexlink_excite_dist = flexlink_setting_float("excite_dist", 20)
-        flexlink_base_in = flexlink_setting_float("base_in", 70)
-        flexlink_base_out = flexlink_setting_float("base_out", 5)
-        flexlink_excite_acc = flexlink_setting_float("excite_acc", 50)
-        flexlink_excite_dec = flexlink_setting_float("excite_dec", 50)
+        flexlink_base_in_mm = flexlink_setting_float("base_in_mm", 210)
+        flexlink_base_out_mm = flexlink_setting_float("base_out_mm", 15)
+        flexlink_excite_acc_mm = flexlink_setting_float("excite_acc_mm", 37.5)
+        flexlink_excite_dec_mm = flexlink_setting_float("excite_dec_mm", 37.5)
         flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
-        flexlink_base_dist = flexlink_cycle_pitch * flexlink_base_in / 100.0
+        # Flow-wrapper convention: 1:1 background sync (base_dist == link_dist).
+        flexlink_base_dist = flexlink_cycle_pitch
 
         flexlink_cycles = 0
         flexlink_u = 0.0
@@ -8588,10 +8646,11 @@ def main(page: ft.Page):
 
         flexlink_excite_progress, flexlink_in_excite = flexlink_excitation_progress(
             flexlink_u,
-            flexlink_base_in,
-            flexlink_base_out,
-            flexlink_excite_acc,
-            flexlink_excite_dec,
+            flexlink_cycle_pitch,
+            flexlink_base_in_mm,
+            flexlink_base_out_mm,
+            flexlink_excite_acc_mm,
+            flexlink_excite_dec_mm,
             flexlink_curve_type,
         )
         flexlink_expected_phase = flexlink_u * flexlink_base_dist + (
@@ -8605,8 +8664,8 @@ def main(page: ft.Page):
             "cycle_pitch": flexlink_cycle_pitch,
             "base_dist": flexlink_base_dist,
             "excite_dist": flexlink_excite_dist,
-            "base_in": flexlink_base_in,
-            "base_out": flexlink_base_out,
+            "base_in_mm": flexlink_base_in_mm,
+            "base_out_mm": flexlink_base_out_mm,
             "u": flexlink_u,
             "excite_progress": flexlink_excite_progress,
             "in_excite": flexlink_in_excite,
@@ -8796,8 +8855,8 @@ def main(page: ft.Page):
         flexlink_shapes = []
         flexlink_snapshot = flexlink_profile_snapshot()
         flexlink_cycle_pitch = flexlink_snapshot["cycle_pitch"]
-        flexlink_base_in = flexlink_snapshot["base_in"]
-        flexlink_base_out = flexlink_snapshot["base_out"]
+        flexlink_base_in_mm = flexlink_snapshot["base_in_mm"]
+        flexlink_base_out_mm = flexlink_snapshot["base_out_mm"]
         flexlink_u = flexlink_snapshot["u"]
         flexlink_excite_progress = flexlink_snapshot["excite_progress"]
         flexlink_in_excite = flexlink_snapshot["in_excite"]
@@ -8827,7 +8886,7 @@ def main(page: ft.Page):
             flexlink_expected_position % flexlink_cycle_pitch
         ) / flexlink_cycle_pitch * flexlink_travel
         flexlink_expected_x = max(flexlink_left, min(flexlink_right - 58, flexlink_expected_x))
-        flexlink_seal_u = flexlink_base_in / 100.0 + max(0.0, 100.0 - flexlink_base_in - flexlink_base_out) / 200.0
+        flexlink_seal_u = (flexlink_cycle_pitch + flexlink_base_in_mm - flexlink_base_out_mm) / (2.0 * flexlink_cycle_pitch)
         flexlink_seal_x = flexlink_left + flexlink_seal_u * flexlink_travel
 
         flexlink_shapes.append(
@@ -9498,12 +9557,14 @@ def main(page: ft.Page):
     flexlink_example_cycle_pitch = 300.0
     flexlink_example_line_speed = 500.0
     flexlink_example_excite_dist = 20.0
-    flexlink_example_base_in = 70.0
-    flexlink_example_base_out = 5.0
-    flexlink_example_excite_acc = 50.0
-    flexlink_example_excite_dec = 50.0
-    flexlink_example_window = flexlink_example_cycle_pitch * (
-        1.0 - flexlink_example_base_in / 100.0 - flexlink_example_base_out / 100.0
+    flexlink_example_base_in_mm = 210.0
+    flexlink_example_base_out_mm = 15.0
+    flexlink_example_excite_acc_mm = 37.5
+    flexlink_example_excite_dec_mm = 37.5
+    flexlink_example_window = (
+        flexlink_example_cycle_pitch
+        - flexlink_example_base_in_mm
+        - flexlink_example_base_out_mm
     )
     flexlink_example_time = flexlink_example_window / flexlink_example_line_speed
     flexlink_example_peak = flexlink_example_line_speed + flexlink_example_excite_dist / flexlink_example_time
@@ -9517,13 +9578,15 @@ def main(page: ft.Page):
                         "Command Shape",
                         [
                             help_text("FLEXLINK(base_dist, excite_dist, link_dist, base_in, base_out, excite_acc, excite_dec, link_axis[, link_options[, start_pos]])"),
-                            help_text("base_dist is the slave travel at the base ratio. excite_dist is the signed advance or retard applied during the seal impulse."),
-                            help_text("link_dist is the positive master distance for one full profile. base_in and base_out reserve dwell distance before and after the excitation window."),
+                            help_text("base_dist is the slave constant-speed travel per cycle; the generator sets base_dist = link_dist for a 1:1 background. excite_dist is the signed advance or retard added on top during the seal impulse."),
+                            help_text("Args 4-7 are percentages per Trio FLEXLINK. The UI takes them in mm for readability and converts: base_in% = base_in_mm / link_dist, excite_acc% = excite_acc_mm / excite_window."),
                             formula_block(
                                 [
-                                    "excite_window = link_dist * (1 - base_in / 100 - base_out / 100)",
-                                    "excite_time = excite_window / line_speed",
-                                    "advance_speed ~= excite_dist / excite_time",
+                                    "excite_window_mm = link_dist - base_in_mm - base_out_mm",
+                                    "flat_mm = excite_window_mm - excite_acc_mm - excite_dec_mm",
+                                    "excite_time = excite_window_mm / line_speed",
+                                    "peak_extra_speed = excite_dist / (excite_time * (acc_pct + 2*flat_pct + dec_pct) / 200)",
+                                    "peak_ratio = base_dist / link_dist + peak_extra_speed / line_speed",
                                 ]
                             ),
                         ],
@@ -9554,13 +9617,15 @@ def main(page: ft.Page):
                     help_card(
                         "Worked Example",
                         [
-                            help_text("Flow wrapper example: cycle pitch 300 mm, line speed 500 mm/s, 20 mm advance, base_in 70%, base_out 5%, accel/decel 50/50."),
+                            help_text("Flow wrapper example: cycle pitch 300 mm, line speed 500 mm/s, 20 mm advance, base_in 210 mm, base_out 15 mm, accel/decel 37.5/37.5 mm."),
                             formula_block(
                                 [
-                                    f"excite_window = 300 * (1 - 0.70 - 0.05) = {flexlink_example_window:.0f} mm",
+                                    f"excite_window = 300 - 210 - 15 = {flexlink_example_window:.0f} mm",
+                                    "base_in% = 210/300*100 = 70, base_out% = 15/300*100 = 5",
+                                    "excite_acc% = 37.5/75*100 = 50, excite_dec% = 37.5/75*100 = 50",
                                     f"excite_time = {flexlink_example_window:.0f} / 500 = {flexlink_example_time:.2f} s",
-                                    f"peak_speed ~= 500 + 20 / {flexlink_example_time:.2f} = {flexlink_example_peak:.0f} mm/s",
-                                    "FLEXLINK(210.000, 20.000, 300.000, 70.0, 5.0, 50.0, 50.0, link_ax)",
+                                    f"peak_speed = 500 + 20 / {flexlink_example_time:.2f} = {flexlink_example_peak:.0f} mm/s",
+                                    "FLEXLINK(300.000, 20.000, 300.000, 70.00, 5.00, 50.00, 50.00, link_ax)",
                                 ]
                             ),
                         ],
@@ -9599,9 +9664,9 @@ def main(page: ft.Page):
                     help_card(
                         "Flow Wrapper Application Notes",
                         [
-                            help_text("base_in is dwell before the jaws begin their sealing advance. base_out is the remaining dwell after the jaws return to the base film ratio."),
+                            help_text("base_in is the master dwell distance before the jaws begin their sealing advance. base_out is the remaining master dwell distance after the jaws return to the base film ratio."),
                             help_text("excite_dist is signed: positive advances the jaws ahead of the film, while negative retards them. Sign depends on jaw mechanics and axis direction."),
-                            help_text("Typical starting points are base_in 60..80%, base_out 0..10%, excite_acc 50%, excite_dec 50%, with Sine or Poly5 curve type."),
+                            help_text("Typical starting points are base_in 60..80% of cycle pitch, base_out 0..10% of cycle pitch, and equal accel/decel ramps that share the excite window, with Sine or Poly5 curve type."),
                             help_text("Horizontal pillow-pack machines usually use a modest positive advance. Vertical wrappers may need signed correction based on pull-belt direction and sealing jaw layout."),
                         ],
                         icon=ft.Icons.NOTES,

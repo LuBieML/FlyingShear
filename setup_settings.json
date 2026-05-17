@@ -292,7 +292,7 @@
   "flexlink_calc": {
     "cycle_pitch": 100.0,
     "line_speed": 10.0,
-    "excite_dist": 20.0,
+    "excite_dist": 40.0,
     "base_in": 30.0,
     "base_out": 5.0,
     "excite_acc": 10.0,
@@ -302,7 +302,11 @@
     "link_pos": 0.0,
     "link_source": "mpos",
     "direction_mode": "any",
-    "repeat_mode": "flexlink_repeat"
+    "repeat_mode": "flexlink_repeat",
+    "base_in_mm": 20.0,
+    "base_out_mm": 15.0,
+    "excite_acc_mm": 10.0,
+    "excite_dec_mm": 10.0
   },
   "rotarylink_calc": {
     "distance": 62.83185307179586,

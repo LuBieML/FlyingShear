@@ -21,14 +21,24 @@ def flexlink_curve_progress(t, curve_type):
 
 def flexlink_excitation_progress(
     u,
+    cycle_pitch,
     base_in,
     base_out,
     excite_acc,
     excite_dec,
     curve_type,
 ):
-    start_u = base_in / 100.0
-    end_u = 1.0 - base_out / 100.0
+    """Return (progress, in_excite) for normalized phase u in [0, 1].
+
+    cycle_pitch, base_in, base_out, excite_acc, excite_dec are all distances
+    in the same units (mm). base_in/base_out are dwell distances at the base
+    ratio; excite_acc/excite_dec are accel/decel ramp distances inside the
+    excitation window.
+    """
+    if cycle_pitch <= 0:
+        return 0.0, False
+    start_u = base_in / cycle_pitch
+    end_u = 1.0 - base_out / cycle_pitch
     if end_u <= start_u:
         return 0.0, False
     if u <= start_u:
@@ -36,9 +46,12 @@ def flexlink_excitation_progress(
     if u >= end_u:
         return 1.0, False
 
+    window = cycle_pitch - base_in - base_out
+    if window <= 0:
+        return 0.0, False
     phase = (u - start_u) / (end_u - start_u)
-    acc = max(0.0, min(1.0, excite_acc / 100.0))
-    dec = max(0.0, min(1.0, excite_dec / 100.0))
+    acc = max(0.0, min(1.0, excite_acc / window))
+    dec = max(0.0, min(1.0, excite_dec / window))
     if acc + dec > 1.0:
         scale = 1.0 / (acc + dec)
         acc *= scale
