@@ -9825,6 +9825,10 @@ def main(page: ft.Page):
                     ft.Container(content=cam_calc_container, padding=20, expand=True),
                 ),
                 (
+                    ft.Tab(label="Profile View", icon=ft.Icons.SHOW_CHART),
+                    ft.Container(content=rotary_profile_container, padding=20, expand=True),
+                ),
+                (
                     ft.Tab(label="Help", icon=ft.Icons.FUNCTIONS),
                     rotary_cam_math_help_list,
                 ),
