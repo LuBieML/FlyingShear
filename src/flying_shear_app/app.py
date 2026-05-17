@@ -5849,7 +5849,7 @@ def main(page: ft.Page):
         rotary_sim_canvas.shapes = shapes
         return True
 
-    def rotary_diag_card(label, value_control, width=185):
+    def rotary_diag_card(label, value_control, width=185, height=66):
         return ft.Container(
             content=ft.Column([
                 ft.Text(label, size=11, color=ft.Colors.GREY_400),
@@ -5860,6 +5860,7 @@ def main(page: ft.Page):
             border_radius=8,
             padding=10,
             width=width,
+            height=height,
         )
 
     def rotary_unit_diag_card():
@@ -6440,7 +6441,14 @@ def main(page: ft.Page):
     rotary_status_text = ft.Text("Not connected; static schematic.", size=13, color=MUTED_TEXT, width=520)
     rotary_line_speed_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
     rotary_drum_speed_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
-    rotary_match_delta_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
+    rotary_match_delta_label = ft.Text(
+        "--",
+        size=15,
+        color=MUTED_TEXT,
+        weight=ft.FontWeight.BOLD,
+        no_wrap=True,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
     rotary_cut_status_label = ft.Text("Outside", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
     rotary_encoder_cpr_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
     rotary_drum_units_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
@@ -6497,7 +6505,7 @@ def main(page: ft.Page):
                     [
                         rotary_diag_card("Line speed", rotary_line_speed_label, 230),
                         rotary_diag_card("Drum surface speed", rotary_drum_speed_label, 190),
-                        rotary_diag_card("Match delta", rotary_match_delta_label, 180),
+                        rotary_diag_card("Match delta", rotary_match_delta_label, 215),
                         rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
                         rotary_diag_card(
                             "MPOS cnts per physical rev",
@@ -6635,24 +6643,34 @@ def main(page: ft.Page):
         on_speed_change=on_rotary_slave_jog_speed_change,
         on_speed_commit=on_rotary_slave_jog_speed_commit,
         enabled=trio_conn.is_connected(),
-        col={"xs": 12, "lg": 7},
+        col={"xs": 12, "lg": 6},
     )
 
     rotary_controls_grid = ft.ResponsiveRow(
         [
+            rotary_diag_panel,
             control_cluster(
                 "Axes & knife",
                 [rotary_axis_m_dropdown, rotary_axis_s_dropdown,
                  rotary_cutter_output_input, make_cutter_lamp_panel_clone()],
                 icon=ft.Icons.ACCOUNT_TREE,
-                col={"xs": 12, "lg": 5},
+                col={"xs": 12, "lg": 6},
+                height=140,
+            ),
+            control_cluster(
+                "Simulation setup",
+                [rotary_debug_toggles, rotary_link_units_input,
+                 rotary_mpos_override_input],
+                icon=ft.Icons.SETTINGS,
+                col={"xs": 12, "lg": 6},
+                height=140,
             ),
             control_cluster(
                 "Conveyor jog",
                 [rotary_master_rev_btn, rotary_master_fwd_btn, rotary_master_stop_btn,
                  rotary_master_speed_input, rotary_master_speed_slider],
                 icon=ft.Icons.PLAY_ARROW,
-                col={"xs": 12, "lg": 7},
+                col={"xs": 12, "lg": 6},
             ),
             rotary_slave_jog_panel.control,
             control_cluster(
@@ -6663,17 +6681,8 @@ def main(page: ft.Page):
                  rotary_scale_plus_btn, rotary_scale_plus10_btn,
                  rotary_scale_value_label],
                 icon=ft.Icons.ZOOM_OUT_MAP,
-                col={"xs": 12, "lg": 5},
+                col={"xs": 12},
             ),
-            control_cluster(
-                "Simulation setup",
-                [rotary_debug_toggles, rotary_link_units_input,
-                 rotary_mpos_override_input, rotary_tolerance_input,
-                 rotary_refresh_units_btn],
-                icon=ft.Icons.SETTINGS,
-                col={"xs": 12, "lg": 7},
-            ),
-            rotary_diag_panel,
             rotary_debug_container,
         ],
         columns=12,

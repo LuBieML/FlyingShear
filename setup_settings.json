@@ -15,7 +15,7 @@
   "master_axis": "3",
   "slave_axis": "0",
   "cutter_output": "8",
-  "scale_px_per_unit": 15.0,
+  "scale_px_per_unit": 18.0,
   "solution_axis_params": {
     "flying_shear": {
       "target_axis": "1",

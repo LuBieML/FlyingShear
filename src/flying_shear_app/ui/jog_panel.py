@@ -157,7 +157,7 @@ class SlaveJogPanel:
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     ft.Row(
-                        [self.rev_button, self.fwd_button, self.reset_button, self.speed_input, self.status_box],
+                        [self.rev_button, self.fwd_button, self.reset_button, self.speed_input],
                         wrap=True,
                         spacing=8,
                         run_spacing=8,
