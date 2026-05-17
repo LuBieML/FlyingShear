@@ -8788,15 +8788,26 @@ def main(page: ft.Page):
         }
 
     def flexlink_draw_vertical_film_tube(flexlink_shapes, flexlink_width, flexlink_height,
-                                         flexlink_u, flexlink_cycle_pitch):
+                                         flexlink_u, flexlink_cycle_pitch,
+                                         flexlink_contact_distance):
         flexlink_tube_w = max(128.0, min(190.0, flexlink_width * 0.28))
         flexlink_tube_x = flexlink_width * 0.50 - flexlink_tube_w / 2.0
         flexlink_tube_top = 88.0
         flexlink_tube_bottom = flexlink_height - 122.0
         flexlink_tube_h = flexlink_tube_bottom - flexlink_tube_top
         flexlink_center_x = flexlink_tube_x + flexlink_tube_w / 2.0
-        flexlink_bag_pitch_px = max(112.0, min(162.0, flexlink_tube_h / 3.15))
-        flexlink_phase_px = (flexlink_u * flexlink_bag_pitch_px) % flexlink_bag_pitch_px
+        flexlink_stroke_top = flexlink_tube_top + 72.0
+        flexlink_stroke_bottom = flexlink_tube_bottom - 64.0
+        flexlink_stroke_len = max(1.0, flexlink_stroke_bottom - flexlink_stroke_top)
+        flexlink_sync_px_per_mm = (
+            flexlink_stroke_len / flexlink_contact_distance
+            if flexlink_contact_distance > 0 else
+            flexlink_tube_h / max(1.0, flexlink_cycle_pitch)
+        )
+        flexlink_bag_pitch_px = max(1.0, flexlink_cycle_pitch * flexlink_sync_px_per_mm)
+        flexlink_phase_px = (
+            flexlink_u * flexlink_cycle_pitch * flexlink_sync_px_per_mm
+        ) % flexlink_bag_pitch_px
 
         flexlink_shapes.extend([
             cv.Rect(0, 0, flexlink_width, flexlink_height,
@@ -8941,6 +8952,10 @@ def main(page: ft.Page):
             "tube_h": flexlink_tube_h,
             "center_x": flexlink_center_x,
             "bag_pitch_px": flexlink_bag_pitch_px,
+            "stroke_top": flexlink_stroke_top,
+            "stroke_bottom": flexlink_stroke_bottom,
+            "stroke_len": flexlink_stroke_len,
+            "sync_px_per_mm": flexlink_sync_px_per_mm,
         }
 
     def flexlink_draw_phase_strip(flexlink_shapes, flexlink_width, flexlink_height,
@@ -9137,15 +9152,16 @@ def main(page: ft.Page):
             flexlink_height,
             flexlink_u,
             flexlink_cycle_pitch,
+            flexlink_metrics["seal_contact"],
         )
         tube_x = flexlink_film["tube_x"]
         tube_w = flexlink_film["tube_w"]
         tube_top = flexlink_film["tube_top"]
         tube_bottom = flexlink_film["tube_bottom"]
         center_x = flexlink_film["center_x"]
-        stroke_top = tube_top + 72.0
-        stroke_bottom = tube_bottom - 64.0
-        stroke_len = max(1.0, stroke_bottom - stroke_top)
+        stroke_top = flexlink_film["stroke_top"]
+        stroke_bottom = flexlink_film["stroke_bottom"]
+        stroke_len = flexlink_film["stroke_len"]
         rail_left = max(44.0, tube_x - 166.0)
         rail_right = min(flexlink_width - 44.0, tube_x + tube_w + 166.0)
         flexlink_shapes.extend([
