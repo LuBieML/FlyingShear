@@ -246,7 +246,7 @@
       }
     }
   },
-  "master_speed": "3.94",
+  "master_speed": "10.0",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -282,7 +282,7 @@
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
     "show_debug": false,
-    "slave_jog_speed": "1"
+    "slave_jog_speed": "160"
   },
   "cam_profile_view": {
     "start_deg": 0.0,
@@ -290,19 +290,19 @@
     "metric": "rpm"
   },
   "flexlink_calc": {
-    "cycle_pitch": 300.0,
+    "cycle_pitch": 100.0,
     "line_speed": 10.0,
     "excite_dist": 20.0,
-    "base_in": 70.0,
+    "base_in": 30.0,
     "base_out": 5.0,
-    "excite_acc": 50.0,
-    "excite_dec": 50.0,
-    "curve_type": "sine",
+    "excite_acc": 10.0,
+    "excite_dec": 10.0,
+    "curve_type": "poly9",
     "start_mode": "immediate",
     "link_pos": 0.0,
     "link_source": "mpos",
     "direction_mode": "any",
-    "repeat_mode": "program_loop"
+    "repeat_mode": "flexlink_repeat"
   },
   "rotarylink_calc": {
     "distance": 62.83185307179586,

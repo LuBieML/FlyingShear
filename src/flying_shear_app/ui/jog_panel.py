@@ -65,6 +65,7 @@ class SlaveJogPanel:
         on_jog_edge: Optional[Callable[[JogEdgeEvent], None]] = None,
         on_reset_position: Optional[Callable[[JogResetEvent], None]] = None,
         on_speed_change: Optional[Callable[[float, str], None]] = None,
+        on_speed_commit: Optional[Callable[[float, str], None]] = None,
         enabled: bool = True,
         col=None,
     ):
@@ -74,6 +75,7 @@ class SlaveJogPanel:
         self.on_jog_edge = on_jog_edge
         self.on_reset_position = on_reset_position
         self.on_speed_change = on_speed_change
+        self.on_speed_commit = on_speed_commit
         self.enabled = enabled
         self._active_speeds = {}
         self._button_surfaces = {}
@@ -298,6 +300,8 @@ class SlaveJogPanel:
         self.speed_input.error_text = None
         if self.on_speed_change:
             self.on_speed_change(speed, speed_text)
+        if self.on_speed_commit:
+            self.on_speed_commit(speed, speed_text)
         self.set_status(f"Jog speed set to {speed_text} {self.speed_suffix}.", "idle")
         self._safe_update(self.speed_input)
 

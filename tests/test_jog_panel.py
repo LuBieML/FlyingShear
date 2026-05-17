@@ -85,6 +85,19 @@ class SlaveJogPanelTests(unittest.TestCase):
         self.assertEqual(resets[0].speed, 3.25)
         self.assertEqual(resets[0].speed_text, "3.25")
 
+    def test_speed_commit_callback_receives_normalized_speed(self):
+        commits = []
+        panel = SlaveJogPanel(
+            theme=_theme(),
+            speed_value="2.500",
+            on_speed_commit=lambda speed, speed_text: commits.append((speed, speed_text)),
+        )
+
+        panel._handle_speed_commit(None)
+
+        self.assertEqual(commits, [(2.5, "2.5")])
+        self.assertEqual(panel.speed_input.value, "2.5")
+
 
 if __name__ == "__main__":
     unittest.main()

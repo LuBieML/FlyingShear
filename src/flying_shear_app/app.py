@@ -863,6 +863,10 @@ def main(page: ft.Page):
     def _set_motion_controls_enabled(enabled):
         for btn in (master_fwd_btn, master_rev_btn, master_stop_btn, *rotary_motion_buttons):
             btn.disabled = not enabled
+        try:
+            rotary_slave_jog_panel.set_enabled(enabled)
+        except NameError:
+            pass
 
     master_fwd_btn = ft.FilledButton(
         "Forward", icon=ft.Icons.PLAY_ARROW, on_click=lambda e: _send_master_cmd("forward"),
@@ -6534,17 +6538,89 @@ def main(page: ft.Page):
         rotary_sim_settings["slave_jog_speed"] = speed_text
         save_settings(settings)
 
+    def rotary_slave_jog_axis():
+        try:
+            return int(rotary_axis_s_dropdown.value or axis_s_dropdown.value or "1")
+        except (TypeError, ValueError):
+            return None
+
+    def run_rotary_slave_jog_uapi(action, worker, submitted_message, status_kind="active"):
+        if not trio_conn.is_connected():
+            rotary_slave_jog_panel.set_status(
+                "Connect to the controller before jogging the drum axis.",
+                "error",
+            )
+            show_snack("Connect to the controller before jogging the drum axis.", "warning")
+            return False
+
+        axis = rotary_slave_jog_axis()
+        if axis is None:
+            rotary_slave_jog_panel.set_status("Select a valid drum/slave axis before jogging.", "error")
+            show_snack("Select a valid drum/slave axis before jogging.", "error")
+            return False
+
+        rotary_slave_jog_panel.set_status(submitted_message(axis), status_kind)
+
+        def _do():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                return
+            try:
+                worker(conn, axis)
+            except Exception as ex:
+                print(f"Slave jog {action} error on axis {axis}: {ex}")
+
+        uapi_executor.submit(_do)
+        return True
+
+    def on_rotary_slave_jog_speed_commit(speed, speed_text):
+        def _set_speed(conn, axis):
+            conn.SetAxisParameter_SPEED(axis, speed)
+
+        run_rotary_slave_jog_uapi(
+            "speed",
+            _set_speed,
+            lambda axis: f"Set drum axis {axis} jog SPEED to {speed_text} u/s.",
+            "idle",
+        )
+
     def on_rotary_slave_jog_edge(event):
-        print(
-            "Slave jog edge captured: "
-            f"{event.direction} {event.edge}, speed={event.speed_text} "
-            f"{event.source}, reason={event.reason}. Controller command hook pending."
+        def _jog_worker(conn, axis):
+            if event.edge == "rising":
+                conn.SetAxisParameter_SPEED(axis, event.speed)
+                if event.direction == "fwd":
+                    conn.Forward(axis)
+                else:
+                    conn.Reverse(axis)
+            elif event.edge == "falling":
+                conn.Cancel(2, axis)
+
+        direction_label = "FWD" if event.direction == "fwd" else "REV"
+        edge_label = "pressed" if event.edge == "rising" else "released"
+        action_label = (
+            f"{event.direction}_{event.edge}"
+            if event.edge in ("rising", "falling")
+            else event.edge
+        )
+        run_rotary_slave_jog_uapi(
+            action_label,
+            _jog_worker,
+            lambda axis: (
+                f"Jog {direction_label} {edge_label}: "
+                f"axis {axis}, speed {event.speed_text} u/s."
+            ),
+            "active" if event.edge == "rising" else "idle",
         )
 
     def on_rotary_slave_reset_position(event):
-        print(
-            "Slave reset position click captured: "
-            f"{event.source}. Controller reset hook pending."
+        def _reset_worker(conn, axis):
+            conn.DefPos(0, axis)
+
+        run_rotary_slave_jog_uapi(
+            "reset_pos",
+            _reset_worker,
+            lambda axis: f"DEFPOS(0) submitted for drum axis {axis}.",
+            "idle",
         )
 
     rotary_slave_jog_panel = SlaveJogPanel(
@@ -6557,6 +6633,8 @@ def main(page: ft.Page):
         on_jog_edge=on_rotary_slave_jog_edge,
         on_reset_position=on_rotary_slave_reset_position,
         on_speed_change=on_rotary_slave_jog_speed_change,
+        on_speed_commit=on_rotary_slave_jog_speed_commit,
+        enabled=trio_conn.is_connected(),
         col={"xs": 12, "lg": 7},
     )
 
