@@ -57,6 +57,7 @@ from .domain.rotarylink_math import (
     estimate_rotarylink_slave_decel,
     validate_rotarylink_profile,
 )
+from .ui.jog_panel import JogPanelTheme, SlaveJogPanel
 
 
 patch_flet_charts_matplotlib_lifecycle()
@@ -5007,6 +5008,7 @@ def main(page: ft.Page):
     rotary_sim_settings.setdefault(ROTARY_MPOS_OVERRIDE_KEY, None)
     rotary_sim_settings.setdefault("match_tolerance_pct", 2.0)
     rotary_sim_settings.setdefault("show_debug", False)
+    rotary_sim_settings.setdefault("slave_jog_speed", "1")
 
     ROTARY_SIM_HEIGHT = 390
     ROTARY_DEFAULT_AXIS_CPR = 8_388_608.0
@@ -6518,6 +6520,46 @@ def main(page: ft.Page):
 
     rotary_debug_container.col = {"xs": 12}
 
+    rotary_slave_jog_theme = JogPanelTheme(
+        panel_bg=PANEL_ALT_BG,
+        field_bg=DARKER_BG,
+        border_color=BORDER_COLOR,
+        text_color=TEXT_COLOR,
+        muted_text=MUTED_TEXT,
+        accent_color=ACCENT_COLOR,
+        status_bg=DARKER_BG,
+    )
+
+    def on_rotary_slave_jog_speed_change(speed, speed_text):
+        rotary_sim_settings["slave_jog_speed"] = speed_text
+        save_settings(settings)
+
+    def on_rotary_slave_jog_edge(event):
+        print(
+            "Slave jog edge captured: "
+            f"{event.direction} {event.edge}, speed={event.speed_text} "
+            f"{event.source}, reason={event.reason}. Controller command hook pending."
+        )
+
+    def on_rotary_slave_reset_position(event):
+        print(
+            "Slave reset position click captured: "
+            f"{event.source}. Controller reset hook pending."
+        )
+
+    rotary_slave_jog_panel = SlaveJogPanel(
+        title="Slave / drum jog",
+        subtitle="Reusable jog framework; real controller commands can be wired here later",
+        source="rotary_drum_slave",
+        speed_value=rotary_sim_settings.get("slave_jog_speed", "1"),
+        speed_suffix="u/s",
+        theme=rotary_slave_jog_theme,
+        on_jog_edge=on_rotary_slave_jog_edge,
+        on_reset_position=on_rotary_slave_reset_position,
+        on_speed_change=on_rotary_slave_jog_speed_change,
+        col={"xs": 12, "lg": 7},
+    )
+
     rotary_controls_grid = ft.ResponsiveRow(
         [
             control_cluster(
@@ -6534,6 +6576,7 @@ def main(page: ft.Page):
                 icon=ft.Icons.PLAY_ARROW,
                 col={"xs": 12, "lg": 7},
             ),
+            rotary_slave_jog_panel.control,
             control_cluster(
                 "Visual scale",
                 [rotary_recenter_btn,
