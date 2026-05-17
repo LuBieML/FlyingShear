@@ -66,7 +66,7 @@ begin_windows_timer_resolution()
 def main(page: ft.Page):
     install_asyncio_windows_pipe_reset_filter()
 
-    page.title = "Trio Motion Setup"
+    page.title = "Trio Motion Training Suite"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
     default_window_width = 1728
@@ -10518,8 +10518,63 @@ def main(page: ft.Page):
         card.on_hover = _on_hover
         return card
 
+    def placeholder_training_card(label, subtitle, icon):
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Container(
+                        content=ft.Icon(icon, size=30, color=MUTED_TEXT),
+                        width=58,
+                        height=58,
+                        bgcolor=DARKER_BG,
+                        border=ft.Border.all(1, BORDER_COLOR),
+                        border_radius=14,
+                        alignment=ft.Alignment.CENTER,
+                    ),
+                    ft.Container(height=2),
+                    ft.Text(label, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300),
+                    ft.Text(subtitle, size=13, color=MUTED_TEXT, max_lines=3),
+                ],
+                spacing=8,
+                expand=True,
+            ),
+            width=320,
+            height=210,
+            padding=ft.Padding.all(22),
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=14,
+        )
+
+    def training_section(title, subtitle, controls):
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+                            ft.Text(subtitle, size=12, color=MUTED_TEXT),
+                        ],
+                        spacing=2,
+                        tight=True,
+                    ),
+                    ft.Row(
+                        controls,
+                        alignment=ft.MainAxisAlignment.START,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=20,
+                        wrap=True,
+                        run_spacing=20,
+                    ),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.START,
+                spacing=14,
+            ),
+            width=1420,
+        )
+
     def show_solution_picker():
-        page.title = "Trio Motion Setup"
+        page.title = "Trio Motion Training Suite"
         page.appbar = None
         current_solution["value"] = None
         flexlink_stop_sim()
@@ -10527,13 +10582,13 @@ def main(page: ft.Page):
         hero = ft.Column(
             [
                 ft.Text(
-                    "Trio Motion Setup",
-                    size=34,
+                    "Trio Motion Training Suite",
+                    size=38,
                     weight=ft.FontWeight.BOLD,
                     color=ft.Colors.WHITE,
                 ),
                 ft.Text(
-                    "Choose a motion solution to begin configuring the controller.",
+                    "Choose a training module to begin configuring the controller.",
                     size=14,
                     color=MUTED_TEXT,
                 ),
@@ -10542,7 +10597,21 @@ def main(page: ft.Page):
             spacing=8,
         )
 
-        cards = ft.Row(
+        basic_section = training_section(
+            "Basic",
+            "Introductory training modules will appear here as they are added.",
+            [
+                placeholder_training_card(
+                    "Coming Soon",
+                    "The current training modules are advanced motion examples.",
+                    ft.Icons.SCHOOL,
+                ),
+            ],
+        )
+
+        advanced_section = training_section(
+            "Advanced",
+            "Application-level examples for linked motion, camming, and synchronized axes.",
             [
                 solution_card(
                     "Flying Shear",
@@ -10569,23 +10638,19 @@ def main(page: ft.Page):
                     "rotarylink",
                 ),
             ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=20,
-            wrap=True,
-            run_spacing=20,
         )
 
         app_root.content = ft.Container(
             content=ft.Column(
-                [hero, cards],
+                [hero, basic_section, advanced_section],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=32,
+                alignment=ft.MainAxisAlignment.START,
+                spacing=30,
+                scroll=ft.ScrollMode.AUTO,
             ),
             expand=True,
-            alignment=ft.Alignment.CENTER,
-            padding=ft.Padding.symmetric(horizontal=24, vertical=24),
+            alignment=ft.Alignment.TOP_CENTER,
+            padding=ft.Padding.symmetric(horizontal=24, vertical=34),
         )
         page.update()
 
