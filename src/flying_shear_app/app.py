@@ -6805,7 +6805,7 @@ def main(page: ft.Page):
         "base_out": "Second 1:1 locked seal-contact distance after the open / registration-nudge window.",
         "excite_acc": "Film distance used to ramp into the registration correction during the open window.",
         "excite_dec": "Film distance used to ramp out of the registration correction during the open window.",
-        "seal_dwell_min_ms": "Minimum heat-seal dwell time required by the film material (PE ~80 ms, PP ~120 ms, PET ~150 ms). Used for the dwell warning.",
+        "seal_dwell_min_ms": "Minimum heat-seal dwell time required by the film material (PE ~80 ms, PP ~120 ms, PET ~150 ms). This is a validation target, not a FLEXLINK parameter.",
         "curve_type": "FLEXLINK curve type encoded into link_options bits 10..12.",
         "start_mode": "Optional trigger for the first FLEXLINK call.",
         "link_pos": "Absolute link-axis position or R_MARK channel, depending on the selected trigger.",
@@ -6821,6 +6821,8 @@ def main(page: ft.Page):
         "flexlink_excite_window_mm": "Open / registration-nudge window: bag_length - seal_contact_in - seal_contact_out.",
         "flexlink_flat_mm": "Constant-correction portion of the open window: open_window - nudge_acc - nudge_dec.",
         "flexlink_seal_dwell_ms": "Heat-seal dwell time: (seal_contact_in + seal_contact_out) / line_speed. This is the 1:1 locked contact time.",
+        "flexlink_required_contact_mm": "Minimum total 1:1 seal-contact distance required by Min seal dwell at the current film speed.",
+        "flexlink_dwell_margin_ms": "Actual heat-seal dwell minus Min seal dwell.",
         "flexlink_peak_speed": "Peak jaw-axis speed during the open-window registration correction.",
         "flexlink_cycle_time": "Time per bag = bag_length / line_speed.",
         "flexlink_options": "Decimal FLEXLINK link_options value from trigger, source, direction, repeat, and curve bits.",
@@ -6952,6 +6954,8 @@ def main(page: ft.Page):
         "flexlink_excite_window_mm",
         "flexlink_flat_mm",
         "flexlink_seal_dwell_ms",
+        "flexlink_required_contact_mm",
+        "flexlink_dwell_margin_ms",
         "flexlink_peak_speed",
         "flexlink_cycle_time",
         "flexlink_options",
@@ -7287,6 +7291,11 @@ def main(page: ft.Page):
         # Heat-seal dwell is the 1:1 locked base motion, not the excitation window.
         flexlink_seal_dwell_mm = flexlink_base_in_mm + flexlink_base_out_mm
         flexlink_seal_dwell_ms = flexlink_seal_dwell_mm / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
+        flexlink_required_contact_mm = (
+            flexlink_seal_dwell_min_ms * flexlink_line_speed / 1000.0
+            if flexlink_seal_dwell_min_ms > 0 and flexlink_line_speed > 0 else 0.0
+        )
+        flexlink_dwell_margin_ms = flexlink_seal_dwell_ms - flexlink_seal_dwell_min_ms
 
         flexlink_options = flexlink_build_options(
             flexlink_curve_type,
@@ -7312,6 +7321,26 @@ def main(page: ft.Page):
             result_labels["flexlink_seal_dwell_ms"].color = WARNING_COLOR
         else:
             result_labels["flexlink_seal_dwell_ms"].color = ft.Colors.CYAN_200
+        result_labels["flexlink_required_contact_mm"].value = (
+            f"{flexlink_required_contact_mm:.2f} mm" if flexlink_seal_dwell_min_ms > 0 else "off"
+        )
+        if flexlink_seal_dwell_min_ms <= 0:
+            result_labels["flexlink_required_contact_mm"].color = MUTED_TEXT
+        elif flexlink_seal_dwell_mm < flexlink_required_contact_mm:
+            result_labels["flexlink_required_contact_mm"].color = ERROR_COLOR
+        else:
+            result_labels["flexlink_required_contact_mm"].color = ft.Colors.CYAN_200
+        result_labels["flexlink_dwell_margin_ms"].value = (
+            f"{flexlink_dwell_margin_ms:+.1f} ms" if flexlink_seal_dwell_min_ms > 0 else "off"
+        )
+        if flexlink_seal_dwell_min_ms <= 0:
+            result_labels["flexlink_dwell_margin_ms"].color = MUTED_TEXT
+        elif flexlink_dwell_margin_ms < 0:
+            result_labels["flexlink_dwell_margin_ms"].color = ERROR_COLOR
+        elif flexlink_dwell_margin_ms < flexlink_seal_dwell_min_ms * 0.25:
+            result_labels["flexlink_dwell_margin_ms"].color = WARNING_COLOR
+        else:
+            result_labels["flexlink_dwell_margin_ms"].color = SUCCESS_COLOR
         result_labels["flexlink_peak_speed"].value = f"{fmt_speed(flexlink_peak_speed)} mm/s"
         result_labels["flexlink_peak_speed"].color = (
             ERROR_COLOR if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3
@@ -7350,10 +7379,18 @@ def main(page: ft.Page):
                 and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms
             ):
                 flexlink_messages.append(
-                    f"Heat-seal dwell {flexlink_seal_dwell_ms:.0f} ms < required {flexlink_seal_dwell_min_ms:.0f} ms - increase seal contact in/out distance or slow film"
+                    f"Heat-seal dwell {flexlink_seal_dwell_ms:.0f} ms < required {flexlink_seal_dwell_min_ms:.0f} ms - need {flexlink_required_contact_mm:.2f} mm 1:1 contact, have {flexlink_seal_dwell_mm:.2f} mm"
                 )
                 flexlink_severity = "error"
         if flexlink_severity != "error":
+            if (
+                flexlink_excite_window_mm > 0
+                and abs(flexlink_excite_dist) > flexlink_excite_window_mm * 0.5
+            ):
+                flexlink_messages.append(
+                    "Large open-arc correction - verify this is intentional registration/indexing motion, not normal fine trim"
+                )
+                flexlink_severity = "warning"
             if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3:
                 flexlink_messages.append("High peak jaw speed - verify servo capability")
                 flexlink_severity = "warning"
@@ -7366,7 +7403,7 @@ def main(page: ft.Page):
                 and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms * 1.25
             ):
                 flexlink_messages.append(
-                    f"Heat-seal dwell {flexlink_seal_dwell_ms:.0f} ms near minimum {flexlink_seal_dwell_min_ms:.0f} ms - little 1:1 contact margin"
+                    f"Heat-seal dwell margin {flexlink_dwell_margin_ms:.0f} ms - required contact {flexlink_required_contact_mm:.2f} mm"
                 )
                 if flexlink_severity == "ok":
                     flexlink_severity = "warning"
@@ -7563,6 +7600,8 @@ def main(page: ft.Page):
                             result_card("Open / reg-nudge", "flexlink_excite_window_mm"),
                             result_card("Nudge flat", "flexlink_flat_mm"),
                             result_card("Heat-seal dwell", "flexlink_seal_dwell_ms"),
+                            result_card("Required contact", "flexlink_required_contact_mm"),
+                            result_card("Dwell margin", "flexlink_dwell_margin_ms"),
                             result_card("Peak open speed", "flexlink_peak_speed"),
                             result_card("Cycle time", "flexlink_cycle_time"),
                             result_card("link_options value", "flexlink_options"),
@@ -8879,6 +8918,21 @@ def main(page: ft.Page):
                     paint=canvas_paint(ft.Colors.with_opacity(0.30, "#2d6a7d"), 1.0, dash=[9, 7])),
         ])
 
+        tracking_pitch = 34.0
+        tracking_y = flexlink_tube_top - tracking_pitch + (flexlink_phase_px % tracking_pitch)
+        while tracking_y < flexlink_tube_bottom + tracking_pitch:
+            if flexlink_tube_top + 12 <= tracking_y <= flexlink_tube_bottom - 12:
+                flexlink_shapes.append(
+                    cv.Line(
+                        flexlink_tube_x + 10,
+                        tracking_y,
+                        flexlink_tube_x + flexlink_tube_w - 10,
+                        tracking_y,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.16, "#f1fdff"), 0.8),
+                    )
+                )
+            tracking_y += tracking_pitch
+
         flexlink_y = flexlink_tube_top - flexlink_bag_pitch_px + flexlink_phase_px
         while flexlink_y < flexlink_tube_bottom + flexlink_bag_pitch_px:
             if flexlink_tube_top - 20 <= flexlink_y <= flexlink_tube_bottom + 20:
@@ -8931,7 +8985,7 @@ def main(page: ft.Page):
                 )
             )
             for i in range(8):
-                cleat_y = belt_top + ((i * 28 + flexlink_phase_px * 0.55) % (belt_h + 24)) - 12
+                cleat_y = belt_top + ((i * 28 + flexlink_phase_px) % (belt_h + 24)) - 12
                 if belt_top <= cleat_y <= belt_top + belt_h - 8:
                     flexlink_shapes.append(
                         cv.Rect(
