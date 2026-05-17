@@ -5856,6 +5856,24 @@ def main(page: ft.Page):
             width=width,
         )
 
+    def rotary_unit_diag_card():
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Drum axis UNITS", size=11, color=ft.Colors.GREY_400),
+                    rotary_drum_units_label,
+                    rotary_units_source_label,
+                ],
+                spacing=3,
+                tight=True,
+            ),
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=10,
+            width=245,
+        )
+
     def update_rotary_debug_overlay():
         try:
             show_debug = bool(rotary_debug_checkbox.value)
@@ -6399,6 +6417,17 @@ def main(page: ft.Page):
         on_change=on_rotary_debug_change,
         tooltip="Show raw drum MPOS/MSPEED conversion values",
     )
+    rotary_reverse_checkbox.width = 230
+    rotary_debug_checkbox.width = 135
+    rotary_debug_toggles = ft.Container(
+        content=ft.Row(
+            [rotary_reverse_checkbox, rotary_debug_checkbox],
+            spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        width=385,
+        height=42,
+    )
 
     rotary_comms_lag_label = ft.Text("MPOS read: -- ms (avg 100)", size=10, color=ft.Colors.GREY_500)
     rotary_fps_label = ft.Text("0 FPS", size=10, color=ft.Colors.GREY_500)
@@ -6442,6 +6471,53 @@ def main(page: ft.Page):
         bgcolor=DARKER_BG,
     )
 
+    rotary_diag_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.SHOW_CHART, size=14, color=MUTED_TEXT),
+                        ft.Text(
+                            "LIVE READINGS",
+                            size=10,
+                            color=MUTED_TEXT,
+                            weight=ft.FontWeight.BOLD,
+                        ),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [
+                        rotary_diag_card("Line speed", rotary_line_speed_label, 230),
+                        rotary_diag_card("Drum surface speed", rotary_drum_speed_label, 190),
+                        rotary_diag_card("Match delta", rotary_match_delta_label, 180),
+                        rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
+                        rotary_diag_card(
+                            "MPOS cnts per physical rev",
+                            rotary_mpos_per_rev_label,
+                            245,
+                        ),
+                        rotary_diag_card("Drum encoder CPR", rotary_encoder_cpr_label, 180),
+                        rotary_unit_diag_card(),
+                    ],
+                    wrap=True,
+                    spacing=10,
+                    run_spacing=10,
+                ),
+            ],
+            spacing=8,
+            tight=True,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+        col={"xs": 12},
+    )
+
+    rotary_debug_container.col = {"xs": 12}
+
     rotary_controls_grid = ft.ResponsiveRow(
         [
             control_cluster(
@@ -6470,55 +6546,23 @@ def main(page: ft.Page):
             ),
             control_cluster(
                 "Simulation setup",
-                [rotary_reverse_checkbox, rotary_link_units_input,
+                [rotary_debug_toggles, rotary_link_units_input,
                  rotary_mpos_override_input, rotary_tolerance_input,
-                 rotary_refresh_units_btn, rotary_debug_checkbox],
+                 rotary_refresh_units_btn],
                 icon=ft.Icons.SETTINGS,
                 col={"xs": 12, "lg": 7},
             ),
+            rotary_diag_panel,
+            rotary_debug_container,
         ],
         columns=12,
         spacing=10,
         run_spacing=10,
-        vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-    )
-
-    rotary_diag_strip = ft.Column(
-        [
-            ft.Row(
-                [
-                    ft.Icon(ft.Icons.SHOW_CHART, size=14, color=MUTED_TEXT),
-                    ft.Text(
-                        "LIVE READINGS",
-                        size=10,
-                        color=MUTED_TEXT,
-                        weight=ft.FontWeight.BOLD,
-                    ),
-                ],
-                spacing=6,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            ft.Row(
-                [
-                    rotary_diag_card("Line speed", rotary_line_speed_label, 230),
-                    rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
-                    rotary_diag_card(
-                        "MPOS cnts per physical rev",
-                        rotary_mpos_per_rev_label,
-                        245,
-                    ),
-                ],
-                wrap=True,
-                spacing=10,
-                run_spacing=10,
-            ),
-        ],
-        spacing=8,
-        tight=True,
+        vertical_alignment=ft.CrossAxisAlignment.START,
     )
 
     rotary_sim_title_text = ft.Text(
-        "Rotary Knife Simulation",
+        "Live Monitor",
         size=20,
         weight=ft.FontWeight.BOLD,
         color=ft.Colors.WHITE,
@@ -6550,7 +6594,7 @@ def main(page: ft.Page):
             rotary_axis_s_dropdown.label = "Rotary / base axis"
         else:
             rotary_sim_mode["solution"] = "rotary_knife"
-            rotary_sim_title_text.value = "Rotary Knife Simulation"
+            rotary_sim_title_text.value = "Live Monitor"
             rotary_sim_subtitle_text.value = "Live drum geometry from CAMBOX axes"
             rotary_axis_m_dropdown.label = "Material / encoder axis"
             rotary_axis_s_dropdown.label = "Drum axis"
@@ -6579,8 +6623,6 @@ def main(page: ft.Page):
                 ),
                 rotary_sim_canvas_holder,
                 rotary_controls_grid,
-                rotary_diag_strip,
-                rotary_debug_container,
             ],
             spacing=14,
             scroll=ft.ScrollMode.AUTO,
@@ -9649,24 +9691,20 @@ def main(page: ft.Page):
         if solution == "rotary_knife":
             tab_specs = [
                 (
-                    ft.Tab(label="Rotary Knife Sim", icon=ft.Icons.AUTORENEW),
-                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
-                ),
-                (
                     ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
                     ft.Container(content=cam_calc_container, padding=20, expand=True),
                 ),
                 (
-                    ft.Tab(label="Profile View", icon=ft.Icons.SHOW_CHART),
-                    ft.Container(content=rotary_profile_container, padding=20, expand=True),
-                ),
-                (
-                    ft.Tab(label="Cam Math Help", icon=ft.Icons.FUNCTIONS),
+                    ft.Tab(label="Help", icon=ft.Icons.FUNCTIONS),
                     rotary_cam_math_help_list,
                 ),
                 (
-                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
+                    ft.Tab(label="Connection and Axis Config", icon=ft.Icons.TUNE),
                     axis_connection_page,
+                ),
+                (
+                    ft.Tab(label="Live Monitor", icon=ft.Icons.ANALYTICS),
+                    ft.Container(content=rotary_sim_container, padding=20, expand=True),
                 ),
             ]
         elif solution == "flow_wrapper":

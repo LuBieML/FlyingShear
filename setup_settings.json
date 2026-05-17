@@ -246,7 +246,7 @@
       }
     }
   },
-  "master_speed": "4.43",
+  "master_speed": "5.25",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -266,8 +266,8 @@
   "cam_calc": {
     "cut": 25.0,
     "drum_dia": 20.0,
-    "n_knives": 1,
-    "cut_window": 10.0,
+    "n_knives": 4,
+    "cut_window": 20.0,
     "cpr": 8388608,
     "n_points": 10000,
     "blend": 0.3,
@@ -281,7 +281,7 @@
     "link_units_to_mm": 1.0,
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
-    "show_debug": true
+    "show_debug": false
   },
   "cam_profile_view": {
     "start_deg": 0.0,
