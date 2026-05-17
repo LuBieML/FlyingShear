@@ -20,6 +20,7 @@ from .codegen.cambox_basic import (
     emit_cam_basic_program,
     emit_cam_quicktest_basic_program,
 )
+from .codegen.point_to_point_basic import emit_point_to_point_basic_program
 from .codegen.rotarylink_basic import emit_rotarylink_basic_program
 from .config.settings import load_settings, save_settings
 from .controller.trio_connection import TrioConnection
@@ -101,6 +102,7 @@ def main(page: ft.Page):
     SOLUTION_AXIS_PARAMS_KEY = "solution_axis_params"
     DEFAULT_SOLUTION = "flying_shear"
     SOLUTION_LABELS = {
+        "point_to_point": "Point To Point Move",
         "flying_shear": "Flying Shear",
         "rotary_knife": "Rotary Knife",
         "flow_wrapper": "VFFS",
@@ -10302,8 +10304,446 @@ def main(page: ft.Page):
         expand=True,
     )
 
+    # === Point To Point Move (Basic) ===
+    point_to_point_settings = settings.get("point_to_point")
+    if not isinstance(point_to_point_settings, dict):
+        point_to_point_settings = {}
+        settings["point_to_point"] = point_to_point_settings
+
+    point_to_point_defaults = {
+        "axis": "0",
+        "move_mode": "relative",
+        "target": "100.0",
+        "speed": "10.0",
+        "accel": "100.0",
+        "decel": "100.0",
+        "servo_on": True,
+        "wait_idle": True,
+    }
+    for key, default in point_to_point_defaults.items():
+        point_to_point_settings.setdefault(key, default)
+
+    def point_to_point_setting_text(key):
+        return str(point_to_point_settings.get(key, point_to_point_defaults[key]))
+
+    def point_to_point_setting_bool(key):
+        return bool(point_to_point_settings.get(key, point_to_point_defaults[key]))
+
+    point_to_point_code_output = ft.TextField(
+        value="",
+        read_only=True,
+        multiline=True,
+        min_lines=29,
+        max_lines=45,
+        bgcolor=DARKER_BG,
+        color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True,
+        tooltip="Generated Trio BASIC MOVE or MOVEABS program.",
+    )
+    point_to_point_status = ft.Text("Ready", size=12, color=MUTED_TEXT)
+
+    def point_to_point_save_settings():
+        point_to_point_settings["axis"] = point_to_point_axis_dropdown.value or "0"
+        point_to_point_settings["move_mode"] = point_to_point_mode_dropdown.value or "relative"
+        point_to_point_settings["target"] = point_to_point_target_input.value or ""
+        point_to_point_settings["speed"] = point_to_point_speed_input.value or ""
+        point_to_point_settings["accel"] = point_to_point_accel_input.value or ""
+        point_to_point_settings["decel"] = point_to_point_decel_input.value or ""
+        point_to_point_settings["servo_on"] = bool(point_to_point_servo_checkbox.value)
+        point_to_point_settings["wait_idle"] = bool(point_to_point_wait_checkbox.value)
+        save_settings(settings)
+
+    def point_to_point_parse_inputs(show_errors=False):
+        valid = True
+
+        try:
+            axis = int(point_to_point_axis_dropdown.value or "0")
+        except (TypeError, ValueError):
+            axis = 0
+            valid = False
+
+        def parse_float(control, positive=False):
+            nonlocal valid
+            raw = (control.value or "").strip().replace(",", ".")
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                valid = False
+                if show_errors:
+                    control.error_text = "Number required"
+                return 0.0
+
+            if positive and value <= 0:
+                valid = False
+                if show_errors:
+                    control.error_text = "Must be > 0"
+                return value
+
+            if show_errors:
+                control.error_text = None
+            return value
+
+        values = {
+            "axis": axis,
+            "move_mode": point_to_point_mode_dropdown.value or "relative",
+            "target": parse_float(point_to_point_target_input),
+            "speed": parse_float(point_to_point_speed_input, positive=True),
+            "accel": parse_float(point_to_point_accel_input, positive=True),
+            "decel": parse_float(point_to_point_decel_input, positive=True),
+            "servo_on": bool(point_to_point_servo_checkbox.value),
+            "wait_idle": bool(point_to_point_wait_checkbox.value),
+        }
+        return valid, values
+
+    def point_to_point_update_target_label():
+        if (point_to_point_mode_dropdown.value or "relative") == "absolute":
+            point_to_point_target_input.label = "Target position"
+            point_to_point_target_input.tooltip = "Absolute axis target position used by MOVEABS(target_pos)."
+        else:
+            point_to_point_target_input.label = "Distance"
+            point_to_point_target_input.tooltip = "Relative axis distance used by MOVE(distance)."
+
+    def point_to_point_update_code(e=None, show_errors=False, save=True):
+        point_to_point_update_target_label()
+        if save:
+            point_to_point_save_settings()
+        valid, values = point_to_point_parse_inputs(show_errors=show_errors)
+        if valid:
+            point_to_point_code_output.value = emit_point_to_point_basic_program(**values)
+        else:
+            point_to_point_code_output.value = "' Enter valid point-to-point parameters to generate Trio BASIC."
+        if e is not None:
+            page.update()
+        return valid, values
+
+    def point_to_point_text_field(label, key, suffix=None, positive=True, tooltip=None):
+        return ft.TextField(
+            label=label,
+            value=point_to_point_setting_text(key),
+            width=150,
+            height=45,
+            bgcolor=DARKER_BG,
+            color=TEXT_COLOR,
+            border_color=BORDER_COLOR,
+            focused_border_color=ACCENT_COLOR,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.RIGHT,
+            suffix=suffix,
+            text_size=12,
+            on_change=lambda e: point_to_point_update_code(e),
+            on_blur=lambda e: point_to_point_update_code(e, show_errors=True),
+            tooltip=tooltip,
+        )
+
+    point_to_point_axis_dropdown = ft.Dropdown(
+        label="Axis",
+        width=130,
+        height=45,
+        options=[ft.dropdown.Option(str(i), f"Axis {i}") for i in range(16)],
+        value=point_to_point_setting_text("axis"),
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_size=12,
+        on_select=lambda e: point_to_point_update_code(e),
+        tooltip="Axis selected by BASE(axis_no) in generated Trio BASIC.",
+    )
+    point_to_point_mode_dropdown = ft.Dropdown(
+        label="Move type",
+        width=190,
+        height=45,
+        options=[
+            ft.dropdown.Option("relative", "Relative MOVE"),
+            ft.dropdown.Option("absolute", "Absolute MOVEABS"),
+        ],
+        value=point_to_point_setting_text("move_mode"),
+        bgcolor=DARKER_BG,
+        color=TEXT_COLOR,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_size=12,
+        on_select=lambda e: point_to_point_update_code(e),
+        tooltip="Relative mode generates MOVE(distance); absolute mode generates MOVEABS(target_pos).",
+    )
+    point_to_point_target_input = point_to_point_text_field(
+        "Distance",
+        "target",
+        "u",
+        positive=False,
+        tooltip="Relative distance or absolute target position.",
+    )
+    point_to_point_speed_input = point_to_point_text_field(
+        "Speed",
+        "speed",
+        "u/s",
+        tooltip="Axis SPEED used before the point-to-point move.",
+    )
+    point_to_point_accel_input = point_to_point_text_field(
+        "Accel",
+        "accel",
+        "u/s^2",
+        tooltip="Axis ACCEL used before the point-to-point move.",
+    )
+    point_to_point_decel_input = point_to_point_text_field(
+        "Decel",
+        "decel",
+        "u/s^2",
+        tooltip="Axis DECEL used before the point-to-point move.",
+    )
+    point_to_point_servo_checkbox = ft.Checkbox(
+        label="SERVO ON",
+        value=point_to_point_setting_bool("servo_on"),
+        on_change=lambda e: point_to_point_update_code(e),
+        tooltip="Include SERVO = ON in generated code and set servo before direct control moves.",
+    )
+    point_to_point_wait_checkbox = ft.Checkbox(
+        label="WAIT IDLE",
+        value=point_to_point_setting_bool("wait_idle"),
+        on_change=lambda e: point_to_point_update_code(e),
+        tooltip="Append WAIT IDLE after MOVE or MOVEABS.",
+    )
+
+    def point_to_point_finish_future(future, success_message):
+        def _update_ui():
+            try:
+                future.result()
+            except Exception as ex:
+                point_to_point_status.value = str(ex)
+                point_to_point_status.color = ERROR_COLOR
+                show_snack(str(ex), "error")
+            else:
+                point_to_point_status.value = success_message
+                point_to_point_status.color = SUCCESS_COLOR
+            page.update()
+
+        loop = ui_loop_holder.get("loop")
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(_update_ui)
+
+    def point_to_point_run(e):
+        if not trio_conn.is_connected():
+            point_to_point_status.value = "Connect to the controller before running a point-to-point move."
+            point_to_point_status.color = WARNING_COLOR
+            show_snack("Connect to the controller before running a point-to-point move.", "warning")
+            page.update()
+            return
+
+        valid, values = point_to_point_update_code(show_errors=True)
+        if not valid:
+            point_to_point_status.value = "Fix the highlighted parameters before running."
+            point_to_point_status.color = ERROR_COLOR
+            page.update()
+            return
+
+        axis = values["axis"]
+        move_mode = values["move_mode"]
+        target = values["target"]
+        point_to_point_status.value = (
+            f"Submitting {'MOVE' if move_mode == 'relative' else 'MOVEABS'} on Axis {axis}..."
+        )
+        point_to_point_status.color = ft.Colors.CYAN_200
+        page.update()
+
+        def _do():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                raise RuntimeError("Controller connection is not available.")
+            conn.SetAxisParameter_SPEED(axis, values["speed"])
+            conn.SetAxisParameter_ACCEL(axis, values["accel"])
+            conn.SetAxisParameter_DECEL(axis, values["decel"])
+            if values["servo_on"]:
+                conn.SetAxisParameter_SERVO(axis, True)
+            if move_mode == "absolute":
+                conn.MoveAbs(target, axis)
+            else:
+                conn.MoveRel(target, axis)
+
+        future = uapi_executor.submit(_do)
+        future.add_done_callback(
+            lambda done: point_to_point_finish_future(
+                done,
+                f"{'MOVE' if move_mode == 'relative' else 'MOVEABS'} submitted on Axis {axis}.",
+            )
+        )
+
+    def point_to_point_stop(e):
+        if not trio_conn.is_connected():
+            point_to_point_status.value = "Connect to the controller before stopping an axis."
+            point_to_point_status.color = WARNING_COLOR
+            show_snack("Connect to the controller before stopping an axis.", "warning")
+            page.update()
+            return
+        try:
+            axis = int(point_to_point_axis_dropdown.value or "0")
+        except (TypeError, ValueError):
+            axis = 0
+
+        point_to_point_status.value = f"Stopping Axis {axis}..."
+        point_to_point_status.color = ft.Colors.CYAN_200
+        page.update()
+
+        def _do():
+            conn = trio_conn.connection
+            if not conn or not trio_conn.is_connected():
+                raise RuntimeError("Controller connection is not available.")
+            conn.Cancel(2, axis)
+
+        future = uapi_executor.submit(_do)
+        future.add_done_callback(
+            lambda done: point_to_point_finish_future(done, f"Cancel(2, {axis}) submitted.")
+        )
+
+    point_to_point_run_btn = ft.FilledButton(
+        "Start Move",
+        icon=ft.Icons.PLAY_ARROW,
+        on_click=point_to_point_run,
+        disabled=True,
+        height=38,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE),
+        tooltip="Send MOVE or MOVEABS to the connected controller.",
+    )
+    point_to_point_stop_btn = ft.FilledButton(
+        "Stop",
+        icon=ft.Icons.STOP,
+        on_click=point_to_point_stop,
+        disabled=True,
+        height=38,
+        style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE),
+        tooltip="Cancel current and buffered moves on the selected axis.",
+    )
+    rotary_motion_buttons.extend([point_to_point_run_btn, point_to_point_stop_btn])
+
+    copy_point_to_point_btn = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=lambda e: copy_text_to_clipboard(
+            point_to_point_code_output.value,
+            "Point To Point program copied to clipboard.",
+        ),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Copy the generated Trio BASIC point-to-point program to the Windows clipboard.",
+    )
+
+    point_to_point_panel_height = 680
+
+    point_to_point_control_panel = ft.Container(
+        content=ft.Column(
+            [
+                section_header(
+                    "Point To Point Move",
+                    "Single-axis relative MOVE or absolute MOVEABS training",
+                    ft.Icons.OPEN_WITH,
+                ),
+                ft.ResponsiveRow(
+                    [
+                        control_cluster(
+                            "Move setup",
+                            [
+                                point_to_point_axis_dropdown,
+                                point_to_point_mode_dropdown,
+                                point_to_point_target_input,
+                            ],
+                            icon=ft.Icons.MY_LOCATION,
+                            col={"xs": 12, "lg": 6},
+                        ),
+                        control_cluster(
+                            "Dynamics",
+                            [
+                                point_to_point_speed_input,
+                                point_to_point_accel_input,
+                                point_to_point_decel_input,
+                                point_to_point_servo_checkbox,
+                                point_to_point_wait_checkbox,
+                            ],
+                            icon=ft.Icons.SPEED,
+                            col={"xs": 12, "lg": 6},
+                        ),
+                    ],
+                    columns=12,
+                    spacing=14,
+                    run_spacing=14,
+                ),
+                ft.Row(
+                    [point_to_point_run_btn, point_to_point_stop_btn, point_to_point_status],
+                    wrap=True,
+                    spacing=10,
+                    run_spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        height=point_to_point_panel_height,
+        col={"xs": 12, "xl": 5},
+    )
+
+    point_to_point_code_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        section_header("Trio BASIC Program", "Generated controller code", ft.Icons.CODE),
+                        ft.Container(expand=True),
+                        copy_point_to_point_btn,
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                point_to_point_code_output,
+            ],
+            expand=True,
+            spacing=12,
+        ),
+        bgcolor=PANEL_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=16,
+        height=point_to_point_panel_height,
+        col={"xs": 12, "xl": 7},
+    )
+
+    point_to_point_control_page = ft.Container(
+        content=ft.Column(
+            [
+                ft.ResponsiveRow(
+                    [point_to_point_control_panel, point_to_point_code_panel],
+                    columns=12,
+                    spacing=18,
+                    run_spacing=18,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                )
+            ],
+            spacing=14,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        padding=20,
+        expand=True,
+    )
+
+    point_to_point_update_code(save=False)
+
     def build_solution_tabs(solution):
-        if solution == "rotary_knife":
+        if solution == "point_to_point":
+            tab_specs = [
+                (
+                    ft.Tab(label="Point To Point", icon=ft.Icons.OPEN_WITH),
+                    point_to_point_control_page,
+                ),
+                (
+                    ft.Tab(label="Axis Configuration / Connection", icon=ft.Icons.TUNE),
+                    axis_connection_page,
+                ),
+            ]
+        elif solution == "rotary_knife":
             tab_specs = [
                 (
                     ft.Tab(label="Rotary Knife Cam", icon=ft.Icons.AUTORENEW),
@@ -10449,7 +10889,8 @@ def main(page: ft.Page):
             flexlink_stop_sim()
         set_rotary_sim_labels(solution)
         solution_name = (
-            "Rotary Knife" if solution == "rotary_knife"
+            "Point To Point Move" if solution == "point_to_point"
+            else "Rotary Knife" if solution == "rotary_knife"
             else "VFFS" if solution == "flow_wrapper"
             else "RotaryLink" if solution == "rotarylink"
             else "Flying Shear"
@@ -10599,12 +11040,13 @@ def main(page: ft.Page):
 
         basic_section = training_section(
             "Basic",
-            "Introductory training modules will appear here as they are added.",
+            "Introductory single-axis motion examples for learning Trio BASIC fundamentals.",
             [
-                placeholder_training_card(
-                    "Coming Soon",
-                    "The current training modules are advanced motion examples.",
-                    ft.Icons.SCHOOL,
+                solution_card(
+                    "Point To Point Move",
+                    "Single-axis relative MOVE and absolute MOVEABS examples with generated Trio BASIC.",
+                    ft.Icons.OPEN_WITH,
+                    "point_to_point",
                 ),
             ],
         )
