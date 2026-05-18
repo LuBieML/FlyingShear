@@ -270,7 +270,7 @@
   "cam_calc": {
     "cut": 25.0,
     "drum_dia": 20.0,
-    "n_knives": 1,
+    "n_knives": 3,
     "cut_window": 20.0,
     "cpr": 8388608,
     "n_points": 10000,
@@ -289,8 +289,8 @@
     "slave_jog_speed": "160"
   },
   "cam_profile_view": {
-    "start_deg": 163.0,
-    "end_deg": 197.0,
+    "start_deg": 0.0,
+    "end_deg": 360.0,
     "metric": "rpm"
   },
   "flexlink_calc": {
@@ -337,15 +337,15 @@
     "decel": 10.0
   },
   "point_to_point": {
-    "example": "single",
+    "example": "square",
     "axis": "0",
-    "move_mode": "relative",
+    "move_mode": "absolute",
     "target": "100.0",
     "x_axis": "0",
     "y_axis": "1",
     "origin_x": "0.0",
     "origin_y": "0.0",
-    "side": "100.0",
+    "side": "22",
     "speed": "10.0",
     "accel": "100.0",
     "decel": "100.0",

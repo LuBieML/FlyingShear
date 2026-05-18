@@ -10352,8 +10352,6 @@ def main(page: ft.Page):
         expand=True,
         tooltip="Generated Trio BASIC MOVE or MOVEABS program.",
     )
-    point_to_point_status = ft.Text("Ready", size=12, color=MUTED_TEXT)
-
     def point_to_point_save_settings():
         point_to_point_settings["example"] = point_to_point_example_dropdown.value or "square"
         point_to_point_settings["axis"] = point_to_point_axis_dropdown.value or "0"
@@ -10459,6 +10457,7 @@ def main(page: ft.Page):
             is_square = (point_to_point_example_dropdown.value or "square") == "square"
             point_to_point_single_cluster.visible = not is_square
             point_to_point_square_cluster.visible = is_square
+            point_to_point_square_visual_card.visible = is_square
         except NameError:
             pass
 
@@ -10468,6 +10467,10 @@ def main(page: ft.Page):
         if save:
             point_to_point_save_settings()
         valid, values = point_to_point_parse_inputs(show_errors=show_errors)
+        try:
+            point_to_point_update_square_visual(valid, values)
+        except NameError:
+            pass
         if valid:
             if values["example"] == "square":
                 point_to_point_code_output.value = emit_square_move_basic_program(
@@ -10643,203 +10646,197 @@ def main(page: ft.Page):
     point_to_point_servo_checkbox = ft.Checkbox(
         label="SERVO ON",
         value=point_to_point_setting_bool("servo_on"),
+        width=130,
         on_change=lambda e: point_to_point_update_code(e),
         tooltip="Include SERVO = ON in generated code and set servo before direct control moves.",
     )
     point_to_point_wait_checkbox = ft.Checkbox(
         label="WAIT IDLE",
         value=point_to_point_setting_bool("wait_idle"),
+        width=130,
         on_change=lambda e: point_to_point_update_code(e),
         tooltip="Append WAIT IDLE after MOVE or MOVEABS.",
     )
-
-    def point_to_point_finish_future(future, success_message):
-        def _update_ui():
-            try:
-                future.result()
-            except Exception as ex:
-                point_to_point_status.value = str(ex)
-                point_to_point_status.color = ERROR_COLOR
-                show_snack(str(ex), "error")
-            else:
-                point_to_point_status.value = success_message
-                point_to_point_status.color = SUCCESS_COLOR
-            page.update()
-
-        loop = ui_loop_holder.get("loop")
-        if loop and loop.is_running():
-            loop.call_soon_threadsafe(_update_ui)
-
-    def point_to_point_run(e):
-        if not trio_conn.is_connected():
-            point_to_point_status.value = "Connect to the controller before running a point-to-point move."
-            point_to_point_status.color = WARNING_COLOR
-            show_snack("Connect to the controller before running a point-to-point move.", "warning")
-            page.update()
-            return
-
-        valid, values = point_to_point_update_code(show_errors=True)
-        if not valid:
-            point_to_point_status.value = "Fix the highlighted parameters before running."
-            point_to_point_status.color = ERROR_COLOR
-            page.update()
-            return
-
-        example = values["example"]
-        axis = values["axis"]
-        move_mode = values["move_mode"]
-        target = values["target"]
-        point_to_point_status.value = (
-            "Submitting square path..."
-            if example == "square"
-            else f"Submitting {'MOVE' if move_mode == 'relative' else 'MOVEABS'} on Axis {axis}..."
-        )
-        point_to_point_status.color = ft.Colors.CYAN_200
-        page.update()
-
-        def _number(value):
-            return f"{float(value):.3f}"
-
-        def _do():
-            conn = trio_conn.connection
-            if not conn or not trio_conn.is_connected():
-                raise RuntimeError("Controller connection is not available.")
-            if example == "square":
-                side = values["side"]
-                origin_x = values["origin_x"]
-                origin_y = values["origin_y"]
-                commands = [
-                    f"BASE({values['x_axis']}, {values['y_axis']})",
-                    f"SPEED={_number(values['speed'])}",
-                    f"ACCEL={_number(values['accel'])}",
-                    f"DECEL={_number(values['decel'])}",
-                ]
-                if values["servo_on"]:
-                    commands.insert(1, "SERVO=ON")
-                if move_mode == "absolute":
-                    corners = [
-                        (origin_x, origin_y),
-                        (origin_x + side, origin_y),
-                        (origin_x + side, origin_y + side),
-                        (origin_x, origin_y + side),
-                        (origin_x, origin_y),
-                    ]
-                    move_commands = [
-                        f"MOVEABS({_number(x)}, {_number(y)})"
-                        for x, y in corners
-                    ]
-                else:
-                    edges = [
-                        (side, 0),
-                        (0, side),
-                        (-side, 0),
-                        (0, -side),
-                    ]
-                    move_commands = [
-                        f"MOVE({_number(x)}, {_number(y)})"
-                        for x, y in edges
-                    ]
-                for move_command in move_commands:
-                    commands.append(move_command)
-                    if values["wait_idle"]:
-                        commands.append("WAIT IDLE")
-                for command in commands:
-                    conn.Execute(command)
-                return
-
-            conn.SetAxisParameter_SPEED(axis, values["speed"])
-            conn.SetAxisParameter_ACCEL(axis, values["accel"])
-            conn.SetAxisParameter_DECEL(axis, values["decel"])
-            if values["servo_on"]:
-                conn.SetAxisParameter_SERVO(axis, True)
-            if move_mode == "absolute":
-                conn.MoveAbs(target, axis)
-            else:
-                conn.MoveRel(target, axis)
-
-        future = uapi_executor.submit(_do)
-        future.add_done_callback(
-            lambda done: point_to_point_finish_future(
-                done,
-                (
-                    "Square path submitted."
-                    if example == "square"
-                    else f"{'MOVE' if move_mode == 'relative' else 'MOVEABS'} submitted on Axis {axis}."
-                ),
-            )
-        )
-
-    def point_to_point_stop(e):
-        if not trio_conn.is_connected():
-            point_to_point_status.value = "Connect to the controller before stopping an axis."
-            point_to_point_status.color = WARNING_COLOR
-            show_snack("Connect to the controller before stopping an axis.", "warning")
-            page.update()
-            return
-        try:
-            axis = int(point_to_point_axis_dropdown.value or "0")
-        except (TypeError, ValueError):
-            axis = 0
-        try:
-            x_axis = int(point_to_point_x_axis_dropdown.value or "0")
-        except (TypeError, ValueError):
-            x_axis = 0
-        try:
-            y_axis = int(point_to_point_y_axis_dropdown.value or "1")
-        except (TypeError, ValueError):
-            y_axis = 1
-        is_square = (point_to_point_example_dropdown.value or "square") == "square"
-
-        point_to_point_status.value = (
-            f"Stopping Axis {x_axis} and Axis {y_axis}..."
-            if is_square
-            else f"Stopping Axis {axis}..."
-        )
-        point_to_point_status.color = ft.Colors.CYAN_200
-        page.update()
-
-        def _do():
-            conn = trio_conn.connection
-            if not conn or not trio_conn.is_connected():
-                raise RuntimeError("Controller connection is not available.")
-            if is_square:
-                conn.Cancel(2, x_axis)
-                if y_axis != x_axis:
-                    conn.Cancel(2, y_axis)
-            else:
-                conn.Cancel(2, axis)
-
-        future = uapi_executor.submit(_do)
-        future.add_done_callback(
-            lambda done: point_to_point_finish_future(
-                done,
-                (
-                    f"Cancel submitted for Axis {x_axis} and Axis {y_axis}."
-                    if is_square
-                    else f"Cancel(2, {axis}) submitted."
-                ),
-            )
-        )
-
-    point_to_point_run_btn = ft.FilledButton(
-        "Start Move",
-        icon=ft.Icons.PLAY_ARROW,
-        on_click=point_to_point_run,
-        disabled=True,
-        height=38,
-        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_700, color=ft.Colors.WHITE),
-        tooltip="Send MOVE or MOVEABS to the connected controller.",
+    point_to_point_options_row = ft.Row(
+        [point_to_point_servo_checkbox, point_to_point_wait_checkbox],
+        spacing=10,
+        wrap=False,
+        width=280,
+        height=42,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
-    point_to_point_stop_btn = ft.FilledButton(
-        "Stop",
-        icon=ft.Icons.STOP,
-        on_click=point_to_point_stop,
-        disabled=True,
-        height=38,
-        style=ft.ButtonStyle(bgcolor=ft.Colors.RED_700, color=ft.Colors.WHITE),
-        tooltip="Cancel current and buffered moves on the selected axis.",
-    )
-    rotary_motion_buttons.extend([point_to_point_run_btn, point_to_point_stop_btn])
+    point_to_point_square_canvas = cv.Canvas(width=430, height=270, shapes=[])
+
+    def point_to_point_coord_label(value):
+        abs_value = abs(float(value))
+        if abs_value >= 1000:
+            return f"{value:.0f}"
+        if abs_value >= 100:
+            return f"{value:.1f}"
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def point_to_point_update_square_visual(valid, values):
+        width = 430
+        height = 270
+        left = 58
+        right = 26
+        top = 28
+        bottom = 48
+        plot_w = width - left - right
+        plot_h = height - top - bottom
+
+        axis_paint = canvas_paint("#d7c64a", 2.2)
+        grid_paint = canvas_paint("#37404a", 1, dash=[4, 6])
+        edge_paint = canvas_paint("#7dd3fc", 1.6)
+        marker_paint = ft.Paint(color="#111316", style=ft.PaintingStyle.FILL)
+        marker_border_paint = canvas_paint("#f5d76e", 2.4)
+        start_paint = ft.Paint(color="#1f8f55", style=ft.PaintingStyle.FILL)
+        bg_paint = ft.Paint(color=DARKER_BG, style=ft.PaintingStyle.FILL)
+        panel_paint = ft.Paint(color="#151a20", style=ft.PaintingStyle.FILL)
+
+        shapes = [
+            cv.Rect(0, 0, width, height, border_radius=ft.BorderRadius.all(8), paint=bg_paint),
+            cv.Rect(left, top, plot_w, plot_h, border_radius=ft.BorderRadius.all(4), paint=panel_paint),
+        ]
+
+        if not valid or values.get("side", 0) <= 0:
+            add_profile_text(
+                shapes,
+                width / 2,
+                height / 2 - 8,
+                "Enter valid square values",
+                size=13,
+                color=WARNING_COLOR,
+                weight=ft.FontWeight.BOLD,
+            )
+            point_to_point_square_canvas.shapes = shapes
+            return
+
+        side = float(values["side"])
+        if values["move_mode"] == "absolute":
+            x0 = float(values["origin_x"])
+            y0 = float(values["origin_y"])
+            origin_note = "absolute"
+        else:
+            x0 = 0.0
+            y0 = 0.0
+            origin_note = "relative"
+
+        points = [
+            (x0, y0),
+            (x0 + side, y0),
+            (x0 + side, y0 + side),
+            (x0, y0 + side),
+            (x0, y0),
+        ]
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        pad = max(side * 0.16, 1.0)
+        min_x = min(xs) - pad
+        max_x = max(xs) + pad
+        min_y = min(ys) - pad
+        max_y = max(ys) + pad
+        data_w = max_x - min_x
+        data_h = max_y - min_y
+        unit_scale = min(plot_w / data_w, plot_h / data_h)
+        scaled_w = data_w * unit_scale
+        scaled_h = data_h * unit_scale
+        draw_left = left + (plot_w - scaled_w) / 2
+        draw_top = top + (plot_h - scaled_h) / 2
+        draw_right = draw_left + scaled_w
+        draw_bottom = draw_top + scaled_h
+
+        def map_x(x):
+            return draw_left + (x - min_x) * unit_scale
+
+        def map_y(y):
+            return draw_bottom - (y - min_y) * unit_scale
+
+        grid_x_values = [x0, x0 + side]
+        grid_y_values = [y0, y0 + side]
+        for gx in grid_x_values:
+            x = map_x(gx)
+            shapes.append(cv.Line(x, draw_top, x, draw_bottom, paint=grid_paint))
+            add_profile_text(
+                shapes,
+                x,
+                draw_bottom + 18,
+                point_to_point_coord_label(gx),
+                size=10,
+                color=ft.Colors.GREY_400,
+            )
+        for gy in grid_y_values:
+            y = map_y(gy)
+            shapes.append(cv.Line(draw_left, y, draw_right, y, paint=grid_paint))
+            add_profile_text(
+                shapes,
+                draw_left - 26,
+                y - 5,
+                point_to_point_coord_label(gy),
+                size=10,
+                color=ft.Colors.GREY_400,
+                align=ft.Alignment.CENTER_RIGHT,
+                max_width=48,
+            )
+
+        x_axis_y = draw_bottom
+        y_axis_x = draw_left
+        shapes.extend(
+            [
+                cv.Line(draw_left, x_axis_y, draw_right + 10, x_axis_y, paint=axis_paint),
+                cv.Line(y_axis_x, draw_bottom, y_axis_x, draw_top - 10, paint=axis_paint),
+                cv.Line(draw_right + 10, x_axis_y, draw_right, x_axis_y - 5, paint=axis_paint),
+                cv.Line(draw_right + 10, x_axis_y, draw_right, x_axis_y + 5, paint=axis_paint),
+                cv.Line(y_axis_x, draw_top - 10, y_axis_x - 5, draw_top, paint=axis_paint),
+                cv.Line(y_axis_x, draw_top - 10, y_axis_x + 5, draw_top, paint=axis_paint),
+            ]
+        )
+
+        path_points = [(map_x(x), map_y(y)) for x, y in points]
+        path_elements = [cv.Path.MoveTo(*path_points[0])]
+        for point in path_points[1:]:
+            path_elements.append(cv.Path.LineTo(*point))
+        shapes.append(cv.Path(elements=path_elements, paint=edge_paint))
+
+        for idx, ((x_value, y_value), (x, y)) in enumerate(zip(points[:-1], path_points[:-1])):
+            shapes.append(cv.Circle(x, y, 6.2, paint=start_paint if idx == 0 else marker_paint))
+            shapes.append(cv.Circle(x, y, 6.2, paint=marker_border_paint))
+            label = f"({point_to_point_coord_label(x_value)}, {point_to_point_coord_label(y_value)})"
+            offset_x = 36 if idx in (0, 3) else -42
+            offset_y = -20 if idx in (2, 3) else 16
+            add_profile_text(
+                shapes,
+                x + offset_x,
+                y + offset_y,
+                label,
+                size=10,
+                color=ft.Colors.GREY_200,
+                max_width=92,
+            )
+
+        add_profile_text(
+            shapes,
+            draw_left + 8,
+            top - 19,
+            f"XY path - {origin_note}",
+            size=11,
+            color=ft.Colors.CYAN_200,
+            weight=ft.FontWeight.BOLD,
+            align=ft.Alignment.CENTER_LEFT,
+            max_width=140,
+        )
+        add_profile_text(shapes, draw_right + 18, x_axis_y - 15, "X", size=11, color="#d7c64a")
+        add_profile_text(shapes, y_axis_x + 16, top - 19, "Y", size=11, color="#d7c64a")
+        add_profile_text(
+            shapes,
+            width - 76,
+            height - 22,
+            f"Axes {values['x_axis']} / {values['y_axis']}",
+            size=10,
+            color=ft.Colors.GREY_400,
+            max_width=110,
+        )
+        point_to_point_square_canvas.shapes = shapes
 
     copy_point_to_point_btn = ft.FilledButton(
         "Copy program",
@@ -10853,7 +10850,7 @@ def main(page: ft.Page):
         tooltip="Copy the generated Trio BASIC point-to-point program to the Windows clipboard.",
     )
 
-    point_to_point_panel_height = 680
+    point_to_point_panel_height = 920
 
     point_to_point_lesson_cluster = control_cluster(
         "Learning example",
@@ -10879,14 +10876,40 @@ def main(page: ft.Page):
         icon=ft.Icons.CROP_SQUARE,
         col={"xs": 12},
     )
+    point_to_point_square_visual_card = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.GRID_ON, size=14, color=MUTED_TEXT),
+                        ft.Text("XY COORDINATES", size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=6,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(
+                    content=point_to_point_square_canvas,
+                    border=ft.Border.all(1, BORDER_COLOR),
+                    border_radius=8,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                ),
+            ],
+            spacing=8,
+            tight=True,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+        col={"xs": 12},
+    )
     point_to_point_dynamics_cluster = control_cluster(
         "Dynamics",
         [
             point_to_point_speed_input,
             point_to_point_accel_input,
             point_to_point_decel_input,
-            point_to_point_servo_checkbox,
-            point_to_point_wait_checkbox,
+            point_to_point_options_row,
         ],
         icon=ft.Icons.SPEED,
         col={"xs": 12},
@@ -10905,18 +10928,12 @@ def main(page: ft.Page):
                         point_to_point_lesson_cluster,
                         point_to_point_single_cluster,
                         point_to_point_square_cluster,
+                        point_to_point_square_visual_card,
                         point_to_point_dynamics_cluster,
                     ],
                     columns=12,
                     spacing=14,
                     run_spacing=14,
-                ),
-                ft.Row(
-                    [point_to_point_run_btn, point_to_point_stop_btn, point_to_point_status],
-                    wrap=True,
-                    spacing=10,
-                    run_spacing=10,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
             spacing=14,
@@ -10927,7 +10944,7 @@ def main(page: ft.Page):
         border_radius=8,
         padding=16,
         height=point_to_point_panel_height,
-        col={"xs": 12, "xl": 5},
+        col={"xs": 12, "xl": 7},
     )
 
     point_to_point_code_panel = ft.Container(
@@ -10951,7 +10968,7 @@ def main(page: ft.Page):
         border_radius=8,
         padding=16,
         height=point_to_point_panel_height,
-        col={"xs": 12, "xl": 7},
+        col={"xs": 12, "xl": 5},
     )
 
     point_to_point_control_page = ft.Container(

@@ -56,6 +56,8 @@ class PointToPointBasicTests(unittest.TestCase):
             decel=100,
         )
 
+        self.assertIn("BASE(x_axis)\nSERVO = ON\nSPEED = move_speed", program)
+        self.assertIn("BASE(y_axis)\nSERVO = ON\nSPEED = move_speed", program)
         self.assertIn("BASE(x_axis, y_axis)", program)
         self.assertIn("x0 = 10.000", program)
         self.assertIn("y0 = 20.000", program)

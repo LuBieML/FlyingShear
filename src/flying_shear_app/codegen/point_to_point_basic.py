@@ -98,7 +98,7 @@ def emit_square_move_basic_program(
 
     lines = [
         "' Point To Point square path example",
-        "' X axis and Y axis are grouped with BASE, then each line is one simple move.",
+        "' Set each axis separately, then group X and Y only for the path moves.",
         f"x_axis = {x_axis_value}",
         f"y_axis = {y_axis_value}",
         f"side = {_format_number(side_value)}",
@@ -117,22 +117,20 @@ def emit_square_move_basic_program(
     else:
         lines.append("' Relative square starts from the current X/Y position.")
 
-    lines.extend(
-        [
-            "",
-            "BASE(x_axis, y_axis)",
-        ]
-    )
-    if servo_on:
-        lines.append("SERVO = ON")
-    lines.extend(
-        [
-            "SPEED = move_speed",
-            "ACCEL = move_accel",
-            "DECEL = move_decel",
-            "",
-        ]
-    )
+    lines.append("")
+    for axis_name in ("x_axis", "y_axis"):
+        lines.append(f"BASE({axis_name})")
+        if servo_on:
+            lines.append("SERVO = ON")
+        lines.extend(
+            [
+                "SPEED = move_speed",
+                "ACCEL = move_accel",
+                "DECEL = move_decel",
+                "",
+            ]
+        )
+    lines.extend(["BASE(x_axis, y_axis)", ""])
 
     if move_mode == "absolute":
         moves = [
