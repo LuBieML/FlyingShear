@@ -342,7 +342,7 @@
     "distance": 62.83185307179586,
     "link_dist": 62.83185307179586,
     "acc": 11.0,
-    "sync": 1.0,
+    "sync": 10.0,
     "sync_pos": 11.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
