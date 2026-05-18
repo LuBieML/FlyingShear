@@ -247,7 +247,11 @@
     },
     "point_to_point": {
       "target_axis": "0",
-      "axis_params": {}
+      "axis_params": {
+        "0": {
+          "UNITS": "66666"
+        }
+      }
     }
   },
   "master_speed": "7.71",

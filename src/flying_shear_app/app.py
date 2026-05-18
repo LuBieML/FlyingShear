@@ -1984,6 +1984,10 @@ def main(page: ft.Page):
             axis = axis_dropdown.value or "0"
             save_axis_param_value(axis, p_name, e.control.value)
             validate_axis_param_inputs(show_errors=False)
+            try:
+                point_to_point_update_code(e, save=False)
+            except NameError:
+                pass
         return handler
 
     for param, default in parameters:
@@ -2061,6 +2065,10 @@ def main(page: ft.Page):
 
         save_settings(settings)
         refresh_axis_dropdown()
+        try:
+            point_to_point_update_code(save=False)
+        except NameError:
+            pass
         page.update()
 
     axis_dropdown.on_select = on_target_axis_change
@@ -2102,6 +2110,10 @@ def main(page: ft.Page):
             param_inputs[param_name].value = val
         save_settings(settings)
         refresh_axis_dropdown()
+        try:
+            point_to_point_update_code(save=False)
+        except NameError:
+            pass
         show_snack(f"Copied saved parameters from Axis {src} to Axis {dst}.", "success")
         page.update()
 
@@ -10477,6 +10489,13 @@ def main(page: ft.Page):
         except NameError:
             pass
 
+    def point_to_point_axis_startup_params(axis):
+        axis_settings = get_axis_params_store(create=False).get(str(axis), {})
+        return {
+            param_name: str(axis_settings.get(param_name, parameter_defaults[param_name]))
+            for param_name, _ in parameters
+        }
+
     def point_to_point_update_code(e=None, show_errors=False, save=True):
         point_to_point_update_target_label()
         point_to_point_update_example_visibility()
@@ -10510,6 +10529,10 @@ def main(page: ft.Page):
                     accel=values["accel"],
                     decel=values["decel"],
                     servo_on=values["servo_on"],
+                    axis_params_by_axis={
+                        values["x_axis"]: point_to_point_axis_startup_params(values["x_axis"]),
+                        values["y_axis"]: point_to_point_axis_startup_params(values["y_axis"]),
+                    },
                 )
             else:
                 generated_motion_program = emit_point_to_point_motion_program(
@@ -10527,6 +10550,7 @@ def main(page: ft.Page):
                     accel=values["accel"],
                     decel=values["decel"],
                     servo_on=values["servo_on"],
+                    axis_params=point_to_point_axis_startup_params(values["axis"]),
                 )
         point_to_point_code_output.value = generated_motion_program
         point_to_point_code_output_tab2.value = generated_startup_program
