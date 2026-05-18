@@ -10352,6 +10352,20 @@ def main(page: ft.Page):
         expand=True,
         tooltip="Generated Trio BASIC MOVE or MOVEABS program.",
     )
+    point_to_point_code_output_tab2 = ft.TextField(
+        value="",
+        read_only=True,
+        multiline=True,
+        min_lines=29,
+        max_lines=45,
+        bgcolor=DARKER_BG,
+        color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True,
+        tooltip="Generated Trio BASIC MOVE or MOVEABS program.",
+    )
     def point_to_point_save_settings():
         point_to_point_settings["example"] = point_to_point_example_dropdown.value or "square"
         point_to_point_settings["axis"] = point_to_point_axis_dropdown.value or "0"
@@ -10471,9 +10485,10 @@ def main(page: ft.Page):
             point_to_point_update_square_visual(valid, values)
         except NameError:
             pass
+        generated_program = "' Enter valid point-to-point parameters to generate Trio BASIC."
         if valid:
             if values["example"] == "square":
-                point_to_point_code_output.value = emit_square_move_basic_program(
+                generated_program = emit_square_move_basic_program(
                     x_axis=values["x_axis"],
                     y_axis=values["y_axis"],
                     move_mode=values["move_mode"],
@@ -10487,7 +10502,7 @@ def main(page: ft.Page):
                     wait_idle=values["wait_idle"],
                 )
             else:
-                point_to_point_code_output.value = emit_point_to_point_basic_program(
+                generated_program = emit_point_to_point_basic_program(
                     axis=values["axis"],
                     move_mode=values["move_mode"],
                     target=values["target"],
@@ -10497,8 +10512,8 @@ def main(page: ft.Page):
                     servo_on=values["servo_on"],
                     wait_idle=values["wait_idle"],
                 )
-        else:
-            point_to_point_code_output.value = "' Enter valid point-to-point parameters to generate Trio BASIC."
+        point_to_point_code_output.value = generated_program
+        point_to_point_code_output_tab2.value = generated_program
         if e is not None:
             page.update()
         return valid, values
@@ -10849,6 +10864,17 @@ def main(page: ft.Page):
         height=38,
         tooltip="Copy the generated Trio BASIC point-to-point program to the Windows clipboard.",
     )
+    copy_point_to_point_btn_tab2 = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=lambda e: copy_text_to_clipboard(
+            point_to_point_code_output_tab2.value,
+            "Point To Point program copied to clipboard.",
+        ),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Copy the generated Trio BASIC point-to-point program to the Windows clipboard.",
+    )
 
     point_to_point_panel_height = 920
 
@@ -10947,21 +10973,50 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 7},
     )
 
-    point_to_point_code_panel = ft.Container(
-        content=ft.Column(
+    def point_to_point_basic_tab_content(code_output, copy_button):
+        return ft.Column(
             [
                 ft.Row(
                     [
                         section_header("Trio BASIC Program", "Generated controller code", ft.Icons.CODE),
                         ft.Container(expand=True),
-                        copy_point_to_point_btn,
+                        copy_button,
                     ],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                point_to_point_code_output,
+                code_output,
             ],
             expand=True,
             spacing=12,
+        )
+
+    point_to_point_code_panel = ft.Container(
+        content=ft.Tabs(
+            length=2,
+            selected_index=0,
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
+                            ft.Tab(label="tab 2", icon=ft.Icons.CODE),
+                        ],
+                        label_color=ft.Colors.CYAN_200,
+                        unselected_label_color=MUTED_TEXT,
+                        indicator_color=ACCENT_COLOR,
+                        divider_color=BORDER_COLOR,
+                    ),
+                    ft.TabBarView(
+                        controls=[
+                            point_to_point_basic_tab_content(point_to_point_code_output, copy_point_to_point_btn),
+                            point_to_point_basic_tab_content(point_to_point_code_output_tab2, copy_point_to_point_btn_tab2),
+                        ],
+                        expand=1,
+                    ),
+                ],
+                expand=1,
+            ),
+            expand=1,
         ),
         bgcolor=PANEL_BG,
         border=ft.Border.all(1, BORDER_COLOR),
