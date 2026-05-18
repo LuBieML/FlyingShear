@@ -1,7 +1,7 @@
 {
   "controller_ip": "127.0.0.1",
   "param_UNITS": "2097152.0",
-  "target_axis": "1",
+  "target_axis": "0",
   "param_SPEED": "10",
   "param_ACCEL": "3000",
   "param_DECEL": "3000",
@@ -189,7 +189,7 @@
       }
     },
     "rotarylink": {
-      "target_axis": "3",
+      "target_axis": "0",
       "axis_params": {
         "1": {
           "UNITS": "2097152.0",
@@ -214,8 +214,8 @@
           "DRIVE_FE_LIMIT": "100",
           "FE_LIMIT": "100",
           "FE_RANGE": "100",
-          "RS_LIMIT": "-10000",
-          "FS_LIMIT": "10000"
+          "RS_LIMIT": "-10000000",
+          "FS_LIMIT": "10000000"
         },
         "2": {
           "UNITS": "2097152.0",
@@ -275,7 +275,7 @@
       }
     }
   },
-  "master_speed": "7.71",
+  "master_speed": "1.00",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -341,15 +341,15 @@
   "rotarylink_calc": {
     "distance": 62.83185307179586,
     "link_dist": 62.83185307179586,
-    "acc": 10.0,
-    "sync": 3.0,
-    "sync_pos": 10.0,
+    "acc": 11.0,
+    "sync": 1.0,
+    "sync_pos": 11.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
     "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
-    "merge": false,
+    "merge": true,
     "repeat_mode": "program_loop",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
@@ -358,7 +358,7 @@
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
     "rl_units": 133508.8428860218,
-    "cut_length": 100.0,
+    "cut_length": 50.0,
     "decel": 10.0
   },
   "point_to_point": {
