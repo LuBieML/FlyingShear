@@ -10582,7 +10582,7 @@ def main(page: ft.Page):
         focused_border_color=ACCENT_COLOR,
         text_size=12,
         on_select=lambda e: point_to_point_update_code(e),
-        tooltip="Horizontal square axis used by BASE(x_axis, y_axis).",
+        tooltip="Horizontal square axis used by BASE(x_axis) before each X move.",
     )
     point_to_point_y_axis_dropdown = ft.Dropdown(
         label="Y axis",
@@ -10596,7 +10596,7 @@ def main(page: ft.Page):
         focused_border_color=ACCENT_COLOR,
         text_size=12,
         on_select=lambda e: point_to_point_update_code(e),
-        tooltip="Vertical square axis used by BASE(x_axis, y_axis).",
+        tooltip="Vertical square axis used by BASE(y_axis) before each Y move.",
     )
     point_to_point_target_input = point_to_point_text_field(
         "Distance",

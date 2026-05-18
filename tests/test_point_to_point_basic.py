@@ -58,11 +58,13 @@ class PointToPointBasicTests(unittest.TestCase):
 
         self.assertIn("BASE(x_axis)\nSERVO = ON\nSPEED = move_speed", program)
         self.assertIn("BASE(y_axis)\nSERVO = ON\nSPEED = move_speed", program)
-        self.assertIn("BASE(x_axis, y_axis)", program)
+        self.assertNotIn("BASE(x_axis, y_axis)", program)
         self.assertIn("x0 = 10.000", program)
         self.assertIn("y0 = 20.000", program)
-        self.assertIn("MOVEABS(x0 + side, y0 + side)", program)
-        self.assertIn("MOVEABS(x0, y0)", program)
+        self.assertIn("BASE(x_axis)\nMOVEABS(x0 + side)", program)
+        self.assertIn("BASE(y_axis)\nMOVEABS(y0 + side)", program)
+        self.assertIn("BASE(x_axis)\nMOVEABS(x0)", program)
+        self.assertIn("BASE(y_axis)\nMOVEABS(y0)", program)
 
     def test_relative_square_uses_move_edges(self):
         program = emit_square_move_basic_program(
@@ -77,10 +79,10 @@ class PointToPointBasicTests(unittest.TestCase):
             decel=100,
         )
 
-        self.assertIn("MOVE(side, 0)", program)
-        self.assertIn("MOVE(0, side)", program)
-        self.assertIn("MOVE(-side, 0)", program)
-        self.assertIn("MOVE(0, -side)", program)
+        self.assertIn("BASE(x_axis)\nMOVE(side)", program)
+        self.assertIn("BASE(y_axis)\nMOVE(side)", program)
+        self.assertIn("BASE(x_axis)\nMOVE(-side)", program)
+        self.assertIn("BASE(y_axis)\nMOVE(-side)", program)
         self.assertNotIn("\nMOVEABS", program)
 
     def test_square_side_must_be_positive(self):

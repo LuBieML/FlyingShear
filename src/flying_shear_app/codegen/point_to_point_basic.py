@@ -98,7 +98,7 @@ def emit_square_move_basic_program(
 
     lines = [
         "' Point To Point square path example",
-        "' Set each axis separately, then group X and Y only for the path moves.",
+        "' Each edge is one single-axis point-to-point move.",
         f"x_axis = {x_axis_value}",
         f"y_axis = {y_axis_value}",
         f"side = {_format_number(side_value)}",
@@ -130,26 +130,27 @@ def emit_square_move_basic_program(
                 "",
             ]
         )
-    lines.extend(["BASE(x_axis, y_axis)", ""])
 
     if move_mode == "absolute":
         moves = [
-            ("Start corner", "MOVEABS(x0, y0)"),
-            ("Bottom edge", "MOVEABS(x0 + side, y0)"),
-            ("Right edge", "MOVEABS(x0 + side, y0 + side)"),
-            ("Top edge", "MOVEABS(x0, y0 + side)"),
-            ("Left edge back home", "MOVEABS(x0, y0)"),
+            ("Move X to start corner", "x_axis", "MOVEABS(x0)"),
+            ("Move Y to start corner", "y_axis", "MOVEABS(y0)"),
+            ("Bottom edge", "x_axis", "MOVEABS(x0 + side)"),
+            ("Right edge", "y_axis", "MOVEABS(y0 + side)"),
+            ("Top edge", "x_axis", "MOVEABS(x0)"),
+            ("Left edge back home", "y_axis", "MOVEABS(y0)"),
         ]
     else:
         moves = [
-            ("Bottom edge", "MOVE(side, 0)"),
-            ("Right edge", "MOVE(0, side)"),
-            ("Top edge", "MOVE(-side, 0)"),
-            ("Left edge back home", "MOVE(0, -side)"),
+            ("Bottom edge", "x_axis", "MOVE(side)"),
+            ("Right edge", "y_axis", "MOVE(side)"),
+            ("Top edge", "x_axis", "MOVE(-side)"),
+            ("Left edge back home", "y_axis", "MOVE(-side)"),
         ]
 
-    for label, command in moves:
+    for label, axis_name, command in moves:
         lines.append(f"' {label}")
+        lines.append(f"BASE({axis_name})")
         lines.append(command)
         if wait_idle:
             lines.append("WAIT IDLE")

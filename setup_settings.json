@@ -350,6 +350,6 @@
     "accel": "100.0",
     "decel": "100.0",
     "servo_on": true,
-    "wait_idle": true
+    "wait_idle": false
   }
 }
