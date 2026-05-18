@@ -21,8 +21,10 @@ from .codegen.cambox_basic import (
     emit_cam_quicktest_basic_program,
 )
 from .codegen.point_to_point_basic import (
-    emit_point_to_point_basic_program,
-    emit_square_move_basic_program,
+    emit_point_to_point_motion_program,
+    emit_point_to_point_startup_program,
+    emit_square_motion_basic_program,
+    emit_square_startup_basic_program,
 )
 from .codegen.rotarylink_basic import emit_rotarylink_basic_program
 from .config.settings import load_settings, save_settings
@@ -10364,7 +10366,7 @@ def main(page: ft.Page):
         focused_border_color=ACCENT_COLOR,
         text_style=ft.TextStyle(font_family="Consolas", size=12),
         expand=True,
-        tooltip="Generated Trio BASIC MOVE or MOVEABS program.",
+        tooltip="Generated Trio BASIC STARTUP axis configuration program.",
     )
     def point_to_point_save_settings():
         point_to_point_settings["example"] = point_to_point_example_dropdown.value or "square"
@@ -10485,10 +10487,11 @@ def main(page: ft.Page):
             point_to_point_update_square_visual(valid, values)
         except NameError:
             pass
-        generated_program = "' Enter valid point-to-point parameters to generate Trio BASIC."
+        generated_motion_program = "' Enter valid point-to-point parameters to generate motion code."
+        generated_startup_program = "' Enter valid point-to-point parameters to generate STARTUP code."
         if valid:
             if values["example"] == "square":
-                generated_program = emit_square_move_basic_program(
+                generated_motion_program = emit_square_motion_basic_program(
                     x_axis=values["x_axis"],
                     y_axis=values["y_axis"],
                     move_mode=values["move_mode"],
@@ -10498,22 +10501,35 @@ def main(page: ft.Page):
                     speed=values["speed"],
                     accel=values["accel"],
                     decel=values["decel"],
-                    servo_on=values["servo_on"],
                     wait_idle=values["wait_idle"],
                 )
+                generated_startup_program = emit_square_startup_basic_program(
+                    x_axis=values["x_axis"],
+                    y_axis=values["y_axis"],
+                    speed=values["speed"],
+                    accel=values["accel"],
+                    decel=values["decel"],
+                    servo_on=values["servo_on"],
+                )
             else:
-                generated_program = emit_point_to_point_basic_program(
+                generated_motion_program = emit_point_to_point_motion_program(
                     axis=values["axis"],
                     move_mode=values["move_mode"],
                     target=values["target"],
                     speed=values["speed"],
                     accel=values["accel"],
                     decel=values["decel"],
-                    servo_on=values["servo_on"],
                     wait_idle=values["wait_idle"],
                 )
-        point_to_point_code_output.value = generated_program
-        point_to_point_code_output_tab2.value = generated_program
+                generated_startup_program = emit_point_to_point_startup_program(
+                    axis=values["axis"],
+                    speed=values["speed"],
+                    accel=values["accel"],
+                    decel=values["decel"],
+                    servo_on=values["servo_on"],
+                )
+        point_to_point_code_output.value = generated_motion_program
+        point_to_point_code_output_tab2.value = generated_startup_program
         if e is not None:
             page.update()
         return valid, values
@@ -10869,11 +10885,11 @@ def main(page: ft.Page):
         icon=ft.Icons.CONTENT_COPY,
         on_click=lambda e: copy_text_to_clipboard(
             point_to_point_code_output_tab2.value,
-            "Point To Point program copied to clipboard.",
+            "Point To Point STARTUP program copied to clipboard.",
         ),
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
         height=38,
-        tooltip="Copy the generated Trio BASIC point-to-point program to the Windows clipboard.",
+        tooltip="Copy the generated Trio BASIC STARTUP program to the Windows clipboard.",
     )
 
     point_to_point_panel_height = 920
@@ -10973,12 +10989,12 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 7},
     )
 
-    def point_to_point_basic_tab_content(code_output, copy_button):
+    def point_to_point_basic_tab_content(code_output, copy_button, title, subtitle):
         return ft.Column(
             [
                 ft.Row(
                     [
-                        section_header("Trio BASIC Program", "Generated controller code", ft.Icons.CODE),
+                        section_header(title, subtitle, ft.Icons.CODE),
                         ft.Container(expand=True),
                         copy_button,
                     ],
@@ -10999,7 +11015,7 @@ def main(page: ft.Page):
                     ft.TabBar(
                         tabs=[
                             ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
-                            ft.Tab(label="tab 2", icon=ft.Icons.CODE),
+                            ft.Tab(label="STARTUP", icon=ft.Icons.TUNE),
                         ],
                         label_color=ft.Colors.CYAN_200,
                         unselected_label_color=MUTED_TEXT,
@@ -11008,8 +11024,18 @@ def main(page: ft.Page):
                     ),
                     ft.TabBarView(
                         controls=[
-                            point_to_point_basic_tab_content(point_to_point_code_output, copy_point_to_point_btn),
-                            point_to_point_basic_tab_content(point_to_point_code_output_tab2, copy_point_to_point_btn_tab2),
+                            point_to_point_basic_tab_content(
+                                point_to_point_code_output,
+                                copy_point_to_point_btn,
+                                "Trio BASIC Program",
+                                "Generated motion code",
+                            ),
+                            point_to_point_basic_tab_content(
+                                point_to_point_code_output_tab2,
+                                copy_point_to_point_btn_tab2,
+                                "STARTUP",
+                                "Axis configuration code",
+                            ),
                         ],
                         expand=1,
                     ),

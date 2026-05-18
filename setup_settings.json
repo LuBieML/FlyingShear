@@ -343,13 +343,13 @@
     "target": "100.0",
     "x_axis": "0",
     "y_axis": "1",
-    "origin_x": "0.0",
+    "origin_x": "33",
     "origin_y": "0.0",
     "side": "22",
     "speed": "10.0",
     "accel": "100.0",
     "decel": "100.0",
     "servo_on": true,
-    "wait_idle": false
+    "wait_idle": true
   }
 }
