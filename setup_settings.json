@@ -1,7 +1,7 @@
 {
-  "controller_ip": "192.168.0.250",
+  "controller_ip": "127.0.0.1",
   "param_UNITS": "2097152.0",
-  "target_axis": "0",
+  "target_axis": "1",
   "param_SPEED": "10",
   "param_ACCEL": "3000",
   "param_DECEL": "3000",
@@ -246,13 +246,26 @@
       }
     },
     "point_to_point": {
-      "target_axis": "0",
+      "target_axis": "1",
       "axis_params": {
         "0": {
           "UNITS": "10000",
           "ACCEL": "1000",
           "DECEL": "1000",
           "FASTDEC": "5000",
+          "DRIVE_FE_LIMIT": "10",
+          "FE_LIMIT": "10",
+          "FE_RANGE": "10",
+          "RS_LIMIT": "-999999",
+          "FS_LIMIT": "9999999"
+        },
+        "1": {
+          "UNITS": "10000",
+          "SPEED": "10.0",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "100000.0",
           "DRIVE_FE_LIMIT": "10",
           "FE_LIMIT": "10",
           "FE_RANGE": "10",
@@ -327,7 +340,7 @@
   },
   "rotarylink_calc": {
     "distance": 62.83185307179586,
-    "link_dist": 43.0,
+    "link_dist": 62.83185307179586,
     "acc": 10.0,
     "sync": 3.0,
     "sync_pos": 10.0,
@@ -349,7 +362,7 @@
     "decel": 10.0
   },
   "point_to_point": {
-    "example": "single",
+    "example": "square",
     "axis": "0",
     "move_mode": "absolute",
     "target": "100.0",

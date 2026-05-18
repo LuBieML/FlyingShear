@@ -19,31 +19,36 @@ from src.flying_shear_app.domain.rotarylink_math import (
     calculate_rotarylink_profile,
     derive_rotarylink_geometry,
     estimate_rotarylink_slave_accel,
-    estimate_rotarylink_slave_decel,
     validate_rotarylink_profile,
 )
 
 
 class RotaryLinkTests(unittest.TestCase):
-    def assert_rotarylink_totals(self, profile):
+    def assert_rotarylink_firmware_model(self, profile):
+        self.assertAlmostEqual(profile["link_dist"], profile["distance"])
+        self.assertAlmostEqual(profile["linkdist"], profile["distance"])
         self.assertAlmostEqual(
-            (
-                profile["base_acc"]
-                + profile["base_sync"]
-                + profile["base_decel"]
-                + profile["base_idle"]
-            ),
-            profile["distance"],
+            profile["base_decel"],
+            profile["distance"] - profile["base_acc"] - profile["base_sync"],
         )
+        self.assertAlmostEqual(profile["sync_gear_ratio"], 1.0)
+        self.assertAlmostEqual(profile["line_per_cut_in_command"], profile["distance"])
         self.assertAlmostEqual(
-            profile["link_acc"] + profile["link_sync"] + profile["link_decel"],
-            profile["link_dist"],
+            profile["line_idle_between_cuts"],
+            profile["cut_length"] - profile["distance"],
         )
-        self.assertAlmostEqual(
-            profile["cut_length"] - profile["link_dist"],
-            profile["line_per_idle"],
-        )
-        self.assertAlmostEqual(profile["line_idle"], profile["line_per_idle"])
+        self.assertAlmostEqual(profile["line_idle"], profile["line_idle_between_cuts"])
+        self.assertAlmostEqual(profile["line_per_idle"], profile["line_idle_between_cuts"])
+        for removed_key in (
+            "base_idle",
+            "link_acc",
+            "link_sync",
+            "link_decel",
+            "link_idle",
+            "link_total",
+            "entered_base_decel",
+        ):
+            self.assertNotIn(removed_key, profile)
 
     def test_rotarylink_option_encoding(self):
         self.assertEqual(build_rotarylink_options("immediate", "trapezoid", "mpos", False), 0)
@@ -63,140 +68,128 @@ class RotaryLinkTests(unittest.TestCase):
             "ROTARYLINK(100.000, 250.000, 10.000, 60.000, link_ax, 4, 60.000)",
         )
 
-    def test_rotarylink_has_three_linked_phases_plus_base_idle(self):
-        profile = calculate_rotarylink_profile(100, 250, 10, 60, 30, sync_pos=10)
+    def test_rotarylink_has_three_base_phases_and_derived_decel(self):
+        profile = calculate_rotarylink_profile(100, 250, 10, 60, sync_pos=10)
 
         self.assertAlmostEqual(profile["base_decel"], 30)
-        self.assertAlmostEqual(profile["base_idle"], 0)
-        self.assertAlmostEqual(profile["link_acc"], 20)
-        self.assertAlmostEqual(profile["link_sync"], 60)
-        self.assertAlmostEqual(profile["link_decel"], 60)
-        self.assertAlmostEqual(profile["link_dist"], 140)
-        self.assertAlmostEqual(profile["line_per_idle"], 110)
+        self.assertAlmostEqual(profile["line_per_idle"], 150)
         self.assertAlmostEqual(profile["start_link_pos"], 10)
-        self.assertAlmostEqual(profile["sync_start"], 30)
-        self.assertAlmostEqual(profile["sync_end"], 90)
-        self.assertAlmostEqual(profile["cycle_end"], 150)
+        self.assertAlmostEqual(profile["sync_start"], 20)
+        self.assertAlmostEqual(profile["sync_end"], 80)
+        self.assertAlmostEqual(profile["cycle_end"], 110)
         self.assertEqual(
             [phase["name"] for phase in profile["phase_segments"]],
-            ["acc", "sync", "decel", "idle"],
+            ["acc", "sync", "decel"],
         )
-        self.assert_rotarylink_totals(profile)
+        self.assertEqual(
+            [phase["base"] for phase in profile["phase_segments"]],
+            [10, 60, 30],
+        )
+        self.assert_rotarylink_firmware_model(profile)
 
-    def test_rotarylink_sync_phase_is_one_to_one_by_construction(self):
-        profile = calculate_rotarylink_profile(62.832, 330, 10, 8, 10)
-
-        self.assertAlmostEqual(profile["base_sync"], 8)
-        self.assertAlmostEqual(profile["link_sync"], 8)
-        self.assertAlmostEqual(calculate_rotarylink_base_sync_speed(500, profile), 500)
-
-    def test_rotarylink_worked_example_has_drum_and_line_idle(self):
+    def test_worked_example_a_matched_one_to_one_no_overlap(self):
         geometry = derive_rotarylink_geometry(20, 8_388_608, 1, 100)
         profile = calculate_rotarylink_profile(
             geometry["distance"],
             geometry["cut_length"],
             10,
             3,
-            10,
         )
-        base_sync_speed = calculate_rotarylink_base_sync_speed(50, profile)
-        est_slave_accel = estimate_rotarylink_slave_accel(50, profile)
-        est_slave_decel = estimate_rotarylink_slave_decel(50, profile)
         status = validate_rotarylink_profile(profile)
 
         self.assertAlmostEqual(geometry["circumference"], math.pi * 20)
         self.assertAlmostEqual(geometry["distance"], math.pi * 20)
-        self.assertAlmostEqual(profile["base_decel"], 10)
-        self.assertAlmostEqual(profile["base_idle"], math.pi * 20 - 10 - 3 - 10)
-        self.assertAlmostEqual(profile["link_dist"], 43)
-        self.assertAlmostEqual(profile["link_acc"], 20)
-        self.assertAlmostEqual(profile["link_sync"], 3)
-        self.assertAlmostEqual(profile["link_decel"], 20)
-        self.assertAlmostEqual(profile["line_idle"], 57)
-        self.assertAlmostEqual(base_sync_speed, 50)
-        self.assertAlmostEqual(est_slave_accel, 125)
-        self.assertAlmostEqual(est_slave_decel, 125)
+        self.assertAlmostEqual(profile["base_decel"], math.pi * 20 - 10 - 3)
+        self.assertAlmostEqual(profile["link_dist"], geometry["distance"])
+        self.assertAlmostEqual(profile["sync_gear_ratio"], 1.0)
+        self.assertAlmostEqual(calculate_rotarylink_base_sync_speed(50, profile), 50)
+        self.assertAlmostEqual(estimate_rotarylink_slave_accel(50, profile), 125)
+        self.assertAlmostEqual(profile["line_idle_between_cuts"], 100 - math.pi * 20)
         self.assertEqual(status["severity"], "ok")
         self.assertFalse(status["requires_merge"])
-        self.assertIn("idle between cuts = 57.000", status["message"])
-        self.assert_rotarylink_totals(profile)
+        self.assertIn("idle between cuts = 37.168", status["message"])
+        self.assert_rotarylink_firmware_model(profile)
 
-    def test_rotarylink_no_overlap_has_external_idle(self):
-        geometry = derive_rotarylink_geometry(20, 8_388_608, 1, 200)
-        profile = calculate_rotarylink_profile(
-            geometry["distance"],
-            geometry["cut_length"],
-            10,
-            3,
-            10,
-        )
-        status = validate_rotarylink_profile(profile)
-
-        self.assertAlmostEqual(profile["link_dist"], 43)
-        self.assertAlmostEqual(profile["line_per_idle"], 157)
-        self.assertEqual(status["severity"], "ok")
-        self.assertFalse(status["requires_merge"])
-        self.assertIn("idle between cuts = 157.000", status["message"])
-        self.assert_rotarylink_totals(profile)
-
-    def test_rotarylink_back_to_back_cuts_are_green(self):
-        profile = calculate_rotarylink_profile(100, 140, 10, 60, 30)
-        status = validate_rotarylink_profile(profile)
-
-        self.assertAlmostEqual(profile["line_per_idle"], 0)
-        self.assertEqual(status["severity"], "ok")
-        self.assertIn("back-to-back cuts", status["message"])
-        self.assert_rotarylink_totals(profile)
-
-    def test_rotarylink_line_overlap_is_warning_and_requires_merge(self):
+    def test_worked_example_b_short_cut_requires_merge(self):
         geometry = derive_rotarylink_geometry(20, 8_388_608, 1, 30)
         profile = calculate_rotarylink_profile(
             geometry["distance"],
             geometry["cut_length"],
             10,
             3,
-            10,
         )
         status = validate_rotarylink_profile(profile)
 
-        self.assertAlmostEqual(profile["line_idle"], -13)
+        self.assertAlmostEqual(profile["line_idle_between_cuts"], 30 - math.pi * 20)
         self.assertEqual(status["severity"], "warning")
         self.assertTrue(status["requires_merge"])
-        self.assertIn("cuts overlap", status["message"])
-        self.assert_rotarylink_totals(profile)
+        self.assertIn("Cut length (30.000) < distance (62.832)", status["message"])
+        self.assertIn("Cuts overlap by 32.832 mm", status["message"])
+        self.assert_rotarylink_firmware_model(profile)
 
-    def test_rotarylink_base_phases_cannot_exceed_derived_distance(self):
-        geometry = derive_rotarylink_geometry(20, 8_388_608, 1, 200)
+        program = emit_rotarylink_basic_program(
+            geometry["distance"],
+            profile["link_dist"],
+            10,
+            3,
+            link_axis=0,
+            base_axis=1,
+            link_options=0,
+            cut_length=30,
+            base_decel=profile["base_decel"],
+            line_per_idle=profile["line_per_idle"],
+            required_merge=status["requires_merge"],
+            start_pos=10,
+        )
+        self.assertIn("moveoptions.5 = TRUE", program)
+        self.assertIn(
+            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, link_ax, 32, start_pos)",
+            program,
+        )
+
+    def test_worked_example_c_invalid_geometry_is_red(self):
+        geometry = derive_rotarylink_geometry(20, 8_388_608, 1, 100)
         profile = calculate_rotarylink_profile(
             geometry["distance"],
             geometry["cut_length"],
-            30,
+            60,
             3,
-            30,
         )
         status = validate_rotarylink_profile(profile)
 
-        self.assertLess(profile["base_idle"], 0)
+        self.assertLess(profile["base_decel"], 0)
         self.assertEqual(status["severity"], "error")
-        self.assertIn("base phases exceed one drum cycle", status["message"])
-        self.assert_rotarylink_totals(profile)
+        self.assertFalse(status["requires_merge"])
+        self.assertIn("Acc + sync exceeds one drum cycle", status["message"])
+        self.assertIn("firmware would silently rescale accel internally", status["message"])
 
-    def test_rotarylink_sync_distance_must_be_positive(self):
-        profile = calculate_rotarylink_profile(100, 250, 10, 0, 10)
-        status = validate_rotarylink_profile(profile)
+    def test_rotarylink_cut_length_at_or_above_distance_is_green(self):
+        back_to_back = calculate_rotarylink_profile(100, 100, 10, 60)
+        with_idle = calculate_rotarylink_profile(100, 140, 10, 60)
 
-        self.assertEqual(status["severity"], "error")
-        self.assertIn("sync_distance must be > 0", status["message"])
+        back_to_back_status = validate_rotarylink_profile(back_to_back)
+        with_idle_status = validate_rotarylink_profile(with_idle)
 
-    def test_rotarylink_accel_and_decel_must_be_positive(self):
-        profile = calculate_rotarylink_profile(100, 250, 0, 10, 0)
-        status = validate_rotarylink_profile(profile)
+        self.assertEqual(back_to_back_status["severity"], "ok")
+        self.assertFalse(back_to_back_status["requires_merge"])
+        self.assertIn("cut_length == distance", back_to_back_status["message"])
+        self.assertEqual(with_idle_status["severity"], "ok")
+        self.assertFalse(with_idle_status["requires_merge"])
+        self.assertIn("idle between cuts = 40.000", with_idle_status["message"])
 
-        self.assertEqual(status["severity"], "error")
-        self.assertIn("base_acc must be > 0", status["message"])
-        self.assertIn("base_decel must be > 0", status["message"])
+    def test_rotarylink_acc_and_sync_must_be_positive(self):
+        acc_profile = calculate_rotarylink_profile(100, 250, 0, 10)
+        sync_profile = calculate_rotarylink_profile(100, 250, 10, 0)
 
-    def test_rotarylink_geometry_derives_distance_but_not_linkdist(self):
+        acc_status = validate_rotarylink_profile(acc_profile)
+        sync_status = validate_rotarylink_profile(sync_profile)
+
+        self.assertEqual(acc_status["severity"], "error")
+        self.assertIn("base_acc must be > 0", acc_status["message"])
+        self.assertEqual(sync_status["severity"], "error")
+        self.assertIn("sync_distance must be > 0", sync_status["message"])
+
+    def test_rotarylink_geometry_derives_distance_not_pitch(self):
         single_knife = derive_rotarylink_geometry(20, 8_388_608, 1, 40)
         larger_drum = derive_rotarylink_geometry(40, 8_388_608, 1, 40)
         two_knife = derive_rotarylink_geometry(20, 8_388_608, 2, 40)
@@ -211,21 +204,21 @@ class RotaryLinkTests(unittest.TestCase):
         self.assertAlmostEqual(different_cut["cut_length"], 31.416)
         self.assertNotIn("link_dist", single_knife)
 
-    def test_rotarylink_linkdist_is_not_cut_length_in_general(self):
-        profile = calculate_rotarylink_profile(100, 250, 10, 60, 30)
+    def test_rotarylink_linkdist_is_distance_not_cut_length(self):
+        profile = calculate_rotarylink_profile(100, 250, 10, 60)
 
-        self.assertAlmostEqual(profile["link_dist"], 140)
+        self.assertAlmostEqual(profile["link_dist"], 100)
         self.assertNotAlmostEqual(profile["link_dist"], profile["cut_length"])
+        self.assert_rotarylink_firmware_model(profile)
 
-    def test_rotarylink_base_acc_and_decel_are_independent_inputs(self):
-        base_profile = calculate_rotarylink_profile(100, 250, 10, 20, 30)
-        changed_acc = calculate_rotarylink_profile(100, 250, 15, 20, 30)
-        changed_decel = calculate_rotarylink_profile(100, 250, 10, 20, 35)
+    def test_rotarylink_base_decel_is_derived_from_acc_and_sync(self):
+        base_profile = calculate_rotarylink_profile(100, 250, 10, 20)
+        changed_acc = calculate_rotarylink_profile(100, 250, 15, 20)
+        changed_sync = calculate_rotarylink_profile(100, 250, 10, 25)
 
-        self.assertAlmostEqual(changed_acc["base_decel"], base_profile["base_decel"])
-        self.assertNotAlmostEqual(changed_acc["base_acc"], base_profile["base_acc"])
-        self.assertAlmostEqual(changed_decel["base_acc"], base_profile["base_acc"])
-        self.assertNotAlmostEqual(changed_decel["base_decel"], base_profile["base_decel"])
+        self.assertAlmostEqual(base_profile["base_decel"], 70)
+        self.assertAlmostEqual(changed_acc["base_decel"], 65)
+        self.assertAlmostEqual(changed_sync["base_decel"], 65)
 
     def test_rotarylink_sync_window_uses_per_knife_segment(self):
         self.assertAlmostEqual(compute_rotarylink_sync_window_deg(100, 25, 2), 45.0)
@@ -244,24 +237,37 @@ class RotaryLinkTests(unittest.TestCase):
 
     def test_rotarylink_rejects_bad_start_positions(self):
         with self.assertRaisesRegex(ValueError, "sync_pos must be >= 0"):
-            calculate_rotarylink_profile(100, 250, 10, 60, 30, sync_pos=-1)
+            calculate_rotarylink_profile(100, 250, 10, 60, sync_pos=-1)
 
         with self.assertRaisesRegex(ValueError, "previous sync phase end"):
-            calculate_rotarylink_profile(100, 250, 10, 60, 30, sync_pos=200, previous_sync_end=210)
+            calculate_rotarylink_profile(
+                100,
+                250,
+                10,
+                60,
+                sync_pos=200,
+                previous_sync_end=210,
+            )
+
+    def test_observed_scope_ratio_matches_old_linkdist_and_new_ratio_is_one(self):
+        observed_old_ratio = 62.832 / 43
+        profile = calculate_rotarylink_profile(62.832, 100, 10, 3)
+
+        self.assertAlmostEqual(observed_old_ratio, 1.461, places=3)
+        self.assertAlmostEqual(profile["sync_gear_ratio"], 1.0)
 
     def test_rotarylink_basic_loop_sets_required_merge_for_overlap(self):
         program = emit_rotarylink_basic_program(
             62.832,
-            43,
+            62.832,
             10,
             3,
             link_axis=0,
             base_axis=1,
             link_options=0,
             cut_length=30,
-            base_decel=10,
-            base_idle=39.832,
-            line_per_idle=-13,
+            base_decel=49.832,
+            line_per_idle=-32.832,
             required_merge=True,
             start_pos=10,
         )
@@ -270,7 +276,7 @@ class RotaryLinkTests(unittest.TestCase):
         self.assertIn("WHILE (1)", program)
         self.assertIn("    TRIGGER", program)
         self.assertIn(
-            "ROTARYLINK(62.832, 43.000, 10.000, 3.000, link_ax, 32, start_pos)",
+            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, link_ax, 32, start_pos)",
             program,
         )
         self.assertIn("start_pos = start_pos + cut_length", program)
@@ -279,58 +285,61 @@ class RotaryLinkTests(unittest.TestCase):
     def test_rotarylink_basic_no_overlap_leaves_merge_off(self):
         program = emit_rotarylink_basic_program(
             62.832,
-            43,
+            62.832,
             10,
             3,
             link_axis=0,
             base_axis=1,
             link_options=0,
             cut_length=100,
-            base_decel=10,
-            base_idle=39.832,
-            line_per_idle=57,
+            base_decel=49.832,
+            line_per_idle=37.168,
             required_merge=False,
             start_pos=10,
         )
 
         self.assertIn("moveoptions.5 = FALSE", program)
         self.assertIn(
-            "ROTARYLINK(62.832, 43.000, 10.000, 3.000, link_ax, 0, start_pos)",
+            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, link_ax, 0, start_pos)",
             program,
         )
 
-    def test_rotarylink_basic_flags_external_idle_bookkeeping(self):
+    def test_rotarylink_basic_documents_firmware_rule_and_units(self):
         program = emit_rotarylink_basic_program(
             62.832,
-            43,
+            62.832,
             10,
             3,
             link_axis=0,
             base_axis=1,
             link_options=0,
             cut_length=100,
-            base_decel=10,
-            base_idle=39.832,
-            line_per_idle=57,
+            base_decel=49.832,
+            line_per_idle=37.168,
             start_pos=10,
         )
 
-        self.assertIn("' sync is 1:1 by construction", program)
-        self.assertIn("base_decel   = 10.000", program)
-        self.assertIn("' base_idle drum dwell = 39.832", program)
-        self.assertIn("' line_idle between ROTARYLINK calls = 57.000", program)
-        self.assertIn("ROTARYLINK has no idle phase", program)
+        self.assertIn("' sync gear ratio = distance / linkdist (firmware rule)", program)
+        self.assertIn("' linkdist = distance for matched surface speed during the cut", program)
+        self.assertIn("' cut_length controls line spacing between cuts via start_pos increment", program)
+        self.assertIn("' Both axes must be calibrated so 1 user unit = 1 mm of product travel.", program)
+        self.assertIn("' base_decel derived = 49.832", program)
+        self.assertIn("' line_idle_between_cuts = 37.168", program)
+        self.assertNotIn("base_idle", program)
+        self.assertNotIn("link_acc", program)
+        self.assertNotIn("link_sync", program)
+        self.assertNotIn("link_decel", program)
 
     def test_rotarylink_basic_includes_option_bit_breakdown(self):
         program = emit_rotarylink_basic_program(
             360,
-            660,
+            360,
             50,
             60,
             link_axis=0,
             base_axis=1,
             link_options=108,
-            cut_length=500,
+            cut_length=300,
             required_merge=True,
             start_pos=50,
         )
@@ -346,7 +355,7 @@ class RotaryLinkTests(unittest.TestCase):
     def test_rotarylink_basic_defines_base_axis_before_loop(self):
         program = emit_rotarylink_basic_program(
             360,
-            660,
+            360,
             50,
             60,
             link_axis=0,

@@ -67,8 +67,6 @@ def emit_rotarylink_basic_program(
     repeat_step=None,
     buffered_commands=4,
     base_decel=None,
-    base_idle=None,
-    link_idle=None,
     cut_length=None,
     line_per_idle=None,
     required_merge=None,
@@ -76,41 +74,42 @@ def emit_rotarylink_basic_program(
 ):
     cut_length_value = float(link_dist if cut_length is None else cut_length)
     required_merge_value = (
-        cut_length_value < float(link_dist)
+        cut_length_value < float(distance)
         if required_merge is None
         else bool(required_merge)
     )
     base_options = int(link_options) & ~32
     command_options = base_options | (32 if required_merge_value else 0)
     start_pos_value = float(acc if start_pos is None else start_pos)
+    line_idle_value = cut_length_value - float(distance)
+    derived_base_decel = (
+        float(distance) - float(acc) - float(sync)
+        if base_decel is None
+        else float(base_decel)
+    )
 
     lines = [
         "' ROTARYLINK generated setup",
-        "' distance is circumference/knives; linkdist is the master travel inside one ROTARYLINK command.",
-        "' cut_length is the product pitch; any idle travel happens between loop iterations.",
-        "' sync is 1:1 by construction: base_sync speed equals link speed during the cut.",
+        "' sync gear ratio = distance / linkdist (firmware rule)",
+        "' linkdist = distance for matched surface speed during the cut",
+        "' cut_length controls line spacing between cuts via start_pos increment",
+        "' Both axes must be calibrated so 1 user unit = 1 mm of product travel.",
+        "' distance and linkdist are interpreted in each axis's own user units; their ratio sets the sync-phase gear ratio.",
         f"base_ax      = {int(base_axis)}",
         f"link_ax      = {int(link_axis)}",
         f"distance     = {float(distance):.3f}",
         f"linkdist     = {float(link_dist):.3f}",
-        f"cut_length   = {cut_length_value:.3f}",
         f"base_acc     = {float(acc):.3f}",
         f"base_sync    = {float(sync):.3f}",
-        f"base_decel   = {float(base_decel):.3f}" if base_decel is not None else "' base_decel not supplied",
+        f"cut_length   = {cut_length_value:.3f}",
         f"moveoptions  = {base_options}",
         f"moveoptions.5 = {'TRUE' if required_merge_value else 'FALSE'}",
         f"start_pos    = {start_pos_value:.3f}",
+        f"' base_decel derived = {derived_base_decel:.3f}",
     ]
-    if base_idle is not None:
-        lines.append(f"' base_idle drum dwell = {float(base_idle):.3f}")
     if line_per_idle is None:
-        line_per_idle = link_idle
-    if line_per_idle is not None:
-        lines.append(f"' line_idle between ROTARYLINK calls = {float(line_per_idle):.3f}")
-    if line_per_idle is not None and abs(float(line_per_idle)) > 1e-9:
-        lines.append(
-            "' NOTE: ROTARYLINK has no idle phase; this value is handled by start_pos += cut_length."
-        )
+        line_per_idle = line_idle_value
+    lines.append(f"' line_idle_between_cuts = {float(line_per_idle):.3f}")
     lines.extend(describe_rotarylink_options(command_options))
 
     lines.extend([
