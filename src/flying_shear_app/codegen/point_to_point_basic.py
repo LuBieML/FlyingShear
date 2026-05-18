@@ -1,5 +1,7 @@
 """Trio BASIC generation for point-to-point MOVE examples."""
 
+import math
+
 
 def _format_number(value):
     return f"{float(value):.3f}"
@@ -22,10 +24,22 @@ AXIS_PARAMETER_ORDER = list(AXIS_PARAMETER_DEFAULTS)
 AXIS_PARAMETER_INT_VALUES = {"DRIVE_FE_LIMIT", "FE_LIMIT", "FE_RANGE"}
 
 
+def _coerce_axis_param_number(param_name, value):
+    default = AXIS_PARAMETER_DEFAULTS[param_name]
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = float(default)
+    if not math.isfinite(number):
+        number = float(default)
+    return number
+
+
 def _format_axis_param_value(param_name, value):
+    number = _coerce_axis_param_number(param_name, value)
     if param_name in AXIS_PARAMETER_INT_VALUES:
-        return str(int(float(value)))
-    return _format_number(value)
+        return str(int(number))
+    return _format_number(number)
 
 
 def _axis_param_lines(axis, axis_params=None, servo_on=True):

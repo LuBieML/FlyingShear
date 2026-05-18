@@ -2,6 +2,7 @@ import unittest
 
 from src.flying_shear_app.codegen.point_to_point_basic import (
     emit_point_to_point_basic_program,
+    emit_point_to_point_startup_program,
     emit_square_move_basic_program,
 )
 
@@ -88,6 +89,23 @@ class PointToPointBasicTests(unittest.TestCase):
     def test_square_side_must_be_positive(self):
         with self.assertRaises(ValueError):
             emit_square_move_basic_program(0, 1, "absolute", 0, 0, 0, 1, 1, 1)
+
+    def test_startup_program_falls_back_for_invalid_axis_params(self):
+        program = emit_point_to_point_startup_program(
+            axis=0,
+            speed=25,
+            accel=100,
+            decel=100,
+            axis_params={
+                "SPEED": "-",
+                "DRIVE_FE_LIMIT": "nan",
+                "FS_LIMIT": "bad",
+            },
+        )
+
+        self.assertIn("SPEED = 10.000", program)
+        self.assertIn("DRIVE_FE_LIMIT = 1", program)
+        self.assertIn("FS_LIMIT = 0.000", program)
 
 
 if __name__ == "__main__":

@@ -1966,6 +1966,20 @@ def main(page: ft.Page):
         axis_settings[param_name] = value
         save_settings(settings)
 
+    AXIS_PARAM_PARTIAL_NUMBERS = {"", "-", "+", ".", "-.", "+."}
+
+    def parse_axis_param_number(value):
+        text = "" if value is None else str(value).strip().replace(",", ".")
+        if text in AXIS_PARAM_PARTIAL_NUMBERS:
+            return None, text
+        try:
+            number = float(text)
+        except (TypeError, ValueError):
+            return None, text
+        if not math.isfinite(number):
+            return None, text
+        return number, text
+
     def refresh_axis_dropdown():
         axis_params = get_axis_params_store(create=False)
         axis_dropdown.options = [
@@ -1981,8 +1995,12 @@ def main(page: ft.Page):
 
     def create_param_change_handler(p_name):
         def handler(e):
+            number, normalized_text = parse_axis_param_number(e.control.value)
+            if number is None:
+                validate_axis_param_inputs(show_errors=False)
+                return
             axis = axis_dropdown.value or "0"
-            save_axis_param_value(axis, p_name, e.control.value)
+            save_axis_param_value(axis, p_name, normalized_text)
             validate_axis_param_inputs(show_errors=False)
             try:
                 point_to_point_update_code(e, save=False)
@@ -2005,6 +2023,7 @@ def main(page: ft.Page):
             keyboard_type=ft.KeyboardType.NUMBER,
             text_align=ft.TextAlign.RIGHT,
             on_change=create_param_change_handler(param),
+            on_blur=lambda e: validate_axis_param_inputs(show_errors=True),
             tooltip=parameter_tooltips.get(param),
         )
         param_inputs[param] = txt
@@ -2015,15 +2034,14 @@ def main(page: ft.Page):
         values = {}
         for param_name, _ in parameters:
             control = param_inputs[param_name]
-            raw = (control.value or "").strip()
-            try:
-                value = float(raw)
-                values[param_name] = value
-                control.error_text = None
-            except ValueError:
+            value, _ = parse_axis_param_number(control.value)
+            if value is None:
                 valid = False
                 if show_errors:
                     control.error_text = "Number required"
+                continue
+            values[param_name] = value
+            control.error_text = None
 
         positive_params = ["UNITS", "SPEED", "ACCEL", "DECEL", "FASTDEC", "JERK",
                            "DRIVE_FE_LIMIT", "FE_LIMIT", "FE_RANGE"]

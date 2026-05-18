@@ -249,7 +249,15 @@
       "target_axis": "0",
       "axis_params": {
         "0": {
-          "UNITS": "66666"
+          "UNITS": "10000",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "DRIVE_FE_LIMIT": "10",
+          "FE_LIMIT": "10",
+          "FE_RANGE": "10",
+          "RS_LIMIT": "-999999",
+          "FS_LIMIT": "9999999"
         }
       }
     }
@@ -341,7 +349,7 @@
     "decel": 10.0
   },
   "point_to_point": {
-    "example": "square",
+    "example": "single",
     "axis": "0",
     "move_mode": "absolute",
     "target": "100.0",
