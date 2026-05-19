@@ -275,7 +275,7 @@
       }
     }
   },
-  "master_speed": "21.2",
+  "master_speed": "10.0",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
