@@ -5083,6 +5083,7 @@ def main(page: ft.Page):
         "units_source": "not read",
         "units_error": None,
         "units_warning": None,
+        "units_mismatch": False,
         "last_diag_update": 0.0,
         "speed_samples": collections.deque(maxlen=8),
         "last_kinematics": None,
@@ -5271,7 +5272,7 @@ def main(page: ft.Page):
             rotary_drum_units_label.color = WARNING_COLOR
         else:
             rotary_drum_units_label.value = format_rotary_count(units)
-            rotary_drum_units_label.color = SUCCESS_COLOR
+            rotary_drum_units_label.color = WARNING_COLOR if rotary_sim_state.get("units_mismatch") else SUCCESS_COLOR
 
         if mpos_per_rev:
             rotary_mpos_per_rev_label.value = format_rotary_mpos_rev(mpos_per_rev)
@@ -5302,9 +5303,29 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             return None
 
+    def live_saved_units_mismatch_warning(axis, live_units):
+        saved_units = saved_drum_units_for_axis(axis)
+        if saved_units is None or live_units is None:
+            return None
+        try:
+            live_value = float(live_units)
+            saved_value = float(saved_units)
+        except (TypeError, ValueError):
+            return None
+        if live_value <= 0 or saved_value <= 0:
+            return None
+        if math.isclose(live_value, saved_value, rel_tol=0.005, abs_tol=1e-6):
+            return None
+        return (
+            f"Controller axis {axis} UNITS {format_rotary_count(live_value)} differs "
+            f"from saved {solution_label()} UNITS {format_rotary_count(saved_value)}; "
+            "apply saved axis parameters to the controller."
+        )
+
     def apply_saved_rotary_units_fallback(axis):
         units = saved_drum_units_for_axis(axis)
         rotary_sim_state["units_warning"] = None
+        rotary_sim_state["units_mismatch"] = False
         rotary_sim_state["axis_cpr"] = ROTARY_DEFAULT_AXIS_CPR
         rotary_sim_state["cpr_axis"] = axis
         rotary_sim_state["cpr_source"] = f"default CPR {format_rotary_count(ROTARY_DEFAULT_AXIS_CPR)}"
@@ -5330,6 +5351,7 @@ def main(page: ft.Page):
         if rotary_override_value() is not None:
             rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["units_axis"] = axis
+            rotary_sim_state["units_mismatch"] = False
             update_rotary_units_label()
             redraw_rotary_sim()
             try:
@@ -5361,6 +5383,7 @@ def main(page: ft.Page):
         if rotary_override_value() is not None:
             rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["units_axis"] = axis
+            rotary_sim_state["units_mismatch"] = False
             update_rotary_units_label()
             rotary_status_text.value = "Using manual drum MPOS/rev override."
             rotary_status_text.color = WARNING_COLOR
@@ -5428,12 +5451,19 @@ def main(page: ft.Page):
             else:
                 rotary_sim_state["units_source"] = f"axis {axis} UNITS {units:g}"
 
+            mismatch_warning = None
+            if "UNITS" not in read_errors:
+                mismatch_warning = live_saved_units_mismatch_warning(axis, units)
+                if mismatch_warning:
+                    warnings.append(mismatch_warning)
+
             rotary_sim_state["axis_cpr"] = cpr
             rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["axis_units"] = units
             rotary_sim_state["units_axis"] = axis
             rotary_sim_state["units_error"] = None
             rotary_sim_state["units_warning"] = " ".join(warnings) if warnings else None
+            rotary_sim_state["units_mismatch"] = mismatch_warning is not None
             rotary_sim_state["speed_samples"].clear()
             if warnings:
                 rotary_status_text.value = rotary_sim_state["units_warning"]
@@ -5461,6 +5491,7 @@ def main(page: ft.Page):
             rotary_sim_state["units_source"] = fallback_text
             rotary_sim_state["units_error"] = None
             rotary_sim_state["units_warning"] = f"CPR/UNITS read failed; using {cpr_text} and {fallback_text}"
+            rotary_sim_state["units_mismatch"] = False
             rotary_sim_state["speed_samples"].clear()
             rotary_status_text.value = f"Drum CPR/UNITS read failed: {ex}; using {cpr_text} and {fallback_text}."
             rotary_status_text.color = WARNING_COLOR
@@ -6237,6 +6268,7 @@ def main(page: ft.Page):
                 if val <= 0:
                     raise ValueError
                 rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = val
+                rotary_sim_state["units_mismatch"] = False
                 rotary_recompute_mpos_per_rev()
                 rotary_sim_state["speed_samples"].clear()
             except ValueError:

@@ -275,7 +275,7 @@
       }
     }
   },
-  "master_speed": "7.05",
+  "master_speed": "21.2",
   "shear_calc": {
     "cut": 100.0,
     "vline": 30.0,
@@ -349,7 +349,7 @@
     "profile": "trapezoid",
     "start_mode": "absolute",
     "link_source": "mpos",
-    "merge": false,
+    "merge": true,
     "repeat_mode": "program_loop",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
@@ -358,7 +358,7 @@
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
     "rl_units": 133508.8428860218,
-    "cut_length": 90.0,
+    "cut_length": 50.0,
     "decel": 10.0
   },
   "point_to_point": {
