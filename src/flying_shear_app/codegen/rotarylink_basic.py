@@ -114,11 +114,16 @@ def emit_rotarylink_basic_program(
 
     lines.extend([
         "",
+        "CANCEL(2)",
+        "WA(200)",
+        "",
+        "BASE(link_ax)",
+        "SERVO = ON",
+        "DEFPOS(0)",
+        "",
         "BASE(base_ax)",
         "SERVO = ON",
         "DEFPOS(0)",
-        "' Add controller-specific axis setup here.",
-        "FORWARD AXIS(link_ax)",
         "",
     ])
 

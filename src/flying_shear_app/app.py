@@ -44,6 +44,7 @@ from .domain.profile_points import (
     visible_profile_points,
 )
 from .domain.rotary_math import (
+    advance_rotary_drum_angle_rad,
     compute_rotary_cutting_radius_px,
     compute_rotary_drum_angle_rad,
     compute_rotary_drum_circumference_mm,
@@ -5086,6 +5087,8 @@ def main(page: ft.Page):
         "speed_samples": collections.deque(maxlen=8),
         "last_kinematics": None,
         "drum_speed_warning": None,
+        "last_drum_angle_mpos": None,
+        "last_drum_angle_time": None,
     }
 
     def rotary_setting_float(key, default):
@@ -6070,6 +6073,58 @@ def main(page: ft.Page):
         update_rotary_debug_overlay()
         return True
 
+    def update_rotary_drum_angle_from_kinematics(kinematics, now):
+        if not kinematics:
+            return False
+
+        previous_angle = float(rotary_sim_state.get("drum_angle", 0.0) or 0.0)
+        absolute_angle = kinematics.get("drum_angle_rad")
+        drum_mpos = kinematics.get("drum_mpos")
+        last_mpos = rotary_sim_state.get("last_drum_angle_mpos")
+        used_absolute_angle = False
+
+        if absolute_angle is not None:
+            try:
+                mpos_changed = (
+                    last_mpos is None
+                    or drum_mpos is None
+                    or not math.isclose(
+                        float(drum_mpos),
+                        float(last_mpos),
+                        rel_tol=0.0,
+                        abs_tol=1e-9,
+                    )
+                )
+            except (TypeError, ValueError):
+                mpos_changed = True
+
+            if mpos_changed:
+                rotary_sim_state["drum_angle"] = float(absolute_angle) % (2.0 * math.pi)
+                used_absolute_angle = True
+            rotary_sim_state["last_drum_angle_mpos"] = drum_mpos
+
+        effective_mspeed = kinematics.get("effective_drum_mspeed")
+        mpos_per_rev = kinematics.get("mpos_per_rev")
+        last_angle_time = rotary_sim_state.get("last_drum_angle_time")
+        if not used_absolute_angle and effective_mspeed is not None and mpos_per_rev:
+            try:
+                elapsed = 0.0 if last_angle_time is None else max(0.0, min(float(now) - float(last_angle_time), 0.25))
+                if elapsed > 0 and abs(float(effective_mspeed)) > 1e-9:
+                    rotary_sim_state["drum_angle"] = advance_rotary_drum_angle_rad(
+                        rotary_sim_state.get("drum_angle", 0.0),
+                        effective_mspeed,
+                        mpos_per_rev,
+                        elapsed,
+                    )
+            except (TypeError, ValueError):
+                pass
+
+        rotary_sim_state["last_drum_angle_time"] = now
+        return shortest_angle_distance_rad(
+            previous_angle,
+            rotary_sim_state.get("drum_angle", 0.0),
+        ) > 1e-6
+
     def update_rotary_sim_from_reads(line_mpos, drum_mpos, line_mspeed, drum_mspeed, drum_demand_speed, now):
         dirty = False
         if line_mspeed is not None:
@@ -6105,12 +6160,26 @@ def main(page: ft.Page):
                         rotary_drum_direction_reversed(),
                     )
                     rotary_sim_state["last_kinematics"] = kinematics
-                    angle = kinematics.get("drum_angle_rad")
-                    if angle is not None:
-                        rotary_sim_state["drum_angle"] = angle
+                    if update_rotary_drum_angle_from_kinematics(kinematics, now):
+                        dirty = True
                 except ValueError:
                     rotary_sim_state["last_kinematics"] = None
             dirty = True
+
+        elif mpos_per_rev and rotary_sim_state.get("drum_mspeed") is not None:
+            try:
+                kinematics = compute_rotary_drum_kinematics(
+                    None,
+                    rotary_sim_state.get("drum_mspeed"),
+                    mpos_per_rev,
+                    rotary_sim_geometry()["drum_diameter_mm"],
+                    rotary_drum_direction_reversed(),
+                )
+                rotary_sim_state["last_kinematics"] = kinematics
+                if update_rotary_drum_angle_from_kinematics(kinematics, now):
+                    dirty = True
+            except ValueError:
+                rotary_sim_state["last_kinematics"] = None
 
         if dirty:
             redraw_rotary_sim()

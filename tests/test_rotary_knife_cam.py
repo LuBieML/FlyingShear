@@ -3,7 +3,10 @@ import unittest
 
 from src.flying_shear_app.codegen.cambox_basic import emit_cam_basic_program
 from src.flying_shear_app.domain.cambox_math import generate_rotary_knife_cam_table
-from src.flying_shear_app.domain.rotary_math import compute_rotary_cutting_radius_px
+from src.flying_shear_app.domain.rotary_math import (
+    advance_rotary_drum_angle_rad,
+    compute_rotary_cutting_radius_px,
+)
 
 
 class RotaryKnifeCamTests(unittest.TestCase):
@@ -71,6 +74,26 @@ class RotaryKnifeCamTests(unittest.TestCase):
                 link_units_to_mm=10,
             ),
             45.0,
+        )
+
+    def test_rotary_visual_angle_can_advance_from_speed(self):
+        self.assertAlmostEqual(
+            advance_rotary_drum_angle_rad(
+                current_angle_rad=0.0,
+                drum_mspeed=10.0,
+                mpos_counts_per_physical_rev=40.0,
+                elapsed_s=1.0,
+            ),
+            math.pi / 2.0,
+        )
+        self.assertAlmostEqual(
+            advance_rotary_drum_angle_rad(
+                current_angle_rad=0.0,
+                drum_mspeed=-10.0,
+                mpos_counts_per_physical_rev=40.0,
+                elapsed_s=1.0,
+            ),
+            1.5 * math.pi,
         )
 
 

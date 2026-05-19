@@ -352,7 +352,7 @@ class RotaryLinkTests(unittest.TestCase):
         self.assertIn("'   bit 5 = ON: merge consecutive ROTARYLINK commands", program)
         self.assertIn("'   bit 6 = ON: follow master DPOS", program)
 
-    def test_rotarylink_basic_defines_base_axis_before_loop(self):
+    def test_rotarylink_basic_defines_axes_before_loop(self):
         program = emit_rotarylink_basic_program(
             360,
             360,
@@ -364,10 +364,24 @@ class RotaryLinkTests(unittest.TestCase):
             cut_length=800,
         )
 
+        startup_setup = (
+            "CANCEL(2)\n"
+            "WA(200)\n"
+            "\n"
+            "BASE(link_ax)\n"
+            "SERVO = ON\n"
+            "DEFPOS(0)\n"
+            "\n"
+            "BASE(base_ax)\n"
+            "SERVO = ON\n"
+            "DEFPOS(0)"
+        )
         base_setup = "BASE(base_ax)\nSERVO = ON\nDEFPOS(0)"
+        self.assertIn(startup_setup, program)
         self.assertIn(base_setup, program)
-        self.assertLess(program.index(base_setup), program.index("WHILE (1)"))
-        self.assertIn("FORWARD AXIS(link_ax)", program)
+        self.assertLess(program.index(startup_setup), program.index("WHILE (1)"))
+        self.assertNotIn("' Add controller-specific axis setup here.", program)
+        self.assertNotIn("FORWARD AXIS(link_ax)", program)
 
     def test_rotarylink_option_breakdown_reports_no_bits(self):
         self.assertEqual(

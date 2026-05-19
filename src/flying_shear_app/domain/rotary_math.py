@@ -51,6 +51,23 @@ def compute_rotary_drum_angle_rad(drum_mpos, mpos_counts_per_physical_rev):
     return ((float(drum_mpos) % divisor) / divisor) * 2.0 * math.pi
 
 
+def advance_rotary_drum_angle_rad(
+    current_angle_rad,
+    drum_mspeed,
+    mpos_counts_per_physical_rev,
+    elapsed_s,
+):
+    """Dead-reckon a drum angle from live MSPEED between usable MPOS samples."""
+    divisor = float(mpos_counts_per_physical_rev)
+    if divisor <= 0:
+        raise ValueError("mpos_counts_per_physical_rev must be positive")
+    dt = float(elapsed_s)
+    if dt <= 0:
+        return float(current_angle_rad) % (2.0 * math.pi)
+    revolutions = float(drum_mspeed) / divisor * dt
+    return (float(current_angle_rad) + revolutions * 2.0 * math.pi) % (2.0 * math.pi)
+
+
 def shortest_angle_distance_rad(angle, target):
     return abs(((float(angle) - float(target) + math.pi) % (2.0 * math.pi)) - math.pi)
 
