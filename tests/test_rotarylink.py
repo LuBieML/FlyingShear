@@ -67,6 +67,18 @@ class RotaryLinkTests(unittest.TestCase):
             format_rotarylink(100, 250, 10, 60, "link_ax", 4, 60),
             "ROTARYLINK(100.000, 250.000, 10.000, 60.000, link_ax, 4, 60.000)",
         )
+        self.assertEqual(
+            format_rotarylink(
+                "distance",
+                "linkdist",
+                "base_acc",
+                "base_sync",
+                "link_ax",
+                "moveoptions",
+                "start_pos",
+            ),
+            "ROTARYLINK(distance, linkdist, base_acc, base_sync, link_ax, moveoptions, start_pos)",
+        )
 
     def test_rotarylink_has_three_base_phases_and_derived_decel(self):
         profile = calculate_rotarylink_profile(100, 250, 10, 60, sync_pos=10)
@@ -143,7 +155,7 @@ class RotaryLinkTests(unittest.TestCase):
         )
         self.assertIn("moveoptions.5 = TRUE", program)
         self.assertIn(
-            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, link_ax, 32, start_pos)",
+            "ROTARYLINK(distance, linkdist, base_acc, base_sync, link_ax, moveoptions, start_pos)",
             program,
         )
 
@@ -276,7 +288,7 @@ class RotaryLinkTests(unittest.TestCase):
         self.assertIn("WHILE (1)", program)
         self.assertIn("    TRIGGER", program)
         self.assertIn(
-            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, link_ax, 32, start_pos)",
+            "ROTARYLINK(distance, linkdist, base_acc, base_sync, link_ax, moveoptions, start_pos)",
             program,
         )
         self.assertIn("start_pos = start_pos + cut_length", program)
@@ -300,11 +312,11 @@ class RotaryLinkTests(unittest.TestCase):
 
         self.assertIn("moveoptions.5 = FALSE", program)
         self.assertIn(
-            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, link_ax, 0, start_pos)",
+            "ROTARYLINK(distance, linkdist, base_acc, base_sync, link_ax, moveoptions, start_pos)",
             program,
         )
 
-    def test_rotarylink_basic_documents_firmware_rule_and_units(self):
+    def test_rotarylink_basic_keeps_derived_values_without_header_comments(self):
         program = emit_rotarylink_basic_program(
             62.832,
             62.832,
@@ -319,10 +331,12 @@ class RotaryLinkTests(unittest.TestCase):
             start_pos=10,
         )
 
-        self.assertIn("' sync gear ratio = distance / linkdist (firmware rule)", program)
-        self.assertIn("' linkdist = distance for matched surface speed during the cut", program)
-        self.assertIn("' cut_length controls line spacing between cuts via start_pos increment", program)
-        self.assertIn("' Both axes must be calibrated so 1 user unit = 1 mm of product travel.", program)
+        self.assertNotIn("' ROTARYLINK generated setup", program)
+        self.assertNotIn("' sync gear ratio = distance / linkdist (firmware rule)", program)
+        self.assertNotIn("' linkdist = distance for matched surface speed during the cut", program)
+        self.assertNotIn("' cut_length controls line spacing between cuts via start_pos increment", program)
+        self.assertNotIn("' Both axes must be calibrated so 1 user unit = 1 mm of product travel.", program)
+        self.assertNotIn("' distance and linkdist are interpreted", program)
         self.assertIn("' base_decel derived = 49.832", program)
         self.assertIn("' line_idle_between_cuts = 37.168", program)
         self.assertNotIn("base_idle", program)

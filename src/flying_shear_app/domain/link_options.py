@@ -129,21 +129,24 @@ def build_rotarylink_options(start_mode, profile, link_source, merge):
     return options
 
 
+def _format_motion_arg(value):
+    if isinstance(value, str):
+        return value
+    return f"{value:.3f}"
+
+
 def format_rotarylink(distance, link_dist, acc, sync, link_axis, options=None, sync_pos=None):
     args = [
-        f"{distance:.3f}",
-        f"{link_dist:.3f}",
-        f"{acc:.3f}",
-        f"{sync:.3f}",
+        _format_motion_arg(distance),
+        _format_motion_arg(link_dist),
+        _format_motion_arg(acc),
+        _format_motion_arg(sync),
         str(link_axis),
     ]
 
     if options is not None:
-        args.append(str(int(options)))
+        args.append(options if isinstance(options, str) else str(int(options)))
         if sync_pos is not None:
-            if isinstance(sync_pos, str):
-                args.append(sync_pos)
-            else:
-                args.append(f"{sync_pos:.3f}")
+            args.append(_format_motion_arg(sync_pos))
 
     return f"ROTARYLINK({', '.join(args)})"

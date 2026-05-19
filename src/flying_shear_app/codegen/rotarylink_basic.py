@@ -89,12 +89,6 @@ def emit_rotarylink_basic_program(
     )
 
     lines = [
-        "' ROTARYLINK generated setup",
-        "' sync gear ratio = distance / linkdist (firmware rule)",
-        "' linkdist = distance for matched surface speed during the cut",
-        "' cut_length controls line spacing between cuts via start_pos increment",
-        "' Both axes must be calibrated so 1 user unit = 1 mm of product travel.",
-        "' distance and linkdist are interpreted in each axis's own user units; their ratio sets the sync-phase gear ratio.",
         f"base_ax      = {int(base_axis)}",
         f"link_ax      = {int(link_axis)}",
         f"distance     = {float(distance):.3f}",
@@ -128,12 +122,12 @@ def emit_rotarylink_basic_program(
     ])
 
     command = format_rotarylink(
-        distance,
-        link_dist,
-        acc,
-        sync,
+        "distance",
+        "linkdist",
+        "base_acc",
+        "base_sync",
         "link_ax",
-        command_options,
+        "moveoptions",
         "start_pos",
     )
 

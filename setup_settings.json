@@ -1,7 +1,7 @@
 {
   "controller_ip": "192.168.0.250",
   "param_UNITS": "2097152.0",
-  "target_axis": "0",
+  "target_axis": "5",
   "param_SPEED": "10",
   "param_ACCEL": "3000",
   "param_DECEL": "3000",
@@ -18,7 +18,7 @@
   "scale_px_per_unit": 18.0,
   "solution_axis_params": {
     "flying_shear": {
-      "target_axis": "1",
+      "target_axis": "5",
       "axis_params": {
         "1": {
           "UNITS": "2097152.0",
@@ -71,6 +71,19 @@
           "FE_RANGE": "100",
           "RS_LIMIT": "-100000000",
           "FS_LIMIT": "100000000"
+        },
+        "5": {
+          "UNITS": "133510",
+          "SPEED": "10",
+          "ACCEL": "1000",
+          "DECEL": "1000",
+          "FASTDEC": "5000",
+          "JERK": "10000",
+          "DRIVE_FE_LIMIT": "100",
+          "FE_LIMIT": "100",
+          "FE_RANGE": "100",
+          "RS_LIMIT": "-10000",
+          "FS_LIMIT": "10000"
         }
       }
     },
@@ -277,15 +290,15 @@
   },
   "master_speed": "10.0",
   "shear_calc": {
-    "cut": 100.0,
+    "cut": 10.0,
     "vline": 30.0,
-    "amax": 300.0,
+    "amax": 5000.0,
     "tsync": 1000.0,
     "safety": 1.5,
     "vmax": 210.0,
     "link_pos": 0.0,
     "base_dist": 0.0,
-    "profile": "power7",
+    "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
     "direction_mode": "any",
@@ -295,10 +308,10 @@
   "cam_calc": {
     "cut": 25.0,
     "drum_dia": 20.0,
-    "n_knives": 3,
+    "n_knives": 1,
     "cut_window": 20.0,
     "cpr": 8388608,
-    "n_points": 10000,
+    "n_points": 20000,
     "blend": 0.3,
     "vline": 10.0,
     "table_start": 1000,
@@ -314,8 +327,8 @@
     "slave_jog_speed": "50"
   },
   "cam_profile_view": {
-    "start_deg": 0.0,
-    "end_deg": 360.0,
+    "start_deg": 168.0,
+    "end_deg": 192.0,
     "metric": "rpm"
   },
   "flexlink_calc": {
@@ -368,9 +381,9 @@
     "target": "100.0",
     "x_axis": "0",
     "y_axis": "1",
-    "origin_x": "33",
+    "origin_x": "0",
     "origin_y": "0.0",
-    "side": "22",
+    "side": "50",
     "speed": "10.0",
     "accel": "100.0",
     "decel": "100.0",
