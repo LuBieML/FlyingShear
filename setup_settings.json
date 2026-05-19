@@ -1,7 +1,7 @@
 {
   "controller_ip": "192.168.0.250",
   "param_UNITS": "2097152.0",
-  "target_axis": "5",
+  "target_axis": "0",
   "param_SPEED": "10",
   "param_ACCEL": "3000",
   "param_DECEL": "3000",
@@ -288,12 +288,12 @@
       }
     }
   },
-  "master_speed": "10.0",
+  "master_speed": "2.42",
   "shear_calc": {
-    "cut": 10.0,
-    "vline": 30.0,
+    "cut": 30.0,
+    "vline": 40.0,
     "amax": 5000.0,
-    "tsync": 1000.0,
+    "tsync": 500.0,
     "safety": 1.5,
     "vmax": 210.0,
     "link_pos": 0.0,
@@ -306,13 +306,13 @@
     "use_base_dist": false
   },
   "cam_calc": {
-    "cut": 25.0,
+    "cut": 10.0,
     "drum_dia": 20.0,
-    "n_knives": 1,
+    "n_knives": 5,
     "cut_window": 20.0,
     "cpr": 8388608,
     "n_points": 20000,
-    "blend": 0.3,
+    "blend": 0.4,
     "vline": 10.0,
     "table_start": 1000,
     "drum_circumference": 62.83185307179586,
@@ -324,17 +324,17 @@
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
     "show_debug": false,
-    "slave_jog_speed": "50"
+    "slave_jog_speed": "100"
   },
   "cam_profile_view": {
-    "start_deg": 168.0,
-    "end_deg": 192.0,
+    "start_deg": 0.0,
+    "end_deg": 360.0,
     "metric": "rpm"
   },
   "flexlink_calc": {
     "cycle_pitch": 30.0,
     "line_speed": 10.0,
-    "excite_dist": 50.0,
+    "excite_dist": 10.0,
     "base_in": 30.0,
     "base_out": 5.0,
     "excite_acc": 10.0,
@@ -375,7 +375,7 @@
     "decel": 10.0
   },
   "point_to_point": {
-    "example": "square",
+    "example": "single",
     "axis": "0",
     "move_mode": "absolute",
     "target": "100.0",
