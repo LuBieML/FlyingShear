@@ -1624,28 +1624,23 @@ function drawPhaseSvg(L, vMax, aL, sL, dL, rL) {
   svgContent += `<line x1="${xEnd}" y1="${baseY}" x2="${xEnd}" y2="${baseY+6}" stroke="#b86f00" stroke-width="1.5"/>`;
   svgContent += `<text x="${xEnd}" y="${baseY+22}" class="axis-label" text-anchor="middle" fill="#b86f00">L = ${L} mm</text>`;
 
-  // Phase labels (below each segment)
-  function phaseLabel(xa, xb, label, dist, color, slaveDist) {
+  // Master-distance labels below each segment.
+  function masterDistanceLabel(xa, xb, dist) {
     if (xb - xa < 30) return '';
     const mid = (xa + xb) / 2;
-    let labelText = `<text x="${mid}" y="${baseY + 20}" class="phase-label" text-anchor="middle" fill="${color}" font-weight="700">${label}</text>`
-      + `<text x="${mid}" y="${baseY + 36}" class="phase-label" text-anchor="middle" fill="#758294">master ${dist.toFixed(1)} mm</text>`;
-    if (slaveDist !== undefined && xb - xa >= 90) {
-      labelText += `<text x="${mid}" y="${baseY + 52}" class="phase-label" text-anchor="middle" fill="#162230">slave ${slaveDist.toFixed(1)} mm = 0.5x</text>`;
-    }
-    return labelText;
+    return `<text x="${mid}" y="${baseY + 32}" class="axis-label" text-anchor="middle" fill="#455565">${dist.toFixed(1)} mm</text>`;
   }
-  svgContent += phaseLabel(x0, x1, 'ACCEL', aL, '#d58500', aL / 2);
-  svgContent += phaseLabel(x1, x2, 'SYNC',  sL, '#047fa0');
-  svgContent += phaseLabel(x2, x3, 'DECEL', dL, '#d58500', dL / 2);
+  svgContent += masterDistanceLabel(x0, x1, aL);
+  svgContent += masterDistanceLabel(x1, x2, sL);
+  svgContent += masterDistanceLabel(x2, x3, dL);
   if (rL > 0) {
-    svgContent += phaseLabel(x3, x4, 'RETRACT', rL, '#758294');
+    svgContent += masterDistanceLabel(x3, x4, rL);
   }
 
   // Phase labels (above)
   if (sL > 0) {
     const mid = (x1 + x2) / 2;
-    svgContent += `<text x="${mid}" y="${yPeak - 14}" class="phase-label" text-anchor="middle" fill="#047fa0" font-weight="600">CUT HAPPENS HERE</text>`;
+    svgContent += `<text x="${mid}" y="${yPeak - 14}" class="phase-label" text-anchor="middle" fill="#047fa0" font-weight="600">SYNC SPEED</text>`;
   }
 
   // OOR warning overlay
