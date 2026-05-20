@@ -185,6 +185,61 @@
     color: var(--amber);
   }
 
+  .logo-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .deck-logo {
+    --logo-red: #e12432;
+    --logo-ink: #050505;
+    --logo-subtext: #111217;
+    --logo-muted: #a8abad;
+    --logo-estun: #5d6268;
+    display: block;
+    flex-shrink: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  :root[data-theme="dark"] .deck-logo {
+    --logo-ink: #f8fafc;
+    --logo-subtext: #f8fafc;
+    --logo-muted: #b9bec6;
+    --logo-estun: #d5d8dd;
+    filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.32));
+  }
+
+  :root[data-theme="light"] .deck-logo {
+    --logo-ink: #050505;
+    --logo-subtext: #111217;
+    --logo-muted: #a8abad;
+    --logo-estun: #5d6268;
+  }
+
+  .deck-logo-title {
+    position: absolute;
+    top: 30px;
+    left: 50%;
+    width: 280px;
+    transform: translateX(-50%);
+    z-index: 4;
+  }
+
+  .deck-logo-small {
+    position: absolute;
+    top: 12px;
+    right: 64px;
+    width: 180px;
+    z-index: 4;
+  }
+
+  .slide:not(.title-slide) .slide-header {
+    padding-right: 270px;
+  }
+
   .slide-subtitle {
     font-size: 13.5px;
     font-weight: 400;
@@ -197,9 +252,9 @@
      ==================================================== */
   .title-slide {
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     text-align: center;
-    padding: 0 80px;
+    padding: 252px 80px 44px;
   }
 
   .title-tag {
@@ -217,12 +272,12 @@
 
   .title-main {
     font-family: 'Outfit', sans-serif;
-    font-size: 104px;
+    font-size: 64px;
     font-weight: 800;
-    letter-spacing: -0.035em;
-    line-height: 0.95;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
     color: var(--text-primary);
-    margin-bottom: 24px;
+    margin-bottom: 20px;
   }
 
   .title-main .accent {
@@ -233,12 +288,12 @@
   }
 
   .title-sub {
-    font-size: 23px;
+    font-size: 18px;
     font-weight: 400;
     color: var(--text-secondary);
     max-width: 800px;
-    line-height: 1.5;
-    margin-bottom: 48px;
+    line-height: 1.55;
+    margin-bottom: 40px;
   }
 
   .title-meta {
@@ -1484,15 +1539,31 @@
 
 <div class="deck-scaler">
   <div class="deck">
+    <svg class="logo-sprite" aria-hidden="true" focusable="false">
+      <symbol id="movelink-member-logo" viewBox="70 58 540 232">
+        <path d="M77 193H110C145 193 157 165 178 136C197 109 213 98 234 96V197H77Z" fill="var(--logo-red)" />
+        <rect x="233" y="65" width="4" height="162" fill="var(--logo-red)" />
+        <rect x="77" y="191" width="462" height="4" fill="var(--logo-red)" />
+        <text x="244" y="185" fill="var(--logo-ink)" font-family="'Arial Black', 'Outfit', Arial, sans-serif" font-size="125" font-weight="900" font-style="italic" letter-spacing="-6">TRIO</text>
+        <text x="76" y="224" fill="var(--logo-subtext)" font-family="'Inter', Arial, sans-serif" font-size="23" font-weight="500" letter-spacing="12">MOTION</text>
+        <text x="246" y="224" fill="var(--logo-subtext)" font-family="'Inter', Arial, sans-serif" font-size="23" font-weight="500" letter-spacing="15">TECHNOLOGY</text>
+        <text x="76" y="283" fill="var(--logo-muted)" font-family="'Inter', Arial, sans-serif" font-size="26" font-weight="400" letter-spacing="2">A MEMBER OF THE</text>
+        <text x="352" y="283" fill="var(--logo-estun)" font-family="'Arial Black', 'Outfit', Arial, sans-serif" font-size="25" font-weight="900" letter-spacing="-1.2">ESTUN</text>
+        <text x="456" y="283" fill="var(--logo-muted)" font-family="'Inter', Arial, sans-serif" font-size="26" font-weight="400" letter-spacing="1.6">GROUP</text>
+      </symbol>
+    </svg>
     <div class="slide-container">
 
       <!-- ================================================
            SLIDE 1 — TITLE / INTRO
            ================================================ -->
-      <section class="slide active" data-slide="1">
+      <section class="slide title-slide active" data-slide="1">
+        <svg class="deck-logo deck-logo-title" viewBox="70 58 540 232" role="img" aria-label="A member of the ESTUN Group logo">
+          <use href="#movelink-member-logo"></use>
+        </svg>
         <div class="title-tag">Trio BASIC Motion Control</div>
-        <div class="title-main">MOVE<span class="accent">LINK</span></div>
-        <div class="title-sub">Configure perfect flying-shear synchronizations and retract paths with interactive calculations.</div>
+        <div class="title-main">Flying Shear <span class="accent">Case Study</span></div>
+        <div class="title-sub">A technical guide to implementing high-performance synchronization and retract profiles based on the <code style="font-family: 'JetBrains Mono', 'Courier New', monospace; background: var(--bg-light); border: 1px solid var(--border); padding: 3px 8px; border-radius: 6px; color: var(--amber); font-size: 0.9em; font-weight: 600;">MOVELINK</code> command.</div>
         
         <div class="title-meta">
           <div class="title-meta-item">
@@ -1518,6 +1589,9 @@
            SLIDE 2 — MOVELINK ANATOMY
            ================================================ -->
       <section class="slide" data-slide="2">
+        <svg class="deck-logo deck-logo-small" viewBox="70 58 540 232" role="img" aria-label="A member of the ESTUN Group logo">
+          <use href="#movelink-member-logo"></use>
+        </svg>
         <div class="slide-header">
           <div>
             <div class="slide-title">One command. <span class="accent">Core parameters plus options.</span></div>
@@ -1565,6 +1639,9 @@
            SLIDE 3 — CALCULATOR
            ================================================ -->
       <section class="slide" data-slide="3">
+        <svg class="deck-logo deck-logo-small" viewBox="70 58 540 232" role="img" aria-label="A member of the ESTUN Group logo">
+          <use href="#movelink-member-logo"></use>
+        </svg>
         <div class="slide-header">
           <div>
             <div class="slide-title">MOVE<span class="accent">LINK</span> flying-shear calculator</div>
@@ -1780,6 +1857,9 @@
            SLIDE 4 — FLYING-SHEAR SEQUENCE
            ================================================ -->
       <section class="slide" data-slide="4">
+        <svg class="deck-logo deck-logo-small" viewBox="70 58 540 232" role="img" aria-label="A member of the ESTUN Group logo">
+          <use href="#movelink-member-logo"></use>
+        </svg>
         <div class="slide-header">
           <div>
             <div class="slide-title">Generated <span class="accent">flying-shear pattern.</span></div>
