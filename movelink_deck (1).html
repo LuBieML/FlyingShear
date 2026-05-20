@@ -295,6 +295,7 @@
     flex-direction: column;
     gap: 12px;
     min-height: 0;
+    position: relative;
   }
 
   .diagram-panel-title {
@@ -337,6 +338,36 @@
     border: 1px solid var(--border);
     border-radius: 3px;
     padding: 12px 16px;
+  }
+
+  .result-card.interactive {
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+
+  .result-card.interactive:hover,
+  .result-card.interactive:focus-visible {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 2px rgba(184,111,0,0.12);
+    outline: none;
+    transform: translateY(-1px);
+  }
+
+  .result-card.interactive .result-card-label::after {
+    content: "?";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 8px;
+    border: 1px solid var(--amber);
+    border-radius: 50%;
+    color: var(--amber);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    vertical-align: 1px;
   }
 
   .result-card-label {
@@ -490,6 +521,336 @@
 
   .phase-command-line.combined .phase-command-label {
     color: var(--amber-bright);
+  }
+
+  .calc-overlay {
+    position: absolute;
+    inset: 84px 22px 118px 22px;
+    background: rgba(238,243,248,0.92);
+    border: 1px solid rgba(169,184,201,0.75);
+    border-radius: 4px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 20;
+  }
+
+  .calc-overlay.open {
+    display: flex;
+  }
+
+  .calc-panel {
+    width: min(1060px, 100%);
+    background: var(--bg-mid);
+    border: 2px solid var(--amber);
+    border-radius: 4px;
+    box-shadow: 0 24px 70px rgba(22,34,48,0.18);
+    padding: 30px 34px 32px;
+  }
+
+  .calc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    margin-bottom: 22px;
+  }
+
+  .calc-kicker,
+  .calc-label {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--amber-bright);
+  }
+
+  .calc-header h4 {
+    font-family: var(--font-body);
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+  }
+
+  .calc-close {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .calc-close:hover,
+  .calc-close:focus-visible {
+    border-color: var(--amber);
+    color: var(--amber);
+    outline: none;
+  }
+
+  .calc-body {
+    display: grid;
+    gap: 18px;
+  }
+
+  .calc-equation {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    line-height: 1.45;
+    font-weight: 700;
+    color: var(--text-primary);
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--amber);
+    border-radius: 4px;
+    padding: 18px 20px;
+  }
+
+  .calc-inline-trigger {
+    display: inline-block;
+    color: var(--amber-bright);
+    border-bottom: 2px solid var(--amber-bright);
+    cursor: pointer;
+  }
+
+  .calc-inline-trigger:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 3px;
+  }
+
+  .calc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+
+  .calc-term {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 18px;
+  }
+
+  .calc-term.interactive {
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+
+  .calc-term.interactive:hover,
+  .calc-term.interactive:focus-visible {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 2px rgba(184,111,0,0.14);
+    outline: none;
+    transform: translateY(-1px);
+  }
+
+  .calc-term.interactive .calc-term-title::after {
+    content: "?";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-left: 8px;
+    border: 1px solid var(--amber);
+    border-radius: 50%;
+    color: var(--amber);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    vertical-align: 1px;
+  }
+
+  .calc-term-title {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .calc-term-value {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--cyan-bright);
+    margin-bottom: 4px;
+  }
+
+  .calc-term-desc,
+  .calc-note {
+    font-size: 18px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+  }
+
+  .calc-note {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+
+  .factor-overlay {
+    position: fixed;
+    inset: 44px 64px 58px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(22,34,48,0.34);
+    border-radius: 4px;
+    padding: 20px;
+    z-index: 200;
+  }
+
+  .factor-overlay.open {
+    display: flex;
+  }
+
+  .factor-panel {
+    width: min(1240px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    background: var(--bg-mid);
+    border: 2px solid var(--amber);
+    border-radius: 4px;
+    box-shadow: 0 28px 80px rgba(22,34,48,0.35);
+    color: var(--text-primary);
+    padding: 26px 32px 30px;
+  }
+
+  .factor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    margin-bottom: 16px;
+  }
+
+  .factor-kicker {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--amber-bright);
+  }
+
+  .factor-header h4 {
+    font-family: var(--font-body);
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+  }
+
+  .factor-close {
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .factor-close:hover,
+  .factor-close:focus-visible {
+    border-color: var(--amber);
+    color: var(--amber);
+    outline: none;
+  }
+
+  .factor-diagram {
+    background: linear-gradient(180deg, #f9fbfd 0%, #eef3f8 100%);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px 6px;
+    margin-bottom: 20px;
+  }
+
+  .factor-diagram svg {
+    display: block;
+    width: 100%;
+    height: min(390px, 42vh);
+  }
+
+  .factor-explain {
+    display: grid;
+    gap: 18px;
+    color: var(--text-primary);
+    font-size: 22px;
+    line-height: 1.35;
+  }
+
+  .factor-breakdown {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
+  .factor-step {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px 16px;
+  }
+
+  .factor-step-label {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .factor-step-value {
+    font-family: var(--font-mono);
+    font-size: 21px;
+    font-weight: 800;
+    color: var(--text-primary);
+  }
+
+  .factor-step.total {
+    border-color: rgba(184,111,0,0.55);
+    background: rgba(245,223,185,0.38);
+  }
+
+  .factor-step.total .factor-step-value {
+    color: var(--amber);
+  }
+
+  .factor-rule {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--cyan-bright);
+    border-radius: 4px;
+    padding: 16px 18px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .factor-explain strong {
+    color: var(--text-primary);
+  }
+
+  .factor-final {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--amber);
+    margin-top: 4px;
   }
 
   /* ====================================================
@@ -1245,7 +1606,7 @@
             <div class="result-card-value" id="stroke-val">—</div>
             <div class="result-card-detail">accel + sync + decel</div>
           </div>
-          <div class="result-card">
+          <div class="result-card interactive" id="vpeak-card" role="button" tabindex="0" aria-controls="vpeak-calc" aria-expanded="false">
             <div class="result-card-label">RETRACT PEAK</div>
             <div class="result-card-value" id="vpeak-val">—</div>
             <div class="result-card-detail">required shear speed</div>
@@ -1254,6 +1615,108 @@
             <div class="result-card-label">RETURN BUDGET</div>
             <div class="result-card-value" id="ret-val">—</div>
             <div class="result-card-detail">remaining link distance</div>
+          </div>
+        </div>
+
+        <div class="calc-overlay" id="vpeak-calc" role="dialog" aria-modal="true" aria-labelledby="vpeak-calc-title" aria-hidden="true">
+          <div class="calc-panel">
+            <div class="calc-header">
+              <div>
+                <div class="calc-kicker">RETRACT PEAK</div>
+                <h4 id="vpeak-calc-title">How the return speed is calculated</h4>
+              </div>
+              <button type="button" class="calc-close" id="vpeak-calc-close" aria-label="Close retract peak calculation">X</button>
+            </div>
+            <div class="calc-body" id="vpeak-calc-body"></div>
+          </div>
+          <div class="factor-overlay" id="profile-factor-calc" role="dialog" aria-modal="true" aria-labelledby="profile-factor-title" aria-hidden="true">
+            <div class="factor-panel">
+              <div class="factor-header">
+                <div>
+                  <div class="factor-kicker">PROFILE FACTOR 4 / 3</div>
+                  <h4 id="profile-factor-title">Why peak return speed is 4 / 3 × average speed</h4>
+                </div>
+                <button type="button" class="factor-close" id="profile-factor-close" aria-label="Close profile factor explanation">X</button>
+              </div>
+
+              <div class="factor-diagram" aria-label="Return profile trapezoid area">
+                <svg viewBox="0 0 1040 420" role="img">
+                  <defs>
+                    <marker id="factor-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                      <path d="M0 0 L10 5 L0 10 Z" fill="#b86f00"/>
+                    </marker>
+                    <linearGradient id="factor-area" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stop-color="#f1bc61" stop-opacity="0.72"/>
+                      <stop offset="100%" stop-color="#f5dfb9" stop-opacity="0.45"/>
+                    </linearGradient>
+                  </defs>
+
+                  <rect x="54" y="28" width="914" height="342" rx="8" fill="#f8fafc" stroke="#d6e0ea"/>
+
+                  <line x1="130" y1="326" x2="930" y2="326" stroke="#b86f00" stroke-width="2.5" marker-end="url(#factor-arrow)"/>
+                  <line x1="130" y1="326" x2="130" y2="62" stroke="#b86f00" stroke-width="2.5" marker-end="url(#factor-arrow)"/>
+
+                  <line x1="130" y1="92" x2="922" y2="92" stroke="#a9b8c9" stroke-width="1.5" stroke-dasharray="6 7"/>
+                  <line x1="130" y1="151" x2="922" y2="151" stroke="#047fa0" stroke-width="2.2" stroke-dasharray="8 8"/>
+                  <line x1="330" y1="92" x2="330" y2="326" stroke="#a9b8c9" stroke-width="1.3" stroke-dasharray="6 7"/>
+                  <line x1="730" y1="92" x2="730" y2="326" stroke="#a9b8c9" stroke-width="1.3" stroke-dasharray="6 7"/>
+
+                  <polygon points="130,326 330,92 330,326" fill="url(#factor-area)" stroke="#d58500" stroke-width="0"/>
+                  <rect x="330" y="92" width="400" height="234" fill="url(#factor-area)"/>
+                  <polygon points="730,92 930,326 730,326" fill="url(#factor-area)" stroke="#d58500" stroke-width="0"/>
+                  <polyline points="130,326 330,92 730,92 930,326" fill="none" stroke="#d58500" stroke-width="4" stroke-linejoin="round"/>
+
+                  <rect x="158" y="214" width="144" height="74" rx="6" fill="#ffffff" stroke="#d6e0ea"/>
+                  <rect x="416" y="214" width="228" height="74" rx="6" fill="#ffffff" stroke="#d6e0ea"/>
+                  <rect x="758" y="214" width="144" height="74" rx="6" fill="#ffffff" stroke="#d6e0ea"/>
+
+                  <text x="114" y="99" fill="#455565" font-size="22" font-weight="800" text-anchor="end">peak</text>
+                  <text x="114" y="158" fill="#047fa0" font-size="22" font-weight="800" text-anchor="end">avg</text>
+                  <text x="114" y="334" fill="#455565" font-size="22" font-weight="800" text-anchor="end">0</text>
+                  <text x="904" y="84" fill="#455565" font-size="22" font-weight="800">peak</text>
+                  <text x="904" y="144" fill="#047fa0" font-size="22" font-weight="800">avg = 3/4 × peak</text>
+
+                  <text x="230" y="240" fill="#162230" font-size="21" font-weight="800" text-anchor="middle">ACCEL</text>
+                  <text x="230" y="268" fill="#455565" font-size="18" font-weight="700" text-anchor="middle">triangle = 1/8</text>
+                  <text x="530" y="240" fill="#162230" font-size="21" font-weight="800" text-anchor="middle">PEAK RETURN</text>
+                  <text x="530" y="268" fill="#455565" font-size="18" font-weight="700" text-anchor="middle">rectangle = 4/8</text>
+                  <text x="830" y="240" fill="#162230" font-size="21" font-weight="800" text-anchor="middle">DECEL</text>
+                  <text x="830" y="268" fill="#455565" font-size="18" font-weight="700" text-anchor="middle">triangle = 1/8</text>
+
+                  <text x="130" y="360" fill="#455565" font-size="21" font-weight="800" text-anchor="middle">0</text>
+                  <text x="330" y="360" fill="#455565" font-size="21" font-weight="800" text-anchor="middle">1/4</text>
+                  <text x="730" y="360" fill="#455565" font-size="21" font-weight="800" text-anchor="middle">3/4</text>
+                  <text x="930" y="360" fill="#455565" font-size="21" font-weight="800" text-anchor="middle">1</text>
+                  <text x="530" y="394" fill="#455565" font-size="22" font-weight="800" text-anchor="middle">return budget, normalised to total time = 1</text>
+                </svg>
+              </div>
+
+              <div class="factor-explain">
+                <div class="factor-breakdown">
+                  <div class="factor-step">
+                    <div class="factor-step-label">ACCEL AREA</div>
+                    <div class="factor-step-value">1/2 × 1/4 = 1/8</div>
+                  </div>
+                  <div class="factor-step">
+                    <div class="factor-step-label">PEAK AREA</div>
+                    <div class="factor-step-value">1/2 = 4/8</div>
+                  </div>
+                  <div class="factor-step">
+                    <div class="factor-step-label">DECEL AREA</div>
+                    <div class="factor-step-value">1/2 × 1/4 = 1/8</div>
+                  </div>
+                  <div class="factor-step total">
+                    <div class="factor-step-label">TOTAL AREA</div>
+                    <div class="factor-step-value">6/8 = 3/4</div>
+                  </div>
+                </div>
+                <div class="factor-rule">
+                  <strong>Area under velocity over time is distance.</strong>
+                  With total return time normalised to 1, that area is also the average velocity. This trapezoid area is 3/4 of the peak speed.
+                </div>
+                <div class="factor-final">v_avg = 3/4 × v_peak &nbsp; ==> &nbsp; v_peak = 4/3 × v_avg</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1400,6 +1863,32 @@ document.getElementById('nav-prev').onclick = () => goToSlide(currentSlide - 1);
 document.getElementById('nav-next').onclick = () => goToSlide(currentSlide + 1);
 
 document.addEventListener('keydown', e => {
+  if (isProfileFactorCalcOpen()) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeProfileFactorCalc();
+      return;
+    }
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ' ||
+        e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'Home' || e.key === 'End' ||
+        (e.key >= '1' && parseInt(e.key) <= totalSlides)) {
+      e.preventDefault();
+      return;
+    }
+  }
+  if (isRetractPeakCalcOpen()) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeRetractPeakCalc();
+      return;
+    }
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ' ||
+        e.key === 'ArrowLeft' || e.key === 'PageUp' || e.key === 'Home' || e.key === 'End' ||
+        (e.key >= '1' && parseInt(e.key) <= totalSlides)) {
+      e.preventDefault();
+      return;
+    }
+  }
   if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
     e.preventDefault();
     goToSlide(currentSlide + 1);
@@ -1475,6 +1964,204 @@ function resetPhase() {
   s.addEventListener('input', redrawPhase);
 });
 
+function fmtOne(n) {
+  return Number.isFinite(n) ? n.toFixed(1) : '∞';
+}
+
+function fmtZero(n) {
+  return Number.isFinite(n) ? n.toFixed(0) : '∞';
+}
+
+function isRetractPeakCalcOpen() {
+  const panel = document.getElementById('vpeak-calc');
+  return panel ? panel.classList.contains('open') : false;
+}
+
+function isProfileFactorCalcOpen() {
+  const panel = document.getElementById('profile-factor-calc');
+  return panel ? panel.classList.contains('open') : false;
+}
+
+function updateRetractPeakCalc(calc) {
+  const body = document.getElementById('vpeak-calc-body');
+  if (!body) return;
+
+  const activeLink = calc.accel_link + calc.sync_link + calc.decel_link;
+  const strokeFormula =
+    `${fmtOne(calc.accel_dist)} + ${fmtOne(calc.sync_dist)} + ${fmtOne(calc.decel_dist)}`;
+  const activeFormula =
+    `${fmtOne(calc.accel_link)} + ${fmtOne(calc.sync_link)} + ${fmtOne(calc.decel_link)}`;
+
+  if (calc.ret_link <= 0) {
+    body.innerHTML = `
+      <div>
+        <div class="calc-label">NO VALID RETURN BUDGET</div>
+        <div class="calc-equation">
+          return budget = ${fmtOne(calc.L)} mm - (${activeFormula}) mm = ${fmtOne(calc.ret_link)} mm
+        </div>
+      </div>
+      <div class="calc-note">
+        The accel, sync, and decel portions already consume ${fmtOne(activeLink)} mm of master travel.
+        Because the cut length is only ${fmtOne(calc.L)} mm, there is no remaining master distance for the blade to retract before the next cut.
+      </div>
+    `;
+    return;
+  }
+
+  const avgRetractSpeed = calc.v * (calc.stroke / calc.ret_link);
+  body.innerHTML = `
+    <div>
+      <div class="calc-label">FORMULA</div>
+      <div class="calc-equation">
+        retract peak = <span class="calc-inline-trigger" data-open-factor role="button" tabindex="0">4 / 3</span> × line speed × (shear stroke / return budget)<br>
+        ${fmtZero(calc.v_retract)} mm/s = <span class="calc-inline-trigger" data-open-factor role="button" tabindex="0">4 / 3</span> × ${fmtZero(calc.v)} mm/s × (${fmtOne(calc.stroke)} mm / ${fmtOne(calc.ret_link)} mm)
+      </div>
+    </div>
+
+    <div class="calc-grid">
+      <div class="calc-term">
+        <div class="calc-term-title">SHEAR STROKE</div>
+        <div class="calc-term-value">${fmtOne(calc.stroke)} mm</div>
+        <div class="calc-term-desc">${strokeFormula} mm, the forward blade travel under the accel, sync, and decel sections.</div>
+      </div>
+      <div class="calc-term">
+        <div class="calc-term-title">RETURN BUDGET</div>
+        <div class="calc-term-value">${fmtOne(calc.ret_link)} mm</div>
+        <div class="calc-term-desc">${fmtOne(calc.L)} - (${activeFormula}) mm, the remaining master distance before the next cut.</div>
+      </div>
+      <div class="calc-term">
+        <div class="calc-term-title">AVERAGE RETURN SPEED</div>
+        <div class="calc-term-value">${fmtOne(avgRetractSpeed)} mm/s</div>
+        <div class="calc-term-desc">${fmtZero(calc.v)} mm/s × ${fmtOne(calc.stroke)} / ${fmtOne(calc.ret_link)}.</div>
+      </div>
+      <div class="calc-term interactive" id="profile-factor-card" role="button" tabindex="0" aria-controls="profile-factor-calc" aria-expanded="false">
+        <div class="calc-term-title">PROFILE FACTOR</div>
+        <div class="calc-term-value">4 / 3</div>
+        <div class="calc-term-desc">The retract shape averages 75% of its peak speed, so peak speed is average speed multiplied by 4 / 3.</div>
+      </div>
+    </div>
+
+    <div class="calc-note">
+      The blade has to travel back by one shear stroke during the remaining master travel.
+      The return profile accelerates for the first quarter, runs at peak through the middle half, and decelerates for the last quarter.
+    </div>
+  `;
+}
+
+function openRetractPeakCalc() {
+  const panel = document.getElementById('vpeak-calc');
+  const card = document.getElementById('vpeak-card');
+  const closeBtn = document.getElementById('vpeak-calc-close');
+  if (!panel) return;
+  updateRetractPeakCalc(getPhaseCalc());
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+  if (card) card.setAttribute('aria-expanded', 'true');
+  if (closeBtn) closeBtn.focus();
+}
+
+function openProfileFactorCalc() {
+  const panel = document.getElementById('profile-factor-calc');
+  const card = document.getElementById('profile-factor-card');
+  const closeBtn = document.getElementById('profile-factor-close');
+  if (!panel) return;
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+  if (card) card.setAttribute('aria-expanded', 'true');
+  if (closeBtn) closeBtn.focus();
+}
+
+function closeProfileFactorCalc() {
+  const panel = document.getElementById('profile-factor-calc');
+  const card = document.getElementById('profile-factor-card');
+  if (!panel) return;
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  if (card) {
+    card.setAttribute('aria-expanded', 'false');
+    card.focus();
+  }
+}
+
+function closeRetractPeakCalc() {
+  const panel = document.getElementById('vpeak-calc');
+  const card = document.getElementById('vpeak-card');
+  if (!panel) return;
+  closeProfileFactorCalc();
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  if (card) {
+    card.setAttribute('aria-expanded', 'false');
+    card.focus();
+  }
+}
+
+const vpeakCard = document.getElementById('vpeak-card');
+const vpeakCalc = document.getElementById('vpeak-calc');
+const vpeakCalcClose = document.getElementById('vpeak-calc-close');
+const vpeakCalcBody = document.getElementById('vpeak-calc-body');
+const profileFactorCalc = document.getElementById('profile-factor-calc');
+const profileFactorClose = document.getElementById('profile-factor-close');
+
+if (vpeakCard) {
+  vpeakCard.addEventListener('click', openRetractPeakCalc);
+  vpeakCard.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      openRetractPeakCalc();
+    }
+  });
+}
+
+if (vpeakCalc) {
+  vpeakCalc.addEventListener('click', e => {
+    if (e.target === vpeakCalc) closeRetractPeakCalc();
+  });
+}
+
+if (vpeakCalcBody) {
+  vpeakCalcBody.addEventListener('click', e => {
+    if (e.target.closest('#profile-factor-card, [data-open-factor]')) openProfileFactorCalc();
+  });
+  vpeakCalcBody.addEventListener('keydown', e => {
+    if (!e.target.closest('#profile-factor-card, [data-open-factor]')) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      openProfileFactorCalc();
+    }
+  });
+}
+
+if (vpeakCalcClose) {
+  vpeakCalcClose.addEventListener('click', closeRetractPeakCalc);
+  vpeakCalcClose.addEventListener('keydown', e => {
+    if (e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeRetractPeakCalc();
+    }
+  });
+}
+
+if (profileFactorCalc) {
+  profileFactorCalc.addEventListener('click', e => {
+    if (e.target === profileFactorCalc) closeProfileFactorCalc();
+  });
+}
+
+if (profileFactorClose) {
+  profileFactorClose.addEventListener('click', closeProfileFactorCalc);
+  profileFactorClose.addEventListener('keydown', e => {
+    if (e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeProfileFactorCalc();
+    }
+  });
+}
+
 function redrawPhase() {
   const calc = getPhaseCalc();
   const {
@@ -1542,6 +2229,7 @@ function redrawPhase() {
     statusEl.style.color = 'var(--green)';
   }
 
+  updateRetractPeakCalc(calc);
   drawPhaseSvg(L, v, accel_link, sync_link, decel_link, ret_link);
   if (currentSlide === 3) {
     updateStep(currentStep);

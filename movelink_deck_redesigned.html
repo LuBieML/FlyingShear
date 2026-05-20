@@ -1,0 +1,2756 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOVELINK — Flying Shear Interactive Deck</title>
+<script>
+  // Immediately set theme to avoid white flash
+  (function() {
+    const savedTheme = localStorage.getItem('movelink-deck-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  })();
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+  :root[data-theme="light"] {
+    --bg-deep:        #eef3f8;
+    --bg-mid:         #ffffff;
+    --bg-light:       #f6f8fb;
+    --bg-raised:      #e7edf4;
+    --border:         #d6e0ea;
+    --border-strong:  #a9b8c9;
+    --text-primary:   #162230;
+    --text-secondary: #455565;
+    --text-muted:     #758294;
+    --amber:          #b86f00;
+    --amber-bright:   #d58500;
+    --amber-dim:      #f5dfb9;
+    --cyan:           #0c7489;
+    --cyan-bright:    #047fa0;
+    --cyan-dim:       #c4e5ec;
+    --green:          #247d4d;
+    --red:            #c43c3c;
+    --red-dim:        #f1c8c8;
+    --grid-color:     rgba(22, 34, 48, 0.045);
+    --vignette-color: rgba(80, 99, 122, 0.12);
+    --card-shadow:    0 10px 30px rgba(22, 34, 48, 0.06);
+    --modal-bg:       rgba(238, 243, 248, 0.92);
+  }
+
+  :root[data-theme="dark"] {
+    --bg-deep:        #080c14;
+    --bg-mid:         #0f172a;
+    --bg-light:       #1e293b;
+    --bg-raised:      #111827;
+    --border:         #334155;
+    --border-strong:  #475569;
+    --text-primary:   #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted:     #64748b;
+    --amber:          #f59e0b;
+    --amber-bright:   #fbbf24;
+    --amber-dim:      #451a03;
+    --cyan:           #06b6d4;
+    --cyan-bright:    #22d3ee;
+    --cyan-dim:       #083344;
+    --green:          #10b981;
+    --red:            #ef4444;
+    --red-dim:        #7f1d1d;
+    --grid-color:     rgba(248, 250, 252, 0.035);
+    --vignette-color: rgba(0, 0, 0, 0.4);
+    --card-shadow:    0 15px 40px rgba(0, 0, 0, 0.4);
+    --modal-bg:       rgba(15, 23, 42, 0.93);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Vignette / radial gradient */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 50% 50%, transparent 62%, var(--vignette-color) 100%);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Presentation view scaler - forces clean 16:9 aspect ratio */
+  .deck-scaler {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 1280px;
+    height: 720px;
+    transform: translate(-50%, -50%);
+    transform-origin: center center;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .deck {
+    position: relative;
+    width: 1280px;
+    height: 720px;
+    background: var(--bg-mid);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--card-shadow);
+    overflow: hidden;
+  }
+
+  .slide-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Hardware-accelerated slide transitions */
+  .slide {
+    position: absolute;
+    inset: 0;
+    padding: 42px 64px 64px 64px;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(15px) scale(0.99);
+    transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1), 
+                transform 0.4s cubic-bezier(0.25, 1, 0.5, 1), 
+                visibility 0.4s;
+    pointer-events: none;
+  }
+
+  .slide.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+
+  /* Slide header */
+  .slide-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .slide-number {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.2em;
+  }
+
+  .slide-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--text-primary);
+  }
+
+  .slide-title .accent {
+    color: var(--amber);
+  }
+
+  .slide-subtitle {
+    font-size: 13.5px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    margin-top: 3px;
+  }
+
+  /* ====================================================
+     SLIDE 1 — TITLE/INTRO
+     ==================================================== */
+  .title-slide {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 80px;
+  }
+
+  .title-tag {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    color: var(--amber);
+    margin-bottom: 24px;
+    text-transform: uppercase;
+  }
+
+  .title-tag::before { content: '— '; }
+  .title-tag::after { content: ' —'; }
+
+  .title-main {
+    font-family: 'Outfit', sans-serif;
+    font-size: 104px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+    color: var(--text-primary);
+    margin-bottom: 24px;
+  }
+
+  .title-main .accent {
+    color: var(--amber);
+    background: linear-gradient(135deg, var(--amber) 30%, var(--amber-bright) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .title-sub {
+    font-size: 23px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    max-width: 800px;
+    line-height: 1.5;
+    margin-bottom: 48px;
+  }
+
+  .title-meta {
+    display: flex;
+    gap: 60px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .title-meta-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .title-meta-item strong {
+    color: var(--cyan-bright);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: 0.08em;
+  }
+
+  /* ====================================================
+     SLIDE 2 — PARAMETER ANATOMY
+     ==================================================== */
+  .anatomy-body {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 16px;
+    min-height: 0;
+  }
+
+  .command-display {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    font-weight: 600;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 24px;
+    letter-spacing: -0.01em;
+    justify-self: center;
+    max-width: 100%;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
+  }
+
+  .command-display .punct {
+    color: var(--text-muted);
+  }
+
+  .param {
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border-bottom: 2px solid transparent;
+    position: relative;
+    display: inline-block;
+  }
+
+  .param:hover, .param.active {
+    background: var(--bg-raised);
+    transform: translateY(-1px);
+  }
+
+  .param[data-param="distance"]   { color: var(--red); border-bottom-color: rgba(239,68,68,0.4); }
+  .param[data-param="link_dist"]  { color: var(--amber-bright); border-bottom-color: rgba(251,191,36,0.4); }
+  .param[data-param="link_acc"]   { color: var(--cyan-bright); border-bottom-color: rgba(34,211,238,0.4); }
+  .param[data-param="link_dec"]   { color: #a78bfa; border-bottom-color: rgba(167,139,250,0.4); }
+  .param[data-param="link_axis"]  { color: var(--green); border-bottom-color: rgba(16,185,129,0.4); }
+
+  .param.active[data-param="distance"]   { background: var(--red-dim); }
+  .param.active[data-param="link_dist"]  { background: var(--amber-dim); }
+  .param.active[data-param="link_acc"]   { background: var(--cyan-dim); }
+  .param.active[data-param="link_dec"]   { background: rgba(167,139,250,0.15); }
+  .param.active[data-param="link_axis"]  { background: rgba(16,185,129,0.15); }
+
+  .anatomy-lower {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 20px;
+    min-height: 0;
+  }
+
+  .anatomy-svg-wrapper {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .anatomy-svg-wrapper h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.15em;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+
+  .anatomy-svg-wrapper svg {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .syntax-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+  }
+
+  .syntax-fact {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--amber);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  .syntax-fact strong {
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .syntax-fact code {
+    color: var(--cyan-bright);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    word-break: break-all;
+  }
+
+  .anatomy-description {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--cyan-bright);
+    border-radius: 8px;
+    padding: 16px 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .anatomy-description-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.15em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  .anatomy-description-param {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .anatomy-description-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  .anatomy-description-text strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .anatomy-hint {
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* ====================================================
+     SLIDE 3 — CALCULATOR
+     ==================================================== */
+  .phase-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 20px;
+    min-height: 0;
+  }
+
+  .controls-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .control-group {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);
+  }
+
+  .control-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+
+  .control-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.1em;
+  }
+
+  .control-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--amber-bright);
+  }
+
+  .control-unit {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  input[type="range"] {
+    width: 100%;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--amber);
+    border: 2px solid var(--bg-mid);
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    transition: transform 0.1s ease, background-color 0.1s ease;
+  }
+
+  input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    background: var(--amber-bright);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--amber);
+    border: 2px solid var(--bg-mid);
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    transition: transform 0.1s ease, background-color 0.1s ease;
+  }
+
+  input[type="range"]::-moz-range-thumb:hover {
+    transform: scale(1.15);
+    background: var(--amber-bright);
+  }
+
+  .diagram-panel {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    position: relative;
+  }
+
+  .diagram-panel-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .diagram-panel-title h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    letter-spacing: 0.12em;
+  }
+
+  .diagram-svg-container {
+    flex: 1 1 0;
+    min-height: 0;
+    background: var(--bg-mid);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    padding: 4px;
+  }
+
+  .diagram-svg-container svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .results-sidebar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+    margin-top: 2px;
+  }
+
+  .result-card {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);
+  }
+
+  .result-card.interactive {
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .result-card.interactive:hover,
+  .result-card.interactive:focus-visible {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 3px rgba(245,158,11,0.15), 0 4px 12px rgba(0,0,0,0.1);
+    outline: none;
+    transform: translateY(-1px);
+  }
+
+  .result-card.interactive .result-card-label::after {
+    content: "?";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 5px;
+    border: 1px solid var(--amber);
+    border-radius: 50%;
+    color: var(--amber);
+    font-size: 10px;
+    font-weight: 800;
+    vertical-align: middle;
+  }
+
+  .result-card-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    margin-bottom: 1px;
+  }
+
+  .result-card-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--cyan-bright);
+  }
+
+  .result-card-value.warn { color: var(--red); }
+  .result-card-value.ok { color: var(--green); }
+
+  .result-card-detail {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin-top: 1px;
+  }
+
+  .relationship-note {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 4px 0 2px 0;
+    border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  .relationship-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+  }
+
+  .relationship-note-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .relationship-note-value span {
+    color: var(--amber-bright);
+  }
+
+  .command-stack {
+    background: var(--bg-mid);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: grid;
+    gap: 4px;
+  }
+
+  .command-stack-heading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+
+  .phase-command-line {
+    display: grid;
+    grid-template-columns: 80px minmax(0, 1fr) 140px;
+    gap: 12px;
+    align-items: baseline;
+  }
+
+  .phase-command-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.15em;
+  }
+
+  .phase-command-line code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .movelink-call {
+    white-space: nowrap;
+  }
+
+  .cmd-param {
+    display: inline-block;
+    width: 6ch;
+    text-align: right;
+    white-space: pre;
+  }
+
+  .cmd-punct {
+    color: var(--text-muted);
+  }
+
+  .phase-command-note {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-align: right;
+  }
+
+  .command-or {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--amber-bright);
+    margin: 1px 0;
+  }
+
+  .command-or::before,
+  .command-or::after {
+    content: "";
+    height: 1px;
+    background: var(--border);
+    flex: 1;
+  }
+
+  .phase-command-line.combined {
+    border-top: 1px solid rgba(245,158,11,0.2);
+    padding-top: 2px;
+  }
+
+  .phase-command-line.combined code {
+    font-size: 16px;
+  }
+
+  .phase-command-line.combined .phase-command-label {
+    color: var(--amber-bright);
+  }
+
+  /* Modals Overlay with elegant blur and entrance animations */
+  .calc-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    z-index: 50;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .calc-overlay.open {
+    display: flex;
+    opacity: 1;
+  }
+
+  .calc-panel {
+    width: min(960px, 100%);
+    background: var(--bg-mid);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    padding: 24px 30px;
+    transform: translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .calc-overlay.open .calc-panel {
+    transform: translateY(0);
+  }
+
+  .calc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    margin-bottom: 18px;
+  }
+
+  .calc-kicker,
+  .calc-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--amber-bright);
+  }
+
+  .calc-header h4 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    line-height: 1.2;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+  }
+
+  .calc-close {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+
+  .calc-close:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+    transform: scale(1.05);
+  }
+
+  .calc-body {
+    display: grid;
+    gap: 16px;
+  }
+
+  .calc-equation {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 21px;
+    line-height: 1.45;
+    font-weight: 700;
+    color: var(--text-primary);
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--amber);
+    border-radius: 6px;
+    padding: 14px 18px;
+  }
+
+  .calc-inline-trigger {
+    display: inline-block;
+    color: var(--amber-bright);
+    border-bottom: 2px solid var(--amber-bright);
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .calc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .calc-term {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+
+  .calc-term.interactive {
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .calc-term.interactive:hover {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 3px rgba(245,158,11,0.15);
+    transform: translateY(-1px);
+  }
+
+  .calc-term.interactive .calc-term-title::after {
+    content: "?";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    border: 1px solid var(--amber);
+    border-radius: 50%;
+    color: var(--amber);
+    font-size: 11px;
+    font-weight: 800;
+    vertical-align: middle;
+  }
+
+  .calc-term-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .calc-term-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 19px;
+    font-weight: 800;
+    color: var(--cyan-bright);
+    margin-bottom: 2px;
+  }
+
+  .calc-term-desc,
+  .calc-note {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+  }
+
+  .calc-note {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+
+  .factor-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .factor-overlay.open {
+    display: flex;
+    opacity: 1;
+  }
+
+  .factor-panel {
+    width: min(1080px, 100%);
+    max-height: 95%;
+    overflow-y: auto;
+    background: var(--bg-mid);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.6);
+    padding: 24px 30px;
+    transform: translateY(20px);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .factor-overlay.open .factor-panel {
+    transform: translateY(0);
+  }
+
+  .factor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+    margin-bottom: 14px;
+  }
+
+  .factor-kicker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    color: var(--amber-bright);
+  }
+
+  .factor-header h4 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    line-height: 1.2;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-top: 4px;
+  }
+
+  .factor-close {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--bg-light);
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+  }
+
+  .factor-close:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+    transform: scale(1.05);
+  }
+
+  .factor-diagram {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 16px;
+  }
+
+  .factor-diagram svg {
+    display: block;
+    width: 100%;
+    height: 300px;
+  }
+
+  .factor-explain {
+    display: grid;
+    gap: 14px;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+
+  .factor-breakdown {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
+  .factor-step {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+  }
+
+  .factor-step-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+
+  .factor-step-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text-primary);
+  }
+
+  .factor-step.total {
+    border-color: rgba(245,158,11,0.5);
+    background: var(--amber-dim);
+  }
+
+  .factor-step.total .factor-step-value {
+    color: var(--amber-bright);
+  }
+
+  .factor-rule {
+    background: var(--bg-light);
+    border-left: 4px solid var(--cyan-bright);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+
+  .factor-final {
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--amber-bright);
+  }
+
+  /* ====================================================
+     SLIDE 4 — CODE STEP-THROUGH
+     ==================================================== */
+  .program-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    grid-template-rows: 1fr auto;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .code-panel {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .code-panel-header {
+    padding: 0 20px 10px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .code-panel-header h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  .step-indicator {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--amber-bright);
+    font-weight: 700;
+  }
+
+  .code-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 0;
+  }
+
+  .code-line {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    padding: 0 20px;
+    color: var(--text-secondary);
+    display: flex;
+    transition: all 0.2s ease;
+    border-left: 3px solid transparent;
+  }
+
+  .code-line.blank {
+    line-height: 0.5;
+  }
+
+  .code-line .lineno {
+    color: var(--text-muted);
+    width: 28px;
+    flex-shrink: 0;
+    font-size: 11px;
+    opacity: 0.5;
+  }
+
+  .code-line .ln-content {
+    flex: 1;
+    white-space: pre;
+  }
+
+  .code-line.comment .ln-content { color: var(--text-muted); font-style: italic; }
+  .code-line.keyword .kw { color: var(--cyan-bright); font-weight: 600; }
+  .code-line .ml { color: var(--amber-bright); font-weight: 600; }
+  .code-line .num { color: var(--red); }
+  .code-line .str { color: var(--green); }
+
+  .code-line.active {
+    background: linear-gradient(90deg, rgba(245,158,11,0.12), transparent);
+    border-left-color: var(--amber);
+    color: var(--text-primary);
+  }
+
+  .code-line.active .ln-content { color: var(--text-primary); }
+
+  .visualization-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .vis-svg-panel {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .vis-svg-panel h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.15em;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .vis-svg-panel svg {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .program-controls {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    padding-top: 6px;
+  }
+
+  #prog-play {
+    min-width: 92px;
+    justify-content: center;
+  }
+
+  .ctrl-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    background: var(--bg-light);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ctrl-btn:hover {
+    background: var(--bg-raised);
+    border-color: var(--amber);
+    color: var(--amber-bright);
+    transform: translateY(-1px);
+  }
+
+  .ctrl-btn:active {
+    transform: translateY(1px);
+  }
+
+  .ctrl-btn.primary {
+    background: var(--amber);
+    color: var(--bg-deep);
+    border-color: var(--amber);
+  }
+
+  .ctrl-btn.primary:hover {
+    background: var(--amber-bright);
+    border-color: var(--amber-bright);
+    color: var(--bg-deep);
+  }
+
+  .ctrl-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-left: 16px;
+    min-width: 320px;
+  }
+
+  /* ====================================================
+     NAVIGATION BAR & SWITCHERS
+     ==================================================== */
+  .nav {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 30px;
+    padding: 6px 18px;
+    z-index: 100;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+
+  :root[data-theme="light"] .nav {
+    background: rgba(255, 255, 255, 0.7);
+  }
+
+  .nav-dots {
+    display: flex;
+    gap: 8px;
+  }
+
+  .nav-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-strong);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: none;
+    padding: 0;
+  }
+
+  .nav-dot.active {
+    background: var(--amber);
+    width: 20px;
+    border-radius: 4px;
+  }
+
+  .nav-dot:hover:not(.active) {
+    background: var(--text-muted);
+  }
+
+  .nav-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    font-weight: 500;
+    min-width: 50px;
+    text-align: center;
+  }
+
+  .nav-counter .current {
+    color: var(--amber-bright);
+    font-weight: 700;
+  }
+
+  .nav-arrow {
+    background: none;
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .nav-arrow:hover {
+    background: var(--bg-light);
+    border-color: var(--amber);
+    color: var(--amber-bright);
+  }
+
+  .nav-arrow:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+
+  .nav-theme-toggle {
+    background: none;
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    padding: 0;
+  }
+
+  .nav-theme-toggle:hover {
+    background: var(--bg-light);
+    border-color: var(--amber);
+    color: var(--amber-bright);
+    transform: scale(1.05);
+  }
+
+  .nav-theme-toggle svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  :root[data-theme="dark"] .sun-icon { display: block; }
+  :root[data-theme="dark"] .moon-icon { display: none; }
+  :root[data-theme="light"] .sun-icon { display: none; }
+  :root[data-theme="light"] .moon-icon { display: block; }
+
+  .keyboard-hint {
+    position: fixed;
+    bottom: 24px;
+    right: 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    z-index: 100;
+    opacity: 0.5;
+  }
+
+  .keyboard-hint kbd {
+    background: var(--bg-light);
+    border: 1px solid var(--border-strong);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin: 0 2px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-secondary);
+  }
+
+  /* Shared SVG Classes */
+  .axis-line { stroke: var(--amber); stroke-width: 1.5; fill: none; }
+  .axis-arrow { fill: var(--amber); }
+  .axis-label { fill: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+  .grid-line { stroke: var(--border); stroke-width: 0.5; stroke-dasharray: 3,3; fill: none; }
+  .phase-fill { opacity: 0.15; transition: opacity 0.25s ease; }
+  .phase-label { fill: var(--text-secondary); font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; }
+  
+  #phase-svg .axis-label { font-size: 14px; }
+  #phase-svg .phase-label { font-size: 13px; }
+  #phase-svg .phase-axis-title { font-size: 14px; font-weight: 700; fill: var(--text-primary); }
+  #phase-svg .phase-axis-distance { font-size: 14px; fill: var(--text-secondary); }
+
+  .autoplay-progress {
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+    display: none;
+  }
+
+  .autoplay-progress-fill {
+    width: 0%;
+    height: 100%;
+    background: var(--amber);
+    transition: width 1.4s linear;
+  }
+</style>
+</head>
+<body>
+
+<div class="deck-scaler">
+  <div class="deck">
+    <div class="slide-container">
+
+      <!-- ================================================
+           SLIDE 1 — TITLE / INTRO
+           ================================================ -->
+      <section class="slide active" data-slide="1">
+        <div class="title-tag">Trio BASIC Motion Control</div>
+        <div class="title-main">MOVE<span class="accent">LINK</span></div>
+        <div class="title-sub">Configure perfect flying-shear synchronizations and retract paths with interactive calculations.</div>
+        
+        <div class="title-meta">
+          <div class="title-meta-item">
+            <strong>0.5 × master</strong>
+            <span>accel/decel ratio</span>
+          </div>
+          <div class="title-meta-item">
+            <strong>remaining travel</strong>
+            <span>return budget</span>
+          </div>
+          <div class="title-meta-item">
+            <strong>synchronized</strong>
+            <span>shear speed</span>
+          </div>
+        </div>
+        
+        <button class="ctrl-btn primary" style="margin-top: 40px; padding: 10px 24px; font-size: 14px; border-radius: 20px; font-family: 'Inter', sans-serif;" onclick="goToSlide(2)">
+          BEGIN DECK GUIDE &rarr;
+        </button>
+      </section>
+
+      <!-- ================================================
+           SLIDE 2 — MOVELINK ANATOMY
+           ================================================ -->
+      <section class="slide" data-slide="2">
+        <div class="slide-header">
+          <div>
+            <div class="slide-title">One command. <span class="accent">Core parameters plus options.</span></div>
+            <div class="slide-subtitle">Hover any parameter or SVG graph segment to see details.</div>
+          </div>
+          <div class="slide-number">02 / 04</div>
+        </div>
+
+        <div class="anatomy-body">
+          <div class="command-display">
+            <span class="punct">MOVELINK(</span><span class="param" data-param="distance">distance</span><span class="punct">, </span><span class="param" data-param="link_dist">link_dist</span><span class="punct">, </span><span class="param" data-param="link_acc">link_acc</span><span class="punct">, </span><span class="param" data-param="link_dec">link_dec</span><span class="punct">, </span><span class="param" data-param="link_axis">link_axis</span><span class="punct">)</span>
+          </div>
+
+          <div class="anatomy-lower">
+            <div class="anatomy-svg-wrapper">
+              <h4>VELOCITY  VS  MASTER DISTANCE</h4>
+              <svg id="anatomy-svg" viewBox="0 0 800 320" preserveAspectRatio="xMidYMid meet">
+                <!-- Drawn dynamically -->
+              </svg>
+              <div class="anatomy-hint">Optional <span style="color: var(--text-secondary)">link_options</span>: S-curves, MARK/MARKB/R_MARK starts, repeat behavior, direction gating, DPOS sourcing. Alias: <span style="color: var(--text-secondary)">ML()</span>.</div>
+            </div>
+
+            <div class="syntax-strip">
+              <div class="syntax-fact">
+                <strong>Full syntax</strong>
+                <code>MOVELINK(distance, link_dist, link_acc, link_dec, link_axis[, link_options[, link_pos[, base_dist]]])</code>
+              </div>
+              <div class="syntax-fact">
+                <strong>Rules</strong>
+                Link distances are positive. Default link feedback is MPOS; option bit 13 uses DPOS. If link_acc + link_dec exceeds link_dist, both are scaled down.
+              </div>
+              <div class="anatomy-description">
+                <div class="anatomy-description-label">DESCRIPTION</div>
+                <div class="anatomy-description-param" id="anatomy-param-name" style="color: var(--text-muted)">hover a parameter</div>
+                <div class="anatomy-description-text" id="anatomy-param-desc">
+                  Each parameter maps to a piece of the motion. <strong>distance</strong> is what the shear travels; <strong>link_dist</strong> is the master travel that drives it; <strong>link_acc</strong> and <strong>link_dec</strong> shape the ramps.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================
+           SLIDE 3 — CALCULATOR
+           ================================================ -->
+      <section class="slide" data-slide="3">
+        <div class="slide-header">
+          <div>
+            <div class="slide-title">MOVE<span class="accent">LINK</span> flying-shear calculator</div>
+            <div class="slide-subtitle">Adjust the inputs — the link distances and MOVELINK command update in real time.</div>
+          </div>
+          <div class="slide-number">03 / 04</div>
+        </div>
+
+        <div class="phase-body">
+          <div class="controls-panel">
+            <div class="control-group">
+              <div class="control-label-row">
+                <span class="control-label">CUT LENGTH</span>
+                <span><span class="control-value" id="cut-val">300</span><span class="control-unit">mm</span></span>
+              </div>
+              <input type="range" id="cut-slider" min="50" max="500" value="300" step="5">
+            </div>
+
+            <div class="control-group">
+              <div class="control-label-row">
+                <span class="control-label">LINE SPEED</span>
+                <span><span class="control-value" id="v-val">500</span><span class="control-unit">mm/s</span></span>
+              </div>
+              <input type="range" id="v-slider" min="50" max="1000" value="500" step="10">
+            </div>
+
+            <div class="control-group">
+              <div class="control-label-row">
+                <span class="control-label">DESIGN ACCEL</span>
+                <span><span class="control-value" id="a-val">5000</span><span class="control-unit">mm/s²</span></span>
+              </div>
+              <input type="range" id="a-slider" min="1000" max="20000" value="5000" step="500">
+            </div>
+
+            <div class="control-group">
+              <div class="control-label-row">
+                <span class="control-label">SYNC TIME</span>
+                <span><span class="control-value" id="t-val">40</span><span class="control-unit">ms</span></span>
+              </div>
+              <input type="range" id="t-slider" min="10" max="100" value="40" step="5">
+            </div>
+
+            <div class="results-sidebar">
+              <div class="result-card">
+                <div class="result-card-label">SHEAR STROKE</div>
+                <div class="result-card-value" id="stroke-val">—</div>
+                <div class="result-card-detail">accel + sync + decel</div>
+              </div>
+              <div class="result-card interactive" id="vpeak-card" role="button" tabindex="0" aria-controls="vpeak-calc" aria-expanded="false">
+                <div class="result-card-label">RETRACT PEAK</div>
+                <div class="result-card-value" id="vpeak-val">—</div>
+                <div class="result-card-detail">required retract speed</div>
+              </div>
+              <div class="result-card">
+                <div class="result-card-label">RETURN BUDGET</div>
+                <div class="result-card-value" id="ret-val">—</div>
+                <div class="result-card-detail">remaining link distance</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="diagram-panel">
+            <div class="diagram-panel-title">
+              <h3>SLAVE VELOCITY  VS  MASTER DISTANCE</h3>
+              <span class="slide-subtitle" id="phase-status">— OK</span>
+            </div>
+
+            <div class="relationship-note">
+              <span class="relationship-note-label">RAMP RULE</span>
+              <span class="relationship-note-value" id="ramp-ratio-val">slave distance = <span>0.5×</span> master ramp distance</span>
+            </div>
+
+            <div class="diagram-svg-container">
+              <svg id="phase-svg" viewBox="0 0 800 300" preserveAspectRatio="xMidYMid meet">
+                <!-- Dynamically rendered -->
+              </svg>
+            </div>
+
+            <div class="command-stack">
+              <div class="command-stack-heading">AUTO-CALCULATED MOVELINKS</div>
+              <div class="phase-command-line">
+                <span class="phase-command-label">ACCEL</span>
+                <code id="cmd-accel">MOVELINK(...)</code>
+                <span class="phase-command-note">accel portion</span>
+              </div>
+              <div class="phase-command-line">
+                <span class="phase-command-label">SYNC</span>
+                <code id="cmd-sync">MOVELINK(...)</code>
+                <span class="phase-command-note">matched speed</span>
+              </div>
+              <div class="phase-command-line">
+                <span class="phase-command-label">DECEL</span>
+                <code id="cmd-decel">MOVELINK(...)</code>
+                <span class="phase-command-note">decel portion</span>
+              </div>
+              <div class="command-or">OR</div>
+              <div class="phase-command-line combined">
+                <span class="phase-command-label">ONE LINE</span>
+                <code id="live-movelink-command">MOVELINK(...)</code>
+                <span class="phase-command-note" id="live-movelink-detail">traverse profile</span>
+              </div>
+            </div>
+
+            <!-- Modals Overlay -->
+            <div class="calc-overlay" id="vpeak-calc" role="dialog" aria-modal="true" aria-labelledby="vpeak-calc-title" aria-hidden="true">
+              <div class="calc-panel">
+                <div class="calc-header">
+                  <div>
+                    <div class="calc-kicker">RETRACT PEAK</div>
+                    <h4 id="vpeak-calc-title">How the return speed is calculated</h4>
+                  </div>
+                  <button type="button" class="calc-close" id="vpeak-calc-close" aria-label="Close retract peak calculation">&times;</button>
+                </div>
+                <div class="calc-body" id="vpeak-calc-body"></div>
+              </div>
+            </div>
+
+            <div class="factor-overlay" id="profile-factor-calc" role="dialog" aria-modal="true" aria-labelledby="profile-factor-title" aria-hidden="true">
+              <div class="factor-panel">
+                <div class="factor-header">
+                  <div>
+                    <div class="factor-kicker">PROFILE FACTOR 4 / 3</div>
+                    <h4 id="profile-factor-title">Why peak return speed is 4 / 3 &times; average speed</h4>
+                  </div>
+                  <button type="button" class="factor-close" id="profile-factor-close" aria-label="Close profile factor explanation">&times;</button>
+                </div>
+
+                <div class="factor-diagram" aria-label="Return profile trapezoid area">
+                  <svg viewBox="0 0 1040 420" role="img">
+                    <defs>
+                      <marker id="factor-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                        <path d="M0 0 L10 5 L0 10 Z" fill="var(--amber)"/>
+                      </marker>
+                      <linearGradient id="factor-area" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stop-color="var(--amber)" stop-opacity="0.6"/>
+                        <stop offset="100%" stop-color="var(--amber)" stop-opacity="0.1"/>
+                      </linearGradient>
+                    </defs>
+
+                    <rect x="54" y="28" width="914" height="342" rx="8" fill="var(--bg-light)" stroke="var(--border)"/>
+
+                    <line x1="130" y1="326" x2="930" y2="326" stroke="var(--amber)" stroke-width="2.5" marker-end="url(#factor-arrow)"/>
+                    <line x1="130" y1="326" x2="130" y2="62" stroke="var(--amber)" stroke-width="2.5" marker-end="url(#factor-arrow)"/>
+
+                    <line x1="130" y1="92" x2="922" y2="92" stroke="var(--border-strong)" stroke-width="1.5" stroke-dasharray="6 7"/>
+                    <line x1="130" y1="151" x2="922" y2="151" stroke="var(--cyan-bright)" stroke-width="2.2" stroke-dasharray="8 8"/>
+                    <line x1="330" y1="92" x2="330" y2="326" stroke="var(--border-strong)" stroke-width="1.3" stroke-dasharray="6 7"/>
+                    <line x1="730" y1="92" x2="730" y2="326" stroke="var(--border-strong)" stroke-width="1.3" stroke-dasharray="6 7"/>
+
+                    <polygon points="130,326 330,92 330,326" fill="url(#factor-area)"/>
+                    <rect x="330" y="92" width="400" height="234" fill="url(#factor-area)"/>
+                    <polygon points="730,92 930,326 730,326" fill="url(#factor-area)"/>
+                    <polyline points="130,326 330,92 730,92 930,326" fill="none" stroke="var(--amber-bright)" stroke-width="4" stroke-linejoin="round"/>
+
+                    <rect x="158" y="214" width="144" height="74" rx="6" fill="var(--bg-mid)" stroke="var(--border)"/>
+                    <rect x="416" y="214" width="228" height="74" rx="6" fill="var(--bg-mid)" stroke="var(--border)"/>
+                    <rect x="758" y="214" width="144" height="74" rx="6" fill="var(--bg-mid)" stroke="var(--border)"/>
+
+                    <text x="114" y="99" fill="var(--text-secondary)" font-size="22" font-weight="800" text-anchor="end">peak</text>
+                    <text x="114" y="158" fill="var(--cyan-bright)" font-size="22" font-weight="800" text-anchor="end">avg</text>
+                    <text x="114" y="334" fill="var(--text-secondary)" font-size="22" font-weight="800" text-anchor="end">0</text>
+                    <text x="904" y="84" fill="var(--text-secondary)" font-size="22" font-weight="800">peak</text>
+                    <text x="904" y="144" fill="var(--cyan-bright)" font-size="22" font-weight="800">avg = 3/4 &times; peak</text>
+
+                    <text x="230" y="240" fill="var(--text-primary)" font-size="21" font-weight="800" text-anchor="middle">ACCEL</text>
+                    <text x="230" y="268" fill="var(--text-secondary)" font-size="18" font-weight="700" text-anchor="middle">triangle = 1/8</text>
+                    <text x="530" y="240" fill="var(--text-primary)" font-size="21" font-weight="800" text-anchor="middle">PEAK RETURN</text>
+                    <text x="530" y="268" fill="var(--text-secondary)" font-size="18" font-weight="700" text-anchor="middle">rectangle = 4/8</text>
+                    <text x="830" y="240" fill="var(--text-primary)" font-size="21" font-weight="800" text-anchor="middle">DECEL</text>
+                    <text x="830" y="268" fill="var(--text-secondary)" font-size="18" font-weight="700" text-anchor="middle">triangle = 1/8</text>
+
+                    <text x="130" y="360" fill="var(--text-secondary)" font-size="21" font-weight="800" text-anchor="middle">0</text>
+                    <text x="330" y="360" fill="var(--text-secondary)" font-size="21" font-weight="800" text-anchor="middle">1/4</text>
+                    <text x="730" y="360" fill="var(--text-secondary)" font-size="21" font-weight="800" text-anchor="middle">3/4</text>
+                    <text x="930" y="360" fill="var(--text-secondary)" font-size="21" font-weight="800" text-anchor="middle">1</text>
+                    <text x="530" y="394" fill="var(--text-secondary)" font-size="22" font-weight="800" text-anchor="middle">return budget, normalised to total time = 1</text>
+                  </svg>
+                </div>
+
+                <div class="factor-explain">
+                  <div class="factor-breakdown">
+                    <div class="factor-step">
+                      <div class="factor-step-label">ACCEL AREA</div>
+                      <div class="factor-step-value">1/2 &times; 1/4 = 1/8</div>
+                    </div>
+                    <div class="factor-step">
+                      <div class="factor-step-label">PEAK AREA</div>
+                      <div class="factor-step-value">1/2 = 4/8</div>
+                    </div>
+                    <div class="factor-step">
+                      <div class="factor-step-label">DECEL AREA</div>
+                      <div class="factor-step-value">1/2 &times; 1/4 = 1/8</div>
+                    </div>
+                    <div class="factor-step total">
+                      <div class="factor-step-label">TOTAL AREA</div>
+                      <div class="factor-step-value">6/8 = 3/4</div>
+                    </div>
+                  </div>
+                  <div class="factor-rule">
+                    <strong>Area under velocity over time is distance.</strong>
+                    With total return time normalised to 1, that area is also the average velocity. This trapezoid area is 3/4 of the peak speed.
+                  </div>
+                  <div class="factor-final">v_avg = 3/4 &times; v_peak &nbsp; ==> &nbsp; v_peak = 4/3 &times; v_avg</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================
+           SLIDE 4 — FLYING-SHEAR SEQUENCE
+           ================================================ -->
+      <section class="slide" data-slide="4">
+        <div class="slide-header">
+          <div>
+            <div class="slide-title">Generated <span class="accent">flying-shear pattern.</span></div>
+            <div class="slide-subtitle">Values are generated from the slide 3 calculator, with setup context added.</div>
+          </div>
+          <div class="slide-number">04 / 04</div>
+        </div>
+
+        <div class="program-body">
+          <div class="code-panel">
+            <div class="code-panel-header">
+              <div>
+                <h3>TRIO BASIC</h3>
+                <div class="autoplay-progress" id="progress-container">
+                  <div class="autoplay-progress-fill" id="progress-bar"></div>
+                </div>
+              </div>
+              <span class="step-indicator" id="step-indicator">STEP 0 / 4</span>
+            </div>
+            <div class="code-content" id="code-content">
+              <!-- Code lines rendered by JS -->
+            </div>
+          </div>
+
+          <div class="visualization-panel">
+            <div class="vis-svg-panel">
+              <h4>VELOCITY PROFILE — BUILDING</h4>
+              <svg id="program-svg" viewBox="0 0 600 360" preserveAspectRatio="xMidYMid meet">
+                <!-- Drawn by JS -->
+              </svg>
+            </div>
+          </div>
+
+          <div class="program-controls">
+            <button class="ctrl-btn" id="prog-prev">◀ PREV</button>
+            <button class="ctrl-btn primary" id="prog-play">▶ PLAY</button>
+            <button class="ctrl-btn" id="prog-next">NEXT ▶</button>
+            <button class="ctrl-btn" id="prog-reset">⟲ RESET</button>
+            <div class="ctrl-status" id="prog-status">Press PLAY to run the cycle.</div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Navigation -->
+    <nav class="nav">
+      <button class="nav-arrow" id="nav-prev" aria-label="Previous">‹</button>
+      <div class="nav-dots" id="nav-dots"></div>
+      <span class="nav-counter"><span class="current" id="nav-current">1</span> / 4</span>
+      <button class="nav-arrow" id="nav-next" aria-label="Next">›</button>
+      <button class="nav-theme-toggle" id="theme-toggle" aria-label="Toggle Theme">
+        <!-- Sun icon (for dark mode) -->
+        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        <!-- Moon icon (for light mode) -->
+        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+      </button>
+    </nav>
+
+    <div class="keyboard-hint">
+      <kbd>←</kbd> <kbd>→</kbd> NAVIGATE  ·  <kbd>F11</kbd> FULLSCREEN
+    </div>
+
+  </div>
+</div>
+
+<script>
+// =============================================================
+// Container Scaling
+// =============================================================
+function resizeScaler() {
+  const scaler = document.querySelector('.deck-scaler');
+  const targetWidth = 1280;
+  const targetHeight = 720;
+  const scaleX = window.innerWidth / targetWidth;
+  const scaleY = window.innerHeight / targetHeight;
+  // Preserve aspect ratio and scale down if needed (adding margin)
+  const scale = Math.min(scaleX, scaleY) * 0.95;
+  scaler.style.transform = `translate(-50%, -50%) scale(${scale})`;
+}
+window.addEventListener('resize', resizeScaler);
+window.addEventListener('DOMContentLoaded', resizeScaler);
+
+// =============================================================
+// Theme Switcher
+// =============================================================
+const themeToggle = document.getElementById('theme-toggle');
+themeToggle.onclick = () => {
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', newTheme);
+  localStorage.setItem('movelink-deck-theme', newTheme);
+  // Redraw SVG profiles to capture theme updates
+  redrawPhase();
+  if (currentSlide === 2) drawAnatomySvg(activeAnatomyHighlight);
+};
+
+// =============================================================
+// Navigation
+// =============================================================
+const slides = document.querySelectorAll('.slide');
+const totalSlides = slides.length;
+let currentSlide = 1;
+
+const navDots = document.getElementById('nav-dots');
+for (let i = 1; i <= totalSlides; i++) {
+  const dot = document.createElement('button');
+  dot.className = 'nav-dot' + (i === 1 ? ' active' : '');
+  dot.onclick = () => goToSlide(i);
+  dot.setAttribute('aria-label', 'Slide ' + i);
+  navDots.appendChild(dot);
+}
+
+function goToSlide(n) {
+  if (n < 1 || n > totalSlides) return;
+  document.querySelector('.slide.active').classList.remove('active');
+  document.querySelector('[data-slide="' + n + '"]').classList.add('active');
+  document.querySelectorAll('.nav-dot').forEach((d, i) => {
+    d.classList.toggle('active', i + 1 === n);
+  });
+  document.getElementById('nav-current').textContent = n;
+  document.getElementById('nav-prev').disabled = (n === 1);
+  document.getElementById('nav-next').disabled = (n === totalSlides);
+  currentSlide = n;
+  onSlideEnter(n);
+}
+
+document.getElementById('nav-prev').onclick = () => goToSlide(currentSlide - 1);
+document.getElementById('nav-next').onclick = () => goToSlide(currentSlide + 1);
+
+document.addEventListener('keydown', e => {
+  if (isProfileFactorCalcOpen()) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeProfileFactorCalc();
+      return;
+    }
+    if (['ArrowRight', 'PageDown', ' ', 'ArrowLeft', 'PageUp', 'Home', 'End'].includes(e.key) ||
+        (e.key >= '1' && parseInt(e.key) <= totalSlides)) {
+      e.preventDefault();
+      return;
+    }
+  }
+  if (isRetractPeakCalcOpen()) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeRetractPeakCalc();
+      return;
+    }
+    if (['ArrowRight', 'PageDown', ' ', 'ArrowLeft', 'PageUp', 'Home', 'End'].includes(e.key) ||
+        (e.key >= '1' && parseInt(e.key) <= totalSlides)) {
+      e.preventDefault();
+      return;
+    }
+  }
+  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') {
+    e.preventDefault();
+    goToSlide(currentSlide + 1);
+  } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+    e.preventDefault();
+    goToSlide(currentSlide - 1);
+  } else if (e.key === 'Home') {
+    goToSlide(1);
+  } else if (e.key === 'End') {
+    goToSlide(totalSlides);
+  } else if (e.key >= '1' && parseInt(e.key) <= totalSlides) {
+    goToSlide(parseInt(e.key));
+  }
+});
+
+function onSlideEnter(n) {
+  if (n === 2) resetAnatomy();
+  if (n === 3) resetPhase();
+  if (n === 4) resetProgram();
+}
+
+// =============================================================
+// SLIDE 2 — PARAMETER ANATOMY
+// =============================================================
+const paramData = {
+  distance:  {
+    name: 'distance',
+    color: 'var(--red)',
+    desc: '<strong>Slave-axis travel</strong> — how far the shear blade moves forward (mm). Sign matters: positive distance moves forward, negative retracts. Visualized as the filled area under the velocity curve.',
+  },
+  link_dist: {
+    name: 'link_dist',
+    color: 'var(--amber-bright)',
+    desc: '<strong>Master-axis travel</strong> driving this move (always positive, mm). The window of material motion during which the slave executes <em>distance</em>. Represented by the long bracket spanning the full forward phase.',
+  },
+  link_acc: {
+    name: 'link_acc',
+    color: 'var(--cyan-bright)',
+    desc: '<strong>Master travel for accel ramp</strong> (mm). A sub-portion of link_dist used to bring the slave up to its matched velocity. Directly sets the ramp slope — no jerk or accel calculation needed.',
+  },
+  link_dec: {
+    name: 'link_dec',
+    color: '#a78bfa',
+    desc: '<strong>Master travel for decel ramp</strong> (mm). The mirror of link_acc — how much master travel is consumed bringing the slave back down to a stop. Set to 0 for continuous moves ending at speed.',
+  },
+  link_axis: {
+    name: 'link_axis',
+    color: 'var(--green)',
+    desc: '<strong>Master axis being followed</strong>. Usually a real encoder reading material position (e.g. axis 7), but can be any active axis. By default MOVELINK follows MPOS; link_options bit 13 switches feedback to DPOS.',
+  },
+};
+
+let activeAnatomyHighlight = null;
+
+function resetAnatomy() {
+  activeAnatomyHighlight = null;
+  document.querySelectorAll('.param').forEach(p => p.classList.remove('active'));
+  document.getElementById('anatomy-param-name').textContent = 'hover a parameter';
+  document.getElementById('anatomy-param-name').style.color = 'var(--text-muted)';
+  document.getElementById('anatomy-param-desc').innerHTML =
+    'Each parameter maps to a piece of the motion. <strong>distance</strong> is what the shear travels; <strong>link_dist</strong> is the master travel that drives it; <strong>link_acc</strong> and <strong>link_dec</strong> shape the ramps.';
+  drawAnatomySvg(null);
+}
+
+document.querySelectorAll('.param').forEach(p => {
+  p.addEventListener('mouseenter', () => activateParam(p.dataset.param));
+  p.addEventListener('click',      () => activateParam(p.dataset.param));
+});
+
+function activateParam(key) {
+  if (activeAnatomyHighlight === key) return; // Prevent redrawing SVG and resetting hover repeatedly
+  activeAnatomyHighlight = key;
+  
+  document.querySelectorAll('.param').forEach(p => {
+    p.classList.toggle('active', p.dataset.param === key);
+  });
+  
+  const data = paramData[key];
+  if (data) {
+    const nameEl = document.getElementById('anatomy-param-name');
+    nameEl.textContent = data.name;
+    nameEl.style.color = data.color;
+    document.getElementById('anatomy-param-desc').innerHTML = data.desc;
+  }
+  drawAnatomySvg(key);
+}
+
+// Event delegation for SVG shapes bidirectional interactivity
+const anatomySvg = document.getElementById('anatomy-svg');
+anatomySvg.addEventListener('mouseover', e => {
+  const target = e.target.closest('[data-svg-param]');
+  if (target) {
+    const paramKey = target.getAttribute('data-svg-param');
+    activateParam(paramKey);
+  }
+});
+anatomySvg.addEventListener('mouseleave', () => {
+  resetAnatomy();
+});
+
+function drawAnatomySvg(highlight) {
+  const svg = document.getElementById('anatomy-svg');
+  const padL = 66, padR = 34, padT = 28, padB = 62;
+  const W = 800, H = 320;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const baseY = H - padB;
+  const topY  = padT;
+  const yPeak = topY + 20;
+
+  const x0 = padL;
+  const x1 = x0 + plotW * 0.22;
+  const x2 = x1 + plotW * 0.28;
+  const x3 = x2 + plotW * 0.22;
+  const x4 = x3 + plotW * 0.22;
+
+  let s = '';
+
+  // Background box
+  s += `<rect x="${padL}" y="${topY}" width="${plotW}" height="${plotH}" fill="var(--bg-light)" stroke="var(--border)" stroke-width="0.5"/>`;
+
+  // Fills (Faded by default, intense when distance or specific segment is highlighted)
+  const isDist = highlight === 'distance';
+  const accelOpacity = (highlight === 'link_acc' || isDist) ? 0.45 : 0.12;
+  const syncOpacity  = (highlight === 'distance' || isDist) ? 0.45 : 0.12;
+  const decelOpacity = (highlight === 'link_dec' || isDist) ? 0.45 : 0.12;
+
+  s += `<polygon data-svg-param="link_acc" points="${x0},${baseY} ${x1},${yPeak} ${x1},${baseY}" fill="var(--amber)" opacity="${accelOpacity}"/>`;
+  s += `<rect data-svg-param="distance" x="${x1}" y="${yPeak}" width="${x2-x1}" height="${baseY-yPeak}" fill="var(--cyan)" opacity="${syncOpacity}"/>`;
+  s += `<polygon data-svg-param="link_dec" points="${x2},${yPeak} ${x3},${baseY} ${x2},${baseY}" fill="var(--amber)" opacity="${decelOpacity}"/>`;
+
+  // Main velocity curve
+  s += `<line data-svg-param="link_acc" x1="${x0}" y1="${baseY}" x2="${x1}" y2="${yPeak}" stroke="var(--amber)" stroke-width="${highlight==='link_acc'?5:3}"/>`;
+  s += `<line data-svg-param="distance" x1="${x1}" y1="${yPeak}" x2="${x2}" y2="${yPeak}" stroke="var(--cyan-bright)" stroke-width="${highlight==='distance'?5:3}"/>`;
+  s += `<line data-svg-param="link_dec" x1="${x2}" y1="${yPeak}" x2="${x3}" y2="${baseY}" stroke="var(--amber)" stroke-width="${highlight==='link_dec'?5:3}"/>`;
+  s += `<line x1="${x3}" y1="${baseY-18}" x2="${x4}" y2="${baseY-18}" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="6,4"/>`;
+
+  // Axes lines
+  s += `<line x1="${padL}" y1="${baseY}" x2="${padL+plotW+6}" y2="${baseY}" class="axis-line"/>`;
+  s += `<polygon points="${padL+plotW+12},${baseY} ${padL+plotW+2},${baseY-5} ${padL+plotW+2},${baseY+5}" class="axis-arrow"/>`;
+  s += `<line x1="${padL}" y1="${baseY}" x2="${padL}" y2="${topY-6}" class="axis-line"/>`;
+  s += `<polygon points="${padL},${topY-12} ${padL-5},${topY-2} ${padL+5},${topY-2}" class="axis-arrow"/>`;
+  s += `<text x="${padL - 28}" y="${(yPeak+baseY)/2}" class="axis-label" text-anchor="middle" transform="rotate(-90 ${padL-28} ${(yPeak+baseY)/2})">VELOCITY</text>`;
+  
+  const masterLabelColor = highlight === 'link_axis' ? 'var(--green)' : 'var(--text-muted)';
+  s += `<text data-svg-param="link_axis" x="${x3 + (x4 - x3) * 0.6}" y="${baseY-36}" class="axis-label" text-anchor="middle" fill="${masterLabelColor}" font-weight="${highlight==='link_axis'?700:400}">${highlight==='link_axis' ? 'MASTER AXIS' : 'master axis'}</text>`;
+
+  // Brackets below baseline
+  function drawBracket(xa, xb, y, color, label, isHighlighted, paramKey) {
+    const sw = isHighlighted ? 3.5 : 1.5;
+    const op = isHighlighted ? 1 : 0.45;
+    return `
+      <g data-svg-param="${paramKey}">
+        <line x1="${xa}" y1="${y}" x2="${xb}" y2="${y}" stroke="${color}" stroke-width="${sw}" opacity="${op}"/>
+        <line x1="${xa}" y1="${y-4}" x2="${xa}" y2="${y+4}" stroke="${color}" stroke-width="${sw}" opacity="${op}"/>
+        <line x1="${xb}" y1="${y-4}" x2="${xb}" y2="${y+4}" stroke="${color}" stroke-width="${sw}" opacity="${op}"/>
+        ${isHighlighted ? `<text x="${(xa+xb)/2}" y="${y+16}" class="axis-label" text-anchor="middle" fill="${color}" font-weight="700">${label}</text>` : ''}
+      </g>
+    `;
+  }
+
+  s += drawBracket(x0, x1, baseY + 16, 'var(--cyan-bright)', 'link_acc', highlight === 'link_acc', 'link_acc');
+  s += drawBracket(x2, x3, baseY + 16, '#a78bfa', 'link_dec', highlight === 'link_dec', 'link_dec');
+  s += drawBracket(x0, x3, baseY + (highlight === 'link_dist' ? 42 : 36), 'var(--amber-bright)', 'link_dist', highlight === 'link_dist', 'link_dist');
+
+  if (isDist) {
+    s += `<text data-svg-param="distance" x="${(x0+x3)/2}" y="${(topY+yPeak)/2 + 6}" class="axis-label" text-anchor="middle" fill="var(--red)" font-weight="700" font-size="14">distance — slave travel (area under curve)</text>`;
+  }
+
+  svg.innerHTML = s;
+}
+
+// =============================================================
+// SLIDE 3 — CALCULATOR
+// =============================================================
+const cutSlider = document.getElementById('cut-slider');
+const vSlider   = document.getElementById('v-slider');
+const aSlider   = document.getElementById('a-slider');
+const tSlider   = document.getElementById('t-slider');
+const safety = 1.5;
+const linkAxis = 7;
+
+function fmtParam(n) {
+  const rounded = Math.round(n * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+function getPhaseCalc() {
+  const L = parseFloat(cutSlider.value);
+  const v = parseFloat(vSlider.value);
+  const a = parseFloat(aSlider.value);
+  const t = parseFloat(tSlider.value);
+  const accel_dist = (v * v) / (2 * a) * safety;
+  const decel_dist = accel_dist;
+  const sync_dist  = v * (t / 1000);
+  const stroke     = accel_dist + sync_dist + decel_dist;
+  const accel_link = 2 * accel_dist;
+  const decel_link = 2 * decel_dist;
+  const sync_link  = sync_dist;
+  const active_link = accel_link + sync_link + decel_link;
+  const ret_link   = L - active_link;
+  const ret_acc    = ret_link > 0 ? ret_link / 4 : 0;
+  const ret_dec    = ret_acc;
+  const v_retract  = ret_link > 0 ? (4/3) * v * (stroke / ret_link) : Infinity;
+  return {
+    L, v, a, t,
+    accel_dist, decel_dist, sync_dist, stroke,
+    accel_link, decel_link, sync_link, active_link,
+    ret_link, ret_acc, ret_dec, v_retract,
+    linkAxis,
+  };
+}
+
+function resetPhase() {
+  cutSlider.value = 300;
+  vSlider.value = 500;
+  aSlider.value = 5000;
+  tSlider.value = 40;
+  redrawPhase();
+}
+
+[cutSlider, vSlider, aSlider, tSlider].forEach(s => {
+  s.addEventListener('input', redrawPhase);
+});
+
+function fmtOne(n) {
+  return Number.isFinite(n) ? n.toFixed(1) : '∞';
+}
+
+function fmtZero(n) {
+  return Number.isFinite(n) ? n.toFixed(0) : '∞';
+}
+
+function isRetractPeakCalcOpen() {
+  const panel = document.getElementById('vpeak-calc');
+  return panel ? panel.classList.contains('open') : false;
+}
+
+function isProfileFactorCalcOpen() {
+  const panel = document.getElementById('profile-factor-calc');
+  return panel ? panel.classList.contains('open') : false;
+}
+
+function updateRetractPeakCalc(calc) {
+  const body = document.getElementById('vpeak-calc-body');
+  if (!body) return;
+
+  const activeLink = calc.accel_link + calc.sync_link + calc.decel_link;
+  const strokeFormula =
+    `${fmtOne(calc.accel_dist)} + ${fmtOne(calc.sync_dist)} + ${fmtOne(calc.decel_dist)}`;
+  const activeFormula =
+    `${fmtOne(calc.accel_link)} + ${fmtOne(calc.sync_link)} + ${fmtOne(calc.decel_link)}`;
+
+  if (calc.ret_link <= 0) {
+    body.innerHTML = `
+      <div>
+        <div class="calc-label">NO VALID RETURN BUDGET</div>
+        <div class="calc-equation">
+          return budget = ${fmtOne(calc.L)} mm - (${activeFormula}) mm = ${fmtOne(calc.ret_link)} mm
+        </div>
+      </div>
+      <div class="calc-note">
+        The accel, sync, and decel portions already consume ${fmtOne(activeLink)} mm of master travel.
+        Because the cut length is only ${fmtOne(calc.L)} mm, there is no remaining master distance for the blade to retract before the next cut.
+      </div>
+    `;
+    return;
+  }
+
+  const avgRetractSpeed = calc.v * (calc.stroke / calc.ret_link);
+  body.innerHTML = `
+    <div>
+      <div class="calc-label">FORMULA</div>
+      <div class="calc-equation">
+        retract peak = <span class="calc-inline-trigger" data-open-factor role="button" tabindex="0">4 / 3</span> &times; line speed &times; (shear stroke / return budget)<br>
+        ${fmtZero(calc.v_retract)} mm/s = <span class="calc-inline-trigger" data-open-factor role="button" tabindex="0">4 / 3</span> &times; ${fmtZero(calc.v)} mm/s &times; (${fmtOne(calc.stroke)} mm / ${fmtOne(calc.ret_link)} mm)
+      </div>
+    </div>
+
+    <div class="calc-grid">
+      <div class="calc-term">
+        <div class="calc-term-title">SHEAR STROKE</div>
+        <div class="calc-term-value">${fmtOne(calc.stroke)} mm</div>
+        <div class="calc-term-desc">${strokeFormula} mm, forward blade travel under accel, sync, and decel sections.</div>
+      </div>
+      <div class="calc-term">
+        <div class="calc-term-title">RETURN BUDGET</div>
+        <div class="calc-term-value">${fmtOne(calc.ret_link)} mm</div>
+        <div class="calc-term-desc">${fmtOne(calc.L)} - (${activeFormula}) mm, the remaining master travel before the next cut.</div>
+      </div>
+      <div class="calc-term">
+        <div class="calc-term-title">AVERAGE RETURN SPEED</div>
+        <div class="calc-term-value">${fmtOne(avgRetractSpeed)} mm/s</div>
+        <div class="calc-term-desc">${fmtZero(calc.v)} mm/s &times; ${fmtOne(calc.stroke)} / ${fmtOne(calc.ret_link)}.</div>
+      </div>
+      <div class="calc-term interactive" id="profile-factor-card" role="button" tabindex="0" aria-controls="profile-factor-calc" aria-expanded="false">
+        <div class="calc-term-title">PROFILE FACTOR</div>
+        <div class="calc-term-value">4 / 3</div>
+        <div class="calc-term-desc">The retract profile averages 75% of its peak speed, so peak is average speed &times; 4/3. Click to see proof.</div>
+      </div>
+    </div>
+
+    <div class="calc-note">
+      The blade must travel back by exactly one shear stroke during the remaining master travel.
+      The return profile accelerates for the first quarter, runs at peak through the middle half, and decelerates for the last quarter.
+    </div>
+  `;
+}
+
+function openRetractPeakCalc() {
+  const panel = document.getElementById('vpeak-calc');
+  const card = document.getElementById('vpeak-card');
+  const closeBtn = document.getElementById('vpeak-calc-close');
+  if (!panel) return;
+  updateRetractPeakCalc(getPhaseCalc());
+  panel.style.display = 'flex';
+  setTimeout(() => {
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
+    if (card) card.setAttribute('aria-expanded', 'true');
+    if (closeBtn) closeBtn.focus();
+  }, 10);
+}
+
+function openProfileFactorCalc() {
+  const panel = document.getElementById('profile-factor-calc');
+  const card = document.getElementById('profile-factor-card');
+  const closeBtn = document.getElementById('profile-factor-close');
+  if (!panel) return;
+  panel.style.display = 'flex';
+  setTimeout(() => {
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
+    if (card) card.setAttribute('aria-expanded', 'true');
+    if (closeBtn) closeBtn.focus();
+  }, 10);
+}
+
+function closeProfileFactorCalc() {
+  const panel = document.getElementById('profile-factor-calc');
+  const card = document.getElementById('profile-factor-card');
+  if (!panel) return;
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  if (card) card.setAttribute('aria-expanded', 'false');
+  setTimeout(() => {
+    panel.style.display = 'none';
+  }, 300);
+}
+
+function closeRetractPeakCalc() {
+  const panel = document.getElementById('vpeak-calc');
+  const card = document.getElementById('vpeak-card');
+  if (!panel) return;
+  closeProfileFactorCalc();
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  if (card) card.setAttribute('aria-expanded', 'false');
+  setTimeout(() => {
+    panel.style.display = 'none';
+  }, 300);
+}
+
+const vpeakCard = document.getElementById('vpeak-card');
+const vpeakCalc = document.getElementById('vpeak-calc');
+const vpeakCalcClose = document.getElementById('vpeak-calc-close');
+const vpeakCalcBody = document.getElementById('vpeak-calc-body');
+const profileFactorCalc = document.getElementById('profile-factor-calc');
+const profileFactorClose = document.getElementById('profile-factor-close');
+
+if (vpeakCard) {
+  vpeakCard.addEventListener('click', openRetractPeakCalc);
+  vpeakCard.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openRetractPeakCalc();
+    }
+  });
+}
+
+if (vpeakCalc) {
+  vpeakCalc.addEventListener('click', e => {
+    if (e.target === vpeakCalc) closeRetractPeakCalc();
+  });
+}
+
+if (vpeakCalcBody) {
+  vpeakCalcBody.addEventListener('click', e => {
+    if (e.target.closest('#profile-factor-card, [data-open-factor]')) openProfileFactorCalc();
+  });
+  vpeakCalcBody.addEventListener('keydown', e => {
+    if (!e.target.closest('#profile-factor-card, [data-open-factor]')) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openProfileFactorCalc();
+    }
+  });
+}
+
+if (vpeakCalcClose) {
+  vpeakCalcClose.addEventListener('click', closeRetractPeakCalc);
+}
+
+if (profileFactorCalc) {
+  profileFactorCalc.addEventListener('click', e => {
+    if (e.target === profileFactorCalc) closeProfileFactorCalc();
+  });
+}
+
+if (profileFactorClose) {
+  profileFactorClose.addEventListener('click', closeProfileFactorCalc);
+}
+
+function redrawPhase() {
+  const calc = getPhaseCalc();
+  const {
+    L, v, a, t,
+    accel_dist, decel_dist, sync_dist, stroke,
+    accel_link, decel_link, sync_link, active_link,
+    ret_link, v_retract,
+    linkAxis,
+  } = calc;
+
+  document.getElementById('cut-val').textContent = L;
+  document.getElementById('v-val').textContent   = v;
+  document.getElementById('a-val').textContent   = a;
+  document.getElementById('t-val').textContent   = t;
+
+  const commandHtml = (...params) => {
+    const fields = params
+      .map(p => `<span class="cmd-param">${fmtParam(p).padStart(6, ' ')}</span>`)
+      .join(`<span class="cmd-punct">, </span>`);
+    return `<span class="movelink-call">MOVELINK<span class="cmd-punct">(</span>${fields}<span class="cmd-punct">)</span></span>`;
+  };
+
+  document.getElementById('ramp-ratio-val').innerHTML =
+    'accel/decel: ' + accel_dist.toFixed(1) + ' mm slave = <span>0.5&times;</span> '
+    + accel_link.toFixed(1) + ' mm master';
+  document.getElementById('cmd-accel').innerHTML =
+    commandHtml(accel_dist, accel_link, accel_link, 0, linkAxis);
+  document.getElementById('cmd-sync').innerHTML =
+    commandHtml(sync_dist, sync_link, 0, 0, linkAxis);
+  document.getElementById('cmd-decel').innerHTML =
+    commandHtml(decel_dist, decel_link, 0, decel_link, linkAxis);
+  document.getElementById('live-movelink-command').innerHTML =
+    commandHtml(stroke, active_link, accel_link, decel_link, linkAxis);
+  document.getElementById('live-movelink-detail').textContent =
+    `traverse profile`;
+  document.getElementById('stroke-val').textContent = stroke.toFixed(1) + ' mm';
+  
+  const vpeakEl = document.getElementById('vpeak-val');
+  if (!isFinite(v_retract)) {
+    vpeakEl.textContent = '∞';
+    vpeakEl.className = 'result-card-value warn';
+  } else {
+    vpeakEl.textContent = v_retract.toFixed(0) + ' mm/s';
+    vpeakEl.className = 'result-card-value ' + (v_retract > v * 3 ? 'warn' : 'ok');
+  }
+
+  const retEl = document.getElementById('ret-val');
+  if (ret_link < 0) {
+    retEl.textContent = ret_link.toFixed(1) + ' mm';
+    retEl.className = 'result-card-value warn';
+  } else {
+    retEl.textContent = ret_link.toFixed(1) + ' mm';
+    retEl.className = 'result-card-value ok';
+  }
+
+  const statusEl = document.getElementById('phase-status');
+  if (ret_link < 0) {
+    statusEl.textContent = '⚠  CYCLE WON\'T FIT';
+    statusEl.style.color = 'var(--red)';
+  } else if (v_retract > v * 3) {
+    statusEl.textContent = '⚠  TIGHT RETRACT';
+    statusEl.style.color = 'var(--amber-bright)';
+  } else {
+    statusEl.textContent = '— OK';
+    statusEl.style.color = 'var(--green)';
+  }
+
+  updateRetractPeakCalc(calc);
+  drawPhaseSvg(L, v, accel_link, sync_link, decel_link, ret_link);
+  if (currentSlide === 4) {
+    updateStep(currentStep);
+  }
+}
+
+function drawPhaseSvg(L, vMax, aL, sL, dL, rL) {
+  const svg = document.getElementById('phase-svg');
+  const padL = 60, padR = 30, padT = 24, padB = 68;
+  const plotW = 800 - padL - padR;
+  const plotH = 300 - padT - padB;
+  const baseY = 300 - padB;
+  const topY  = padT;
+
+  const totalDisp = Math.max(L, aL + sL + dL + Math.max(rL, 0));
+  const xScale = plotW / totalDisp;
+
+  const x0 = padL;
+  const x1 = x0 + aL * xScale;
+  const x2 = x1 + sL * xScale;
+  const x3 = x2 + dL * xScale;
+  const x4 = x3 + Math.max(rL, 0) * xScale;
+  const xEnd = padL + L * xScale;
+
+  const yPeak = topY + 16;
+
+  let svgContent = '';
+
+  // Background grid
+  svgContent += `<rect x="${padL}" y="${topY}" width="${plotW}" height="${plotH}" fill="var(--bg-light)" stroke="var(--border)" stroke-width="0.5"/>`;
+
+  // Horizontal peak velocity grid line
+  svgContent += `<line x1="${padL}" y1="${yPeak}" x2="${padL + plotW}" y2="${yPeak}" class="grid-line"/>`;
+
+  // Phase fills
+  svgContent += `<polygon points="${x0},${baseY} ${x1},${yPeak} ${x1},${baseY}" fill="var(--amber)" class="phase-fill"/>`;
+  if (sL > 0) {
+    svgContent += `<rect x="${x1}" y="${yPeak}" width="${x2-x1}" height="${baseY-yPeak}" fill="var(--cyan)" class="phase-fill"/>`;
+  }
+  svgContent += `<polygon points="${x2},${yPeak} ${x3},${baseY} ${x2},${baseY}" fill="var(--amber)" class="phase-fill"/>`;
+
+  // Velocity curves
+  svgContent += `<line x1="${x0}" y1="${baseY}" x2="${x1}" y2="${yPeak}" stroke="var(--amber)" stroke-width="3"/>`;
+  if (sL > 0) {
+    svgContent += `<line x1="${x1}" y1="${yPeak}" x2="${x2}" y2="${yPeak}" stroke="var(--cyan-bright)" stroke-width="3"/>`;
+  }
+  svgContent += `<line x1="${x2}" y1="${yPeak}" x2="${x3}" y2="${baseY}" stroke="var(--amber)" stroke-width="3"/>`;
+  if (rL > 0) {
+    const retY = baseY - 18;
+    svgContent += `<line x1="${x3}" y1="${retY}" x2="${x4}" y2="${retY}" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="6,4"/>`;
+    svgContent += `<polygon points="${x4-6},${retY-4} ${x4},${retY} ${x4-6},${retY+4}" fill="var(--text-muted)"/>`;
+  }
+
+  // Axis lines
+  svgContent += `<line x1="${padL}" y1="${baseY}" x2="${padL + plotW + 6}" y2="${baseY}" class="axis-line"/>`;
+  svgContent += `<polygon points="${padL+plotW+12},${baseY} ${padL+plotW+2},${baseY-5} ${padL+plotW+2},${baseY+5}" class="axis-arrow"/>`;
+  svgContent += `<line x1="${padL}" y1="${baseY}" x2="${padL}" y2="${topY - 6}" class="axis-line"/>`;
+  svgContent += `<polygon points="${padL},${topY-12} ${padL-5},${topY-2} ${padL+5},${topY-2}" class="axis-arrow"/>`;
+
+  // Axis numbers/labels
+  svgContent += `<text x="${padL - 8}" y="${yPeak + 4}" class="axis-label" text-anchor="end">${vMax}</text>`;
+  svgContent += `<text x="${padL - 8}" y="${baseY + 4}" class="axis-label" text-anchor="end">0</text>`;
+  svgContent += `<text x="${padL - 26}" y="${(yPeak+baseY)/2}" class="axis-label phase-axis-title" text-anchor="middle" transform="rotate(-90 ${padL - 26} ${(yPeak+baseY)/2})">VELOCITY  mm/s</text>`;
+  svgContent += `<text x="${padL + plotW}" y="${baseY + 46}" class="axis-label phase-axis-title" text-anchor="end">MASTER DISTANCE  mm</text>`;
+
+  // Cut marker ticks
+  svgContent += `<line x1="${xEnd}" y1="${baseY}" x2="${xEnd}" y2="${baseY+6}" stroke="var(--amber)" stroke-width="1.5"/>`;
+  svgContent += `<text x="${xEnd}" y="${baseY+18}" class="axis-label phase-axis-distance" text-anchor="middle" fill="var(--amber)">L = ${L} mm</text>`;
+
+  // Master ticks
+  function labelTick(xa, xb, val) {
+    if (xb - xa < 30) return '';
+    return `<text x="${(xa+xb)/2}" y="${baseY + 30}" class="axis-label phase-axis-distance" text-anchor="middle" fill="var(--text-secondary)">${val.toFixed(1)} mm</text>`;
+  }
+  svgContent += labelTick(x0, x1, aL);
+  svgContent += labelTick(x1, x2, sL);
+  svgContent += labelTick(x2, x3, dL);
+  if (rL > 0) {
+    svgContent += labelTick(x3, x4, rL);
+  }
+
+  if (sL > 0) {
+    svgContent += `<text x="${(x1+x2)/2}" y="${yPeak - 12}" class="phase-label" text-anchor="middle" fill="var(--cyan-bright)" font-weight="600">SYNC SPEED</text>`;
+  }
+
+  if (rL < 0) {
+    svgContent += `<rect x="${padL}" y="${topY}" width="${plotW}" height="${plotH}" fill="var(--red)" fill-opacity="0.08"/>`;
+    svgContent += `<text x="${padL + plotW/2}" y="${topY + plotH/2}" class="axis-label" text-anchor="middle" fill="var(--red)" font-size="15" font-weight="700">CUT LENGTH TOO SHORT FOR THIS PROFILE</text>`;
+  }
+
+  svg.innerHTML = svgContent;
+}
+
+// =============================================================
+// SLIDE 4 — STEP-THROUGH
+// =============================================================
+function formatMoveText(...params) {
+  return '    MOVELINK(' + params.map(p => fmtParam(p)).join(', ') + ')';
+}
+
+function buildProgramCode() {
+  const c = getPhaseCalc();
+  const validRetract = c.ret_link > 0;
+  const totalLine = validRetract
+    ? `    ' Link total: ${fmtParam(c.accel_link)} + ${fmtParam(c.sync_link)} + ${fmtParam(c.decel_link)} + ${fmtParam(c.ret_link)} = ${fmtParam(c.L)} mm`
+    : `    ' Active link ${fmtParam(c.active_link)} mm exceeds cut length ${fmtParam(c.L)} mm`;
+
+  return [
+    { ln: '1',  type: 'keyword', txt: 'BASE(shear_ax)',          phase: 0 },
+    { ln: '2',  type: 'keyword', txt: 'SERVO = ON',              phase: 0 },
+    { ln: '3',  type: 'keyword', txt: 'MOVEABS(0)',              phase: 0 },
+    { ln: '4',  type: 'keyword', txt: 'WAIT IDLE',               phase: 0 },
+    { ln: '5',  type: 'keyword', txt: 'DEFPOS(0)',               phase: 0 },
+    { ln: '6',  type: 'blank',   txt: '',                        phase: 0 },
+    { ln: '7',  type: 'keyword', txt: 'WHILE IN(2) = ON',        phase: 0 },
+    { ln: '8',  type: 'comment', txt: "    ' Accelerate from slide 3 values", phase: 1 },
+    { ln: '9',  type: 'ml',      txt: formatMoveText(c.accel_dist, c.accel_link, c.accel_link, 0, c.linkAxis), phase: 1 },
+    { ln: '10', type: 'comment', txt: "    ' Synchronized cut window", phase: 2 },
+    { ln: '11', type: 'ml',      txt: formatMoveText(c.sync_dist, c.sync_link, 0, 0, c.linkAxis), phase: 2 },
+    { ln: '12', type: 'keyword', txt: '    WAIT LOADED',         phase: 2 },
+    { ln: '13', type: 'keyword', txt: '    OP(8, ON)',           phase: 2 },
+    { ln: '14', type: 'comment', txt: "    ' Decelerate after cut", phase: 3 },
+    { ln: '15', type: 'ml',      txt: formatMoveText(c.decel_dist, c.decel_link, 0, c.decel_link, c.linkAxis), phase: 3 },
+    { ln: '16', type: 'comment', txt: "    ' Retract cutter to start", phase: 4 },
+    validRetract
+      ? { ln: '17', type: 'ml', txt: formatMoveText(-c.stroke, c.ret_link, c.ret_acc, c.ret_dec, c.linkAxis), phase: 4 }
+      : { ln: '17', type: 'comment', txt: "    ' No valid retract: increase cut length", phase: 4 },
+    { ln: '18', type: 'keyword', txt: '    WAIT LOADED',         phase: 4 },
+    { ln: '19', type: 'keyword', txt: '    OP(8, OFF)',          phase: 4 },
+    { ln: '20', type: 'comment', txt: totalLine,                 phase: 0 },
+    { ln: '21', type: 'keyword', txt: 'WEND',                    phase: 0 },
+  ];
+}
+
+function buildStepDescriptions() {
+  const c = getPhaseCalc();
+  if (c.ret_link <= 0) {
+    return [
+      'Setup. Servo on, home to position 0. Program values come from slide 3.',
+      `Step 1 - ACCEL. Move ${fmtParam(c.accel_dist)} mm over ${fmtParam(c.accel_link)} mm of master travel.`,
+      `Step 2 - CUT WINDOW. Move ${fmtParam(c.sync_dist)} mm over ${fmtParam(c.sync_link)} mm at synchronized speed.`,
+      `Step 3 - DECEL. Move ${fmtParam(c.decel_dist)} mm while decelerating over ${fmtParam(c.decel_link)} mm of master travel.`,
+      `Step 4 - RETRACT. No valid return budget: active link is ${fmtParam(c.active_link)} mm, cut length is ${fmtParam(c.L)} mm.`,
+    ];
+  }
+  return [
+    'Setup. Servo on, home to position 0. Program values come from slide 3.',
+    `Step 1 - ACCEL. Move ${fmtParam(c.accel_dist)} mm over ${fmtParam(c.accel_link)} mm of master travel.`,
+    `Step 2 - CUT WINDOW. Move ${fmtParam(c.sync_dist)} mm over ${fmtParam(c.sync_link)} mm at synchronized speed.`,
+    `Step 3 - DECEL. Move ${fmtParam(c.decel_dist)} mm while decelerating over ${fmtParam(c.decel_link)} mm of master travel.`,
+    `Step 4 - RETRACT. Move ${fmtParam(-c.stroke)} mm back over the remaining ${fmtParam(c.ret_link)} mm before the next cut.`,
+  ];
+}
+
+let currentStep = 0;
+let playInterval = null;
+
+function renderCode() {
+  const container = document.getElementById('code-content');
+  const programCode = buildProgramCode();
+  let html = '';
+  programCode.forEach(line => {
+    const active = currentStep > 0 && line.phase === currentStep ? 'active' : '';
+    let content = '';
+    if (line.type === 'blank') {
+      content = '&nbsp;';
+    } else if (line.type === 'comment') {
+      content = '<span class="comment-text">' + escapeHtml(line.txt) + '</span>';
+    } else if (line.type === 'ml') {
+      content = highlightMovelink(line.txt);
+    } else {
+      content = highlightKeyword(line.txt);
+    }
+    html += `<div class="code-line ${line.type} ${active}">`
+         + `<span class="lineno">${line.ln}</span>`
+         + `<span class="ln-content">${content}</span>`
+         + `</div>`;
+  });
+  container.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function highlightMovelink(txt) {
+  let s = escapeHtml(txt);
+  s = s.replace(/MOVELINK/g, '<span class="ml">MOVELINK</span>');
+  s = s.replace(/WAIT LOADED|OP/g, m => `<span class="kw">${m}</span>`);
+  s = s.replace(/-?\b(\d+(?:\.\d+)?)\b/g, '<span class="num">$&</span>');
+  return s;
+}
+
+function highlightKeyword(txt) {
+  let s = escapeHtml(txt);
+  s = s.replace(/\b(BASE|SERVO|MOVEABS|WAIT|IDLE|LOADED|DEFPOS|WHILE|IN|TRUE|WEND|ON|OFF|OP)\b/g, '<span class="kw">$1</span>');
+  s = s.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="num">$1</span>');
+  return s;
+}
+
+function updateStep(step) {
+  currentStep = step;
+  const stepDescriptions = buildStepDescriptions();
+  document.getElementById('step-indicator').textContent = `STEP ${step} / 4`;
+  document.getElementById('prog-status').textContent = stepDescriptions[step];
+  renderCode();
+  drawProgramSvg(step);
+  
+  // Update progress bar width if play is running
+  const bar = document.getElementById('progress-bar');
+  if (playInterval) {
+    bar.style.transition = 'none';
+    bar.style.width = '0%';
+    setTimeout(() => {
+      bar.style.transition = 'width 1.4s linear';
+      bar.style.width = '100%';
+    }, 20);
+  } else {
+    bar.style.width = '0%';
+  }
+}
+
+function resetProgram() {
+  if (playInterval) { clearInterval(playInterval); playInterval = null; }
+  document.getElementById('prog-play').textContent = '▶ PLAY';
+  document.getElementById('progress-container').style.display = 'none';
+  currentStep = 0;
+  updateStep(0);
+}
+
+document.getElementById('prog-prev').onclick  = () => updateStep(Math.max(0, currentStep - 1));
+document.getElementById('prog-next').onclick  = () => updateStep(Math.min(4, currentStep + 1));
+document.getElementById('prog-reset').onclick = () => resetProgram();
+document.getElementById('prog-play').onclick  = () => {
+  const btn = document.getElementById('prog-play');
+  const barContainer = document.getElementById('progress-container');
+  if (playInterval) {
+    clearInterval(playInterval);
+    playInterval = null;
+    btn.textContent = '▶ PLAY';
+    barContainer.style.display = 'none';
+  } else {
+    btn.textContent = '⏸ PAUSE';
+    barContainer.style.display = 'block';
+    // Start active countdown progress
+    updateStep(currentStep);
+    playInterval = setInterval(() => {
+      if (currentStep >= 4) {
+        currentStep = 0;
+      } else {
+        currentStep++;
+      }
+      updateStep(currentStep);
+    }, 1400);
+  }
+};
+
+function drawProgramSvg(step) {
+  const svg = document.getElementById('program-svg');
+  const c = getPhaseCalc();
+  const padL = 58, padR = 36, padT = 34, padB = 74;
+  const W = 600, H = 360;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const baseY = H - padB;
+  const topY  = padT;
+  const yPeak = topY + 18;
+
+  const retDisplay = Math.max(c.ret_link, 0);
+  const totalLink = Math.max(c.accel_link + c.sync_link + c.decel_link + retDisplay, 1);
+  const widths = [c.accel_link, c.sync_link, c.decel_link, retDisplay].map(v => v / totalLink);
+  const xs = [padL];
+  widths.forEach(w => xs.push(xs[xs.length-1] + plotW * w));
+
+  let s = '';
+  s += `<rect x="${padL}" y="${topY}" width="${plotW}" height="${plotH}" fill="var(--bg-light)" stroke="var(--border)" stroke-width="0.5"/>`;
+  s += `<line x1="${padL}" y1="${yPeak}" x2="${padL+plotW}" y2="${yPeak}" class="grid-line"/>`;
+
+  // Step Highlights
+  if (step >= 1) {
+    s += `<line x1="${xs[0]}" y1="${baseY}" x2="${xs[1]}" y2="${yPeak}" stroke="var(--amber)" stroke-width="3"/>`;
+    s += `<polygon points="${xs[0]},${baseY} ${xs[1]},${yPeak} ${xs[1]},${baseY}" fill="var(--amber)" opacity="0.15"/>`;
+  }
+  if (step >= 2) {
+    s += `<line x1="${xs[1]}" y1="${yPeak}" x2="${xs[2]}" y2="${yPeak}" stroke="var(--cyan-bright)" stroke-width="3"/>`;
+    s += `<rect x="${xs[1]}" y="${yPeak}" width="${xs[2]-xs[1]}" height="${baseY-yPeak}" fill="var(--cyan)" opacity="0.15"/>`;
+    if (step === 2 || step === 3) {
+      const cutX = (xs[1] + xs[2]) / 2;
+      s += `<line x1="${cutX}" y1="${yPeak - 10}" x2="${cutX}" y2="${baseY+8}" stroke="var(--red)" stroke-width="2" stroke-dasharray="3,3"/>`;
+      s += `<text x="${cutX}" y="${yPeak - 14}" class="axis-label" text-anchor="middle" fill="var(--red)" font-weight="700" font-size="12">▼ CUT</text>`;
+    }
+  }
+  if (step >= 3) {
+    s += `<line x1="${xs[2]}" y1="${yPeak}" x2="${xs[3]}" y2="${baseY}" stroke="var(--amber)" stroke-width="3"/>`;
+    s += `<polygon points="${xs[2]},${yPeak} ${xs[3]},${baseY} ${xs[2]},${baseY}" fill="var(--amber)" opacity="0.15"/>`;
+  }
+  if (step >= 4) {
+    const retY = baseY - 14;
+    if (c.ret_link > 0) {
+      s += `<line x1="${xs[3]}" y1="${retY}" x2="${xs[4]}" y2="${retY}" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="6,4"/>`;
+      s += `<polygon points="${xs[4]-6},${retY-4} ${xs[4]},${retY} ${xs[4]-6},${retY+4}" fill="var(--text-muted)"/>`;
+    } else {
+      s += `<rect x="${padL}" y="${topY}" width="${plotW}" height="${plotH}" fill="var(--red)" fill-opacity="0.08"/>`;
+      s += `<text x="${padL + plotW/2}" y="${topY + plotH/2}" class="axis-label" text-anchor="middle" fill="var(--red)" font-size="14" font-weight="700">NO RETURN BUDGET</text>`;
+    }
+  }
+
+  // Axes lines
+  s += `<line x1="${padL}" y1="${baseY}" x2="${padL+plotW+6}" y2="${baseY}" class="axis-line"/>`;
+  s += `<polygon points="${padL+plotW+12},${baseY} ${padL+plotW+2},${baseY-5} ${padL+plotW+2},${baseY+5}" class="axis-arrow"/>`;
+  s += `<line x1="${padL}" y1="${baseY}" x2="${padL}" y2="${topY-6}" class="axis-line"/>`;
+  s += `<polygon points="${padL},${topY-12} ${padL-5},${topY-2} ${padL+5},${topY-2}" class="axis-arrow"/>`;
+
+  s += `<text x="${padL - 24}" y="${(yPeak+baseY)/2}" class="axis-label" text-anchor="middle" transform="rotate(-90 ${padL-24} ${(yPeak+baseY)/2})">VELOCITY</text>`;
+  s += `<text x="${padL + plotW}" y="${baseY + 46}" class="axis-label" text-anchor="end">MASTER DISTANCE</text>`;
+
+  const labels = ['ACCEL', 'SYNC', 'DECEL', 'RETRACT'];
+  const colors = ['var(--amber-bright)', 'var(--cyan-bright)', 'var(--amber-bright)', 'var(--text-muted)'];
+  for (let i = 0; i < 4; i++) {
+    if (step > i && xs[i+1] - xs[i] > 34) {
+      const mid = (xs[i] + xs[i+1]) / 2;
+      s += `<text x="${mid}" y="${baseY + 22}" class="phase-label" text-anchor="middle" fill="${colors[i]}">${labels[i]}</text>`;
+    }
+  }
+
+  svg.innerHTML = s;
+}
+
+// =============================================================
+// INITIAL RENDER
+// =============================================================
+redrawPhase();
+drawAnatomySvg(null);
+resetProgram();
+
+</script>
+</body>
+</html>

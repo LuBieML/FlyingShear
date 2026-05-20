@@ -1,0 +1,93 @@
+================================================================================
+PRESENTER NOTES & BRIEFING: PITCH TO THE CHIEF OF THE TECHNICAL DEPARTMENT
+Subject: Simplifying Flying Shear Projects with Trio's MOVELINK Command
+Target Audience: Chief of Technical Department (CODESYS User / External Client)
+================================================================================
+
+This document outlines talking points and technical comparisons to pitch the 
+advantages of Trio's MOVELINK command to the Chief of the Technical Department 
+from an external company. The goal is to show how migrating their systems from 
+standard CODESYS camming blocks to Trio reduces their engineering overhead, 
+simplifies machine maintenance, and minimizes mechanical crash risks.
+
+--------------------------------------------------------------------------------
+SLIDE 1: Introduction to MOVELINK Concept
+--------------------------------------------------------------------------------
+* KEY MESSAGE: Trio replaces complex virtual axes coupling with a single command.
+* TALKING POINTS FOR THE PITCH:
+  - In standard CODESYS environments, engineering teams must configure virtual 
+    master axes, set up electronic cams, and manage coupling state transitions 
+    using blocks like MC_CamTableSelect, MC_CamIn, and MC_GearIn.
+  - This requires their team to write and debug complex state machines just to
+    handle basic gearing transitions and touch-probe registration.
+  - Trio eliminates this overhead completely. Gearing, phase synchronization, 
+    and positioning are handled natively by a single hardware-level command:
+    MOVELINK.
+  - For their department, this means less code to maintain, significantly shorter
+    commissioning times, and a much lower entry barrier for their engineers.
+
+--------------------------------------------------------------------------------
+SLIDE 2: Parameter Anatomy (How MOVELINK Works)
+--------------------------------------------------------------------------------
+* KEY MESSAGE: Defining the slave's movement envelope explicitly in master units.
+* TALKING POINTS FOR THE PITCH:
+  - To dynamically adjust acceleration/deceleration ramps or sync windows 
+    on-the-fly in CODESYS, their team has to write code to recalculate CAM 
+    points dynamically inside Structured Text (ST). This is CPU-heavy and 
+    highly prone to boundary and rounding errors.
+  - With MOVELINK, their engineers define the profile envelope directly using 
+    simple physical dimensions in master travel units:
+    1. Link Distance: Slave axis forward travel (mm).
+    2. Link Travel: Master axis travel window (mm) for the entire profile.
+    3. Accel Link: Master travel spent accelerating to matched speed (mm).
+    4. Decel Link: Master travel spent decelerating back to stop (mm).
+  - The Trio controller handles the velocity scaling and accel/decel curves in 
+    hardware. If parameters are updated, the profile adjusts dynamically with 
+    zero risk of velocity jumps or position slippage.
+
+--------------------------------------------------------------------------------
+SLIDE 3: Real-Time Cycle Calculator
+--------------------------------------------------------------------------------
+* KEY MESSAGE: Simplified cycle math protects physical machinery from logic errors.
+* TALKING POINTS FOR THE PITCH:
+  - When line speeds change or operators enter a shorter cut length, CODESYS 
+    requires custom validation logic to make sure the cutter can retract in time 
+    before the next cycle. A single formula error in structured text can cause 
+    a high-speed cutter collision.
+  - In the Trio architecture, validation math is simple arithmetic:
+    Return Budget = Cut Length - Active Link.
+  - If this value is positive, the cycle is mathematically safe, and the retract
+    calculations are executed. If it's negative, the system flags it instantly.
+  - By handling this bounds checking at the controller level, they protect 
+    their mechanical assets from programmer logic errors.
+
+--------------------------------------------------------------------------------
+SLIDE 4: Program Code Step-Through
+--------------------------------------------------------------------------------
+* KEY MESSAGE: 21 lines of Trio Basic replaces 200+ lines of CODESYS ST.
+* TALKING POINTS FOR THE PITCH:
+  - We can show them the actual code running the flying shear. The entire cycle,
+    including acceleration, synchronized cutting, deceleration, and retracting,
+    is implemented in just 21 lines of code.
+  - A typical CODESYS Structured Text module for this process is easily 200 to 
+    500 lines long, filled with state machines, touch probe registration 
+    interrupts, and error-state handshakes.
+  - In our Trio code, we use exactly four MOVELINK commands to orchestrate the 
+    entire motion cycle:
+      - Line 9 (Accel): Accelerates the slave to match material velocity.
+      - Line 11 (Sync): Syncs the cutter speed and fires the cut output (OP(8, ON)).
+      - Line 15 (Decel): Decelerates the cutter back to a stop.
+      - Line 17 (Retract): Retracts the cutter back to its start position.
+  - This sequential approach is extremely readable, making troubleshooting and 
+    diagnostics much faster for their field technicians and support staff.
+
+================================================================================
+SUMMARY BENCHMARK FOR THE CLIENT'S TECHNICAL LEAD
+================================================================================
+- Development Cost: Reducing flying shear coding time from weeks to days 
+  translates directly to faster time-to-market and lower engineering costs.
+- Execution Precision: Hardware-level master/slave linking runs directly on the 
+  controller CPU with microsecond precision, independent of PLC scan times.
+- Maintainability: Troubleshooting sequential Trio Basic is significantly faster
+  than debugging complex CODESYS cam and gear state machines.
+================================================================================
