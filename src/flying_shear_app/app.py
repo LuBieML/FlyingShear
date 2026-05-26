@@ -8887,6 +8887,65 @@ def main(page: ft.Page):
             "expected_position": flexlink_expected_position,
         }
 
+    def flexlink_phase_from_slave_position(slave_position):
+        try:
+            flexlink_slave_position = float(slave_position)
+        except (TypeError, ValueError):
+            return None
+
+        flexlink_cycle_pitch = max(1.0, flexlink_setting_float("cycle_pitch", 300))
+        flexlink_excite_dist = flexlink_setting_float("excite_dist", 20)
+        flexlink_base_in_mm = flexlink_setting_float("base_in_mm", 210)
+        flexlink_base_out_mm = flexlink_setting_float("base_out_mm", 15)
+        flexlink_excite_acc_mm = flexlink_setting_float("excite_acc_mm", 37.5)
+        flexlink_excite_dec_mm = flexlink_setting_float("excite_dec_mm", 37.5)
+        flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
+        flexlink_base_dist = flexlink_cycle_pitch
+        flexlink_cycle_slave_dist = flexlink_base_dist + flexlink_excite_dist
+        if flexlink_cycle_slave_dist <= 0:
+            return None
+
+        flexlink_cycles = math.floor(flexlink_slave_position / flexlink_cycle_slave_dist)
+        flexlink_phase_position = (
+            flexlink_slave_position - flexlink_cycles * flexlink_cycle_slave_dist
+        )
+        flexlink_phase_position = max(0.0, min(flexlink_cycle_slave_dist, flexlink_phase_position))
+
+        def flexlink_expected_phase_position(flexlink_phase_u):
+            flexlink_progress, _ = flexlink_excitation_progress(
+                flexlink_phase_u,
+                flexlink_cycle_pitch,
+                flexlink_base_in_mm,
+                flexlink_base_out_mm,
+                flexlink_excite_acc_mm,
+                flexlink_excite_dec_mm,
+                flexlink_curve_type,
+            )
+            return flexlink_phase_u * flexlink_base_dist + flexlink_excite_dist * flexlink_progress
+
+        flexlink_lo = 0.0
+        flexlink_hi = 1.0
+        for _ in range(28):
+            flexlink_mid = (flexlink_lo + flexlink_hi) / 2.0
+            if flexlink_expected_phase_position(flexlink_mid) < flexlink_phase_position:
+                flexlink_lo = flexlink_mid
+            else:
+                flexlink_hi = flexlink_mid
+        flexlink_u = (flexlink_lo + flexlink_hi) / 2.0
+        _, flexlink_in_excite = flexlink_excitation_progress(
+            flexlink_u,
+            flexlink_cycle_pitch,
+            flexlink_base_in_mm,
+            flexlink_base_out_mm,
+            flexlink_excite_acc_mm,
+            flexlink_excite_dec_mm,
+            flexlink_curve_type,
+        )
+        return {
+            "u": flexlink_u,
+            "in_excite": flexlink_in_excite,
+        }
+
     def flexlink_format_live_value(value, suffix="", digits=3):
         try:
             val = float(value)
@@ -9321,12 +9380,6 @@ def main(page: ft.Page):
             flexlink_excite_progress = 0.0
             flexlink_in_excite = True
             flexlink_in_seal_contact = False
-        flexlink_mode_label = (
-            "SYNC DOWNSTROKE - JAWS CLOSED"
-            if flexlink_in_seal_contact else
-            "OPEN RETURN / REG CORRECTION"
-        )
-
         flexlink_film = flexlink_draw_vertical_film_tube(
             flexlink_shapes,
             flexlink_width,
@@ -9377,26 +9430,43 @@ def main(page: ft.Page):
 
         start_u = flexlink_base_in_mm / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0
         end_u = 1.0 - (flexlink_base_out_mm / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0)
-        if not flexlink_live:
-            active_y = stroke_top
-        elif flexlink_in_excite:
-            return_span = max(0.001, end_u - start_u)
-            return_progress = max(0.0, min(1.0, (flexlink_u - start_u) / return_span))
-            active_y = stroke_bottom - return_progress * stroke_len
-        else:
+        def flexlink_carriage_y_for_phase(flexlink_phase_u, flexlink_phase_in_excite):
+            if not flexlink_live:
+                return stroke_top
+            if flexlink_phase_in_excite:
+                return_span = max(0.001, end_u - start_u)
+                return_progress = max(0.0, min(1.0, (flexlink_phase_u - start_u) / return_span))
+                return stroke_bottom - return_progress * stroke_len
             contact_total = max(0.001, flexlink_base_in_mm + flexlink_base_out_mm)
-            if flexlink_u >= end_u:
-                contact_mm = (flexlink_u - end_u) * flexlink_cycle_pitch
+            if flexlink_phase_u >= end_u:
+                contact_mm = (flexlink_phase_u - end_u) * flexlink_cycle_pitch
             else:
-                contact_mm = flexlink_base_out_mm + flexlink_u * flexlink_cycle_pitch
+                contact_mm = flexlink_base_out_mm + flexlink_phase_u * flexlink_cycle_pitch
             contact_progress = max(0.0, min(1.0, contact_mm / contact_total))
-            active_y = stroke_top + contact_progress * stroke_len
+            return stroke_top + contact_progress * stroke_len
 
-        if flexlink_in_seal_contact:
+        target_y = flexlink_carriage_y_for_phase(flexlink_u, flexlink_in_excite)
+        jaw_y = target_y
+        jaw_in_excite = flexlink_in_excite
+        actual_phase = (
+            flexlink_phase_from_slave_position(flexlink_sim_state.get("actual_slave_position"))
+            if flexlink_live else None
+        )
+        if actual_phase is not None:
+            jaw_y = flexlink_carriage_y_for_phase(actual_phase["u"], actual_phase["in_excite"])
+            jaw_in_excite = actual_phase["in_excite"]
+        jaw_in_seal_contact = not jaw_in_excite if flexlink_live else False
+        jaw_mode_label = (
+            "SYNC DOWNSTROKE - JAWS CLOSED"
+            if jaw_in_seal_contact else
+            "OPEN RETURN / REG CORRECTION"
+        )
+
+        if jaw_in_seal_contact:
             flexlink_shapes.append(
                 cv.Oval(
                     center_x - tube_w / 2.0 - 46,
-                    active_y - 58,
+                    jaw_y - 58,
                     tube_w + 92,
                     116,
                     paint=ft.Paint(color=ft.Colors.with_opacity(0.18, "#38e879"), style=ft.PaintingStyle.FILL),
@@ -9406,7 +9476,7 @@ def main(page: ft.Page):
             flexlink_shapes.append(
                 cv.Oval(
                     center_x - tube_w / 2.0 - 70,
-                    active_y - 60,
+                    jaw_y - 60,
                     tube_w + 140,
                     120,
                     paint=ft.Paint(color=ft.Colors.with_opacity(0.16, "#ff983d"), style=ft.PaintingStyle.FILL),
@@ -9416,10 +9486,10 @@ def main(page: ft.Page):
         flexlink_draw_jaw_pair(
             flexlink_shapes,
             center_x,
-            active_y,
+            jaw_y,
             tube_w,
-            flexlink_in_seal_contact,
-            flexlink_mode_label if flexlink_live else "CONNECT CONTROLLER FOR LIVE MOTION",
+            jaw_in_seal_contact,
+            jaw_mode_label if flexlink_live else "CONNECT CONTROLLER FOR LIVE MOTION",
         )
 
         flexlink_shapes.append(
@@ -9449,22 +9519,20 @@ def main(page: ft.Page):
             max_width=78,
         )
 
-        if flexlink_live and flexlink_sim_state.get("sync_error") is not None:
-            error = float(flexlink_sim_state.get("sync_error") or 0.0)
-            error_px = max(-44.0, min(44.0, error / max(1.0, flexlink_cycle_pitch) * stroke_len))
+        if flexlink_live and actual_phase is not None:
             flexlink_shapes.append(
                 cv.Line(
                     center_x - tube_w / 2.0 - 102,
-                    active_y + error_px,
+                    target_y,
                     center_x + tube_w / 2.0 + 102,
-                    active_y + error_px,
+                    target_y,
                     paint=canvas_paint(ft.Colors.with_opacity(0.72, ft.Colors.CYAN_200), 1.2, dash=[5, 5]),
                 )
             )
             add_profile_text(
                 flexlink_shapes,
                 center_x + tube_w / 2.0 + 108,
-                active_y + error_px - 8,
+                target_y - 8,
                 "target",
                 size=9,
                 color=ft.Colors.CYAN_100,
