@@ -8831,8 +8831,6 @@ def main(page: ft.Page):
         "slave_mpos": None,
         "master_mspeed": None,
         "slave_mspeed": None,
-        "phase_origin_mpos": None,
-        "slave_origin_mpos": None,
         "actual_slave_position": None,
         "expected_slave_position": None,
         "sync_error": None,
@@ -8854,9 +8852,19 @@ def main(page: ft.Page):
         flexlink_cycles = 0
         flexlink_u = 0.0
         if master_delta is not None:
-            flexlink_cycles = math.floor(float(master_delta) / flexlink_cycle_pitch)
-            flexlink_phase = float(master_delta) - flexlink_cycles * flexlink_cycle_pitch
-            flexlink_u = (flexlink_phase / flexlink_cycle_pitch) % 1.0
+            flexlink_master_position = float(master_delta)
+            flexlink_zero_tolerance = max(0.25, flexlink_cycle_pitch * 0.001)
+            if abs(flexlink_master_position) <= flexlink_zero_tolerance:
+                flexlink_phase = 0.0
+            else:
+                flexlink_cycles = math.floor(flexlink_master_position / flexlink_cycle_pitch)
+                flexlink_phase = flexlink_master_position - flexlink_cycles * flexlink_cycle_pitch
+                if flexlink_phase <= flexlink_zero_tolerance:
+                    flexlink_phase = 0.0
+                elif flexlink_cycle_pitch - flexlink_phase <= flexlink_zero_tolerance:
+                    flexlink_cycles += 1
+                    flexlink_phase = 0.0
+            flexlink_u = max(0.0, min(1.0, flexlink_phase / flexlink_cycle_pitch))
 
         flexlink_excite_progress, flexlink_in_excite = flexlink_excitation_progress(
             flexlink_u,
@@ -8905,11 +8913,15 @@ def main(page: ft.Page):
         if flexlink_cycle_slave_dist <= 0:
             return None
 
-        flexlink_cycles = math.floor(flexlink_slave_position / flexlink_cycle_slave_dist)
-        flexlink_phase_position = (
-            flexlink_slave_position - flexlink_cycles * flexlink_cycle_slave_dist
-        )
-        flexlink_phase_position = max(0.0, min(flexlink_cycle_slave_dist, flexlink_phase_position))
+        flexlink_zero_tolerance = max(0.25, abs(flexlink_cycle_slave_dist) * 0.001)
+        if abs(flexlink_slave_position) <= flexlink_zero_tolerance:
+            flexlink_phase_position = 0.0
+        else:
+            flexlink_phase_position = flexlink_slave_position % flexlink_cycle_slave_dist
+            if flexlink_phase_position <= flexlink_zero_tolerance:
+                flexlink_phase_position = 0.0
+            elif flexlink_cycle_slave_dist - flexlink_phase_position <= flexlink_zero_tolerance:
+                flexlink_phase_position = 0.0
 
         def flexlink_expected_phase_position(flexlink_phase_u):
             flexlink_progress, _ = flexlink_excitation_progress(
@@ -9015,14 +9027,14 @@ def main(page: ft.Page):
     def flexlink_draw_vertical_film_tube(flexlink_shapes, flexlink_width, flexlink_height,
                                          flexlink_u, flexlink_cycle_pitch,
                                          flexlink_contact_distance):
-        flexlink_tube_w = max(128.0, min(190.0, flexlink_width * 0.28))
+        flexlink_tube_w = max(132.0, min(178.0, flexlink_width * 0.24))
         flexlink_tube_x = flexlink_width * 0.50 - flexlink_tube_w / 2.0
-        flexlink_tube_top = 88.0
-        flexlink_tube_bottom = flexlink_height - 122.0
+        flexlink_tube_top = 112.0
+        flexlink_tube_bottom = flexlink_height - 128.0
         flexlink_tube_h = flexlink_tube_bottom - flexlink_tube_top
         flexlink_center_x = flexlink_tube_x + flexlink_tube_w / 2.0
-        flexlink_stroke_top = flexlink_tube_top + 72.0
-        flexlink_stroke_bottom = flexlink_tube_bottom - 64.0
+        flexlink_stroke_top = flexlink_tube_top + 52.0
+        flexlink_stroke_bottom = flexlink_tube_bottom - 54.0
         flexlink_stroke_len = max(1.0, flexlink_stroke_bottom - flexlink_stroke_top)
         flexlink_sync_px_per_mm = (
             flexlink_stroke_len / flexlink_contact_distance
@@ -9036,39 +9048,48 @@ def main(page: ft.Page):
 
         flexlink_shapes.extend([
             cv.Rect(0, 0, flexlink_width, flexlink_height,
-                    paint=ft.Paint(color="#090d11", style=ft.PaintingStyle.FILL)),
+                    paint=ft.Paint(color="#070b0f", style=ft.PaintingStyle.FILL)),
             cv.Rect(18, 18, flexlink_width - 36, flexlink_height - 36,
-                    border_radius=ft.BorderRadius.all(8),
-                    paint=ft.Paint(color="#0d1318", style=ft.PaintingStyle.FILL)),
-            cv.Line(28, flexlink_tube_top, flexlink_width - 28, flexlink_tube_top,
-                    paint=canvas_paint("#1f2a31", 1.0, dash=[6, 8])),
-            cv.Line(28, flexlink_tube_bottom, flexlink_width - 28, flexlink_tube_bottom,
-                    paint=canvas_paint("#1f2a31", 1.0, dash=[6, 8])),
+                    border_radius=ft.BorderRadius.all(6),
+                    paint=ft.Paint(color="#0b1015", style=ft.PaintingStyle.FILL)),
+            cv.Rect(
+                flexlink_center_x - 250,
+                66,
+                500,
+                flexlink_tube_bottom - 36,
+                border_radius=ft.BorderRadius.all(6),
+                paint=ft.Paint(color=ft.Colors.with_opacity(0.34, "#111a20"), style=ft.PaintingStyle.FILL),
+            ),
         ])
 
-        collar_top = 34.0
-        collar_bottom = 86.0
-        collar_w = flexlink_tube_w + 96.0
+        collar_top = 48.0
+        collar_bottom = 98.0
+        collar_w = flexlink_tube_w + 132.0
         collar_points = [
             (flexlink_center_x - collar_w / 2.0, collar_top),
             (flexlink_center_x + collar_w / 2.0, collar_top),
-            (flexlink_tube_x + flexlink_tube_w + 16.0, collar_bottom),
-            (flexlink_tube_x - 16.0, collar_bottom),
+            (flexlink_tube_x + flexlink_tube_w + 24.0, collar_bottom),
+            (flexlink_tube_x - 24.0, collar_bottom),
         ]
         flexlink_add_polygon(
             flexlink_shapes,
             collar_points,
-            "#26313a",
-            "#4f6472",
+            "#232d35",
+            "#52636d",
             1.2,
         )
         flexlink_shapes.append(
-            cv.Line(flexlink_center_x, collar_top + 4, flexlink_center_x, flexlink_tube_bottom + 8,
-                    paint=canvas_paint(ft.Colors.with_opacity(0.34, "#d9f7ff"), 1.0, dash=[7, 9]))
+            cv.Line(
+                flexlink_center_x,
+                collar_bottom,
+                flexlink_center_x,
+                flexlink_tube_bottom,
+                paint=canvas_paint(ft.Colors.with_opacity(0.22, "#d4eef5"), 1.0, dash=[8, 10]),
+            )
         )
         add_profile_text(
-            flexlink_shapes, flexlink_center_x, collar_top + 12, "FORMING COLLAR",
-            size=10, color=ft.Colors.GREY_300, max_width=150,
+            flexlink_shapes, flexlink_center_x, collar_top + 14, "FORMING COLLAR",
+            size=9, color=ft.Colors.GREY_300, max_width=150,
         )
 
         tube_paint = ft.Paint(
@@ -9076,12 +9097,12 @@ def main(page: ft.Page):
                 begin=ft.Offset(flexlink_tube_x, flexlink_tube_top),
                 end=ft.Offset(flexlink_tube_x + flexlink_tube_w, flexlink_tube_top),
                 colors=[
-                    ft.Colors.with_opacity(0.30, "#dff9ff"),
-                    ft.Colors.with_opacity(0.70, "#a7dce8"),
-                    ft.Colors.with_opacity(0.18, "#244958"),
-                    ft.Colors.with_opacity(0.64, "#e9fcff"),
+                    ft.Colors.with_opacity(0.18, "#dff9ff"),
+                    ft.Colors.with_opacity(0.62, "#9fcbd4"),
+                    ft.Colors.with_opacity(0.30, "#385762"),
+                    ft.Colors.with_opacity(0.72, "#d9f2f7"),
                 ],
-                color_stops=[0.0, 0.28, 0.62, 1.0],
+                color_stops=[0.0, 0.32, 0.70, 1.0],
             ),
             style=ft.PaintingStyle.FILL,
         )
@@ -9096,93 +9117,47 @@ def main(page: ft.Page):
             )
         )
         flexlink_shapes.extend([
-            cv.Line(flexlink_tube_x + flexlink_tube_w * 0.18, flexlink_tube_top + 8,
-                    flexlink_tube_x + flexlink_tube_w * 0.18, flexlink_tube_bottom - 8,
-                    paint=canvas_paint(ft.Colors.with_opacity(0.54, ft.Colors.WHITE), 0.9)),
-            cv.Line(flexlink_tube_x + flexlink_tube_w * 0.72, flexlink_tube_top + 10,
-                    flexlink_tube_x + flexlink_tube_w * 0.72, flexlink_tube_bottom - 10,
-                    paint=canvas_paint(ft.Colors.with_opacity(0.30, "#2d6a7d"), 1.0, dash=[9, 7])),
+            cv.Line(
+                flexlink_tube_x + flexlink_tube_w * 0.20,
+                flexlink_tube_top + 10,
+                flexlink_tube_x + flexlink_tube_w * 0.20,
+                flexlink_tube_bottom - 10,
+                paint=canvas_paint(ft.Colors.with_opacity(0.38, ft.Colors.WHITE), 0.8),
+            ),
+            cv.Line(
+                flexlink_tube_x + flexlink_tube_w * 0.74,
+                flexlink_tube_top + 12,
+                flexlink_tube_x + flexlink_tube_w * 0.74,
+                flexlink_tube_bottom - 12,
+                paint=canvas_paint(ft.Colors.with_opacity(0.20, "#17434c"), 1.0, dash=[10, 9]),
+            ),
         ])
-
-        tracking_pitch = 34.0
-        tracking_y = flexlink_tube_top - tracking_pitch + (flexlink_phase_px % tracking_pitch)
-        while tracking_y < flexlink_tube_bottom + tracking_pitch:
-            if flexlink_tube_top + 12 <= tracking_y <= flexlink_tube_bottom - 12:
-                flexlink_shapes.append(
-                    cv.Line(
-                        flexlink_tube_x + 10,
-                        tracking_y,
-                        flexlink_tube_x + flexlink_tube_w - 10,
-                        tracking_y,
-                        paint=canvas_paint(ft.Colors.with_opacity(0.16, "#f1fdff"), 0.8),
-                    )
-                )
-            tracking_y += tracking_pitch
 
         flexlink_y = flexlink_tube_top - flexlink_bag_pitch_px + flexlink_phase_px
         while flexlink_y < flexlink_tube_bottom + flexlink_bag_pitch_px:
             if flexlink_tube_top - 20 <= flexlink_y <= flexlink_tube_bottom + 20:
                 flexlink_shapes.append(
                     cv.Line(
-                        flexlink_tube_x - 12,
+                        flexlink_tube_x + 8,
                         flexlink_y,
-                        flexlink_tube_x + flexlink_tube_w + 12,
+                        flexlink_tube_x + flexlink_tube_w - 8,
                         flexlink_y,
-                        paint=canvas_paint(ft.Colors.with_opacity(0.66, "#e9fcff"), 1.4),
+                        paint=canvas_paint(ft.Colors.with_opacity(0.58, "#e7f7fa"), 1.2),
                     )
                 )
-                for tooth_x in range(int(flexlink_tube_x + 6), int(flexlink_tube_x + flexlink_tube_w - 6), 11):
-                    flexlink_shapes.append(
-                        cv.Line(
-                            tooth_x,
-                            flexlink_y - 5,
-                            tooth_x + 5,
-                            flexlink_y + 5,
-                            paint=canvas_paint(ft.Colors.with_opacity(0.42, "#466b78"), 0.8),
-                        )
-                    )
             mark_y = flexlink_y + flexlink_bag_pitch_px * 0.48
             if flexlink_tube_top + 12 <= mark_y <= flexlink_tube_bottom - 12:
                 flexlink_shapes.append(
                     cv.Rect(
-                        flexlink_tube_x + flexlink_tube_w * 0.63,
-                        mark_y - 7,
-                        flexlink_tube_w * 0.23,
-                        13,
+                        flexlink_tube_x + flexlink_tube_w * 0.66,
+                        mark_y - 5,
+                        flexlink_tube_w * 0.18,
+                        10,
                         border_radius=ft.BorderRadius.all(3),
-                        paint=ft.Paint(color=ft.Colors.with_opacity(0.72, "#10181d"), style=ft.PaintingStyle.FILL),
+                        paint=ft.Paint(color=ft.Colors.with_opacity(0.52, "#10181d"), style=ft.PaintingStyle.FILL),
                     )
                 )
             flexlink_y += flexlink_bag_pitch_px
-
-        belt_w = 24.0
-        belt_h = 170.0
-        belt_top = flexlink_tube_top + 36.0
-        for side in (-1, 1):
-            belt_x = flexlink_tube_x - 44.0 if side < 0 else flexlink_tube_x + flexlink_tube_w + 20.0
-            flexlink_shapes.append(
-                cv.Rect(
-                    belt_x,
-                    belt_top,
-                    belt_w,
-                    belt_h,
-                    border_radius=ft.BorderRadius.all(7),
-                    paint=ft.Paint(color="#151f26", style=ft.PaintingStyle.FILL),
-                )
-            )
-            for i in range(8):
-                cleat_y = belt_top + ((i * 28 + flexlink_phase_px) % (belt_h + 24)) - 12
-                if belt_top <= cleat_y <= belt_top + belt_h - 8:
-                    flexlink_shapes.append(
-                        cv.Rect(
-                            belt_x + 4,
-                            cleat_y,
-                            belt_w - 8,
-                            6,
-                            border_radius=ft.BorderRadius.all(2),
-                            paint=ft.Paint(color="#39515c", style=ft.PaintingStyle.FILL),
-                        )
-                    )
 
         return {
             "tube_x": flexlink_tube_x,
@@ -9201,21 +9176,21 @@ def main(page: ft.Page):
     def flexlink_draw_phase_strip(flexlink_shapes, flexlink_width, flexlink_height,
                                   flexlink_u, flexlink_base_in_mm, flexlink_base_out_mm,
                                   flexlink_open_window):
-        strip_x = 34.0
-        strip_y = flexlink_height - 78.0
-        strip_w = flexlink_width - 68.0
-        strip_h = 30.0
+        strip_x = 54.0
+        strip_y = flexlink_height - 72.0
+        strip_w = flexlink_width - 108.0
+        strip_h = 20.0
         total = max(1.0, flexlink_base_in_mm + flexlink_open_window + flexlink_base_out_mm)
         segments = [
-            (flexlink_base_in_mm, "#176a7d", "SYNC CONTACT"),
-            (flexlink_open_window, "#b26026", "OPEN REG CORRECTION"),
-            (flexlink_base_out_mm, "#176a7d", "SYNC CONTACT"),
+            (flexlink_base_in_mm, "#146c7d", "SYNC"),
+            (flexlink_open_window, "#95551f", "OPEN REG"),
+            (flexlink_base_out_mm, "#146c7d", "SYNC"),
         ]
         cursor_x = strip_x + max(0.0, min(1.0, flexlink_u)) * strip_w
         flexlink_shapes.append(
             cv.Rect(strip_x, strip_y, strip_w, strip_h,
-                    border_radius=ft.BorderRadius.all(5),
-                    paint=ft.Paint(color="#101820", style=ft.PaintingStyle.FILL))
+                    border_radius=ft.BorderRadius.all(4),
+                    paint=ft.Paint(color="#111920", style=ft.PaintingStyle.FILL))
         )
         seg_x = strip_x
         for value, color, label in segments:
@@ -9223,59 +9198,60 @@ def main(page: ft.Page):
             if seg_w > 0.5:
                 flexlink_shapes.append(
                     cv.Rect(seg_x, strip_y, seg_w, strip_h,
-                            border_radius=ft.BorderRadius.all(5),
-                            paint=ft.Paint(color=ft.Colors.with_opacity(0.82, color), style=ft.PaintingStyle.FILL))
+                            border_radius=ft.BorderRadius.all(4),
+                            paint=ft.Paint(color=ft.Colors.with_opacity(0.78, color), style=ft.PaintingStyle.FILL))
                 )
-                if seg_w > 78:
+                if seg_w > 86:
                     add_profile_text(
-                        flexlink_shapes, seg_x + seg_w / 2.0, strip_y + 8,
-                        label, size=9, color=ft.Colors.WHITE, max_width=seg_w - 8,
+                        flexlink_shapes, seg_x + seg_w / 2.0, strip_y + 5,
+                        label, size=8, color=ft.Colors.WHITE, max_width=seg_w - 8,
                     )
             seg_x += seg_w
         flexlink_shapes.append(
-            cv.Line(cursor_x, strip_y - 8, cursor_x, strip_y + strip_h + 10,
-                    paint=canvas_paint("#f3f7b3", 2.2))
+            cv.Line(cursor_x, strip_y - 7, cursor_x, strip_y + strip_h + 8,
+                    paint=canvas_paint("#f2f5a8", 1.8))
         )
         flexlink_shapes.append(
-            cv.Circle(cursor_x, strip_y - 10, 4.5,
-                      paint=ft.Paint(color="#f3f7b3", style=ft.PaintingStyle.FILL))
+            cv.Circle(cursor_x, strip_y - 8, 4.0,
+                      paint=ft.Paint(color="#f2f5a8", style=ft.PaintingStyle.FILL))
         )
 
     def flexlink_draw_jaw_pair(flexlink_shapes, flexlink_center_x, flexlink_y,
                                flexlink_tube_w, flexlink_closed, flexlink_label):
-        flexlink_gap = 5.0 if flexlink_closed else 48.0
-        jaw_w = 98.0
-        jaw_h = 42.0
+        flexlink_gap = 6.0 if flexlink_closed else 42.0
+        jaw_w = 108.0
+        jaw_h = 34.0
         top_y = flexlink_y - jaw_h / 2.0
         left_x = flexlink_center_x - flexlink_tube_w / 2.0 - flexlink_gap - jaw_w
         right_x = flexlink_center_x + flexlink_tube_w / 2.0 + flexlink_gap
-        face_color = "#8cffb0" if flexlink_closed else "#ffbd7a"
-        glow_color = "#38e879" if flexlink_closed else "#ff8d35"
-        shell_hi = "#eef7f9" if flexlink_closed else "#b4c1c8"
-        shell_lo = "#35444c" if flexlink_closed else "#2d3941"
-        state_bg = "#0e2a1a" if flexlink_closed else "#311b0b"
+        face_color = "#67e090" if flexlink_closed else "#e59a4a"
+        shell_hi = "#cfd9dd" if flexlink_closed else "#b8c4ca"
+        shell_mid = "#7f9098" if flexlink_closed else "#6f7d85"
+        shell_lo = "#38464d" if flexlink_closed else "#323d44"
+        carrier_color = "#172229"
+        state_bg = "#10291b" if flexlink_closed else "#2f1c0d"
 
         flexlink_shapes.extend([
-            cv.Line(left_x - 74, flexlink_y - 34, right_x + jaw_w + 74, flexlink_y - 34,
-                    paint=canvas_paint("#4b5c66", 3.0)),
-            cv.Line(left_x - 74, flexlink_y + 34, right_x + jaw_w + 74, flexlink_y + 34,
-                    paint=canvas_paint("#25323a", 2.0)),
-            cv.Rect(left_x - 88, top_y + 4, 72, jaw_h - 8,
-                    border_radius=ft.BorderRadius.all(5),
-                    paint=ft.Paint(color="#1a252c", style=ft.PaintingStyle.FILL)),
-            cv.Rect(right_x + jaw_w + 16, top_y + 4, 72, jaw_h - 8,
-                    border_radius=ft.BorderRadius.all(5),
-                    paint=ft.Paint(color="#1a252c", style=ft.PaintingStyle.FILL)),
+            cv.Line(left_x - 78, flexlink_y - 28, right_x + jaw_w + 78, flexlink_y - 28,
+                    paint=canvas_paint("#31414a", 2.0)),
+            cv.Line(left_x - 78, flexlink_y + 28, right_x + jaw_w + 78, flexlink_y + 28,
+                    paint=canvas_paint("#223039", 1.6)),
+            cv.Rect(left_x - 88, top_y + 3, 68, jaw_h - 6,
+                    border_radius=ft.BorderRadius.all(4),
+                    paint=ft.Paint(color=carrier_color, style=ft.PaintingStyle.FILL)),
+            cv.Rect(right_x + jaw_w + 20, top_y + 3, 68, jaw_h - 6,
+                    border_radius=ft.BorderRadius.all(4),
+                    paint=ft.Paint(color=carrier_color, style=ft.PaintingStyle.FILL)),
         ])
 
         if flexlink_closed:
             flexlink_shapes.append(
                 cv.Oval(
-                    flexlink_center_x - flexlink_tube_w / 2.0 - 38,
-                    flexlink_y - 54,
-                    flexlink_tube_w + 76,
-                    108,
-                    paint=ft.Paint(color=ft.Colors.with_opacity(0.20, glow_color), style=ft.PaintingStyle.FILL),
+                    flexlink_center_x - flexlink_tube_w / 2.0 - 28,
+                    flexlink_y - 39,
+                    flexlink_tube_w + 56,
+                    78,
+                    paint=ft.Paint(color=ft.Colors.with_opacity(0.13, "#67e090"), style=ft.PaintingStyle.FILL),
                 )
             )
 
@@ -9291,63 +9267,51 @@ def main(page: ft.Page):
                         gradient=ft.PaintLinearGradient(
                             begin=ft.Offset(jaw_x, top_y),
                             end=ft.Offset(jaw_x, top_y + jaw_h),
-                            colors=[shell_hi, "#91a0a8", shell_lo],
-                            color_stops=[0.0, 0.45, 1.0],
+                            colors=[shell_hi, shell_mid, shell_lo],
+                            color_stops=[0.0, 0.52, 1.0],
                         ),
                         style=ft.PaintingStyle.FILL,
                     ),
                 )
             )
+            flexlink_shapes.append(
+                cv.Line(jaw_x + 10, top_y + 7, jaw_x + jaw_w - 10, top_y + 7,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.35, ft.Colors.WHITE), 0.8))
+            )
             if side == "left":
-                face_x = jaw_x + jaw_w - 7
+                face_x = jaw_x + jaw_w - 8
                 flexlink_shapes.append(
-                    cv.Rect(face_x, top_y + 5, 7, jaw_h - 10,
+                    cv.Rect(face_x, top_y + 4, 8, jaw_h - 8,
                             border_radius=ft.BorderRadius.all(2),
                             paint=ft.Paint(color=face_color, style=ft.PaintingStyle.FILL))
                 )
-                for tooth_y in range(int(top_y + 8), int(top_y + jaw_h - 6), 7):
-                    flexlink_add_polygon(
-                        flexlink_shapes,
-                        [(face_x, tooth_y), (face_x, tooth_y + 5), (face_x + 8, tooth_y + 2.5)],
-                        face_color,
-                        "#263038",
-                        0.5,
-                    )
             else:
                 face_x = jaw_x
                 flexlink_shapes.append(
-                    cv.Rect(face_x, top_y + 5, 7, jaw_h - 10,
+                    cv.Rect(face_x, top_y + 4, 8, jaw_h - 8,
                             border_radius=ft.BorderRadius.all(2),
                             paint=ft.Paint(color=face_color, style=ft.PaintingStyle.FILL))
                 )
-                for tooth_y in range(int(top_y + 8), int(top_y + jaw_h - 6), 7):
-                    flexlink_add_polygon(
-                        flexlink_shapes,
-                        [(face_x + 7, tooth_y), (face_x + 7, tooth_y + 5), (face_x - 1, tooth_y + 2.5)],
-                        face_color,
-                        "#263038",
-                        0.5,
-                    )
 
         flexlink_shapes.append(
             cv.Rect(
-                flexlink_center_x - 118,
-                top_y - 40,
-                236,
-                25,
+                flexlink_center_x - 96,
+                top_y - 35,
+                192,
+                22,
                 border_radius=ft.BorderRadius.all(4),
-                paint=ft.Paint(color=ft.Colors.with_opacity(0.92, state_bg), style=ft.PaintingStyle.FILL),
+                paint=ft.Paint(color=ft.Colors.with_opacity(0.88, state_bg), style=ft.PaintingStyle.FILL),
             )
         )
         add_profile_text(
             flexlink_shapes,
             flexlink_center_x,
-            top_y - 35,
+            top_y - 31,
             flexlink_label,
-            size=10,
+            size=9,
             color=face_color,
             weight=ft.FontWeight.BOLD,
-            max_width=224,
+            max_width=180,
         )
 
     def redraw_flexlink_sim():
@@ -9396,37 +9360,26 @@ def main(page: ft.Page):
         stroke_top = flexlink_film["stroke_top"]
         stroke_bottom = flexlink_film["stroke_bottom"]
         stroke_len = flexlink_film["stroke_len"]
-        rail_left = max(44.0, tube_x - 166.0)
-        rail_right = min(flexlink_width - 44.0, tube_x + tube_w + 166.0)
+        rail_left = max(54.0, tube_x - 148.0)
+        rail_right = min(flexlink_width - 54.0, tube_x + tube_w + 148.0)
         flexlink_shapes.extend([
-            cv.Line(rail_left, stroke_top, rail_left, stroke_bottom, paint=canvas_paint("#647783", 3.0)),
-            cv.Line(rail_right, stroke_top, rail_right, stroke_bottom, paint=canvas_paint("#647783", 3.0)),
-            cv.Line(rail_left + 18, stroke_top, rail_left + 18, stroke_bottom, paint=canvas_paint("#24323b", 2.0)),
-            cv.Line(rail_right - 18, stroke_top, rail_right - 18, stroke_bottom, paint=canvas_paint("#24323b", 2.0)),
-            cv.Line(rail_left - 20, stroke_top, rail_right + 20, stroke_top,
-                    paint=canvas_paint(ft.Colors.with_opacity(0.36, "#cfe6ee"), 1.0, dash=[8, 8])),
-            cv.Line(rail_left - 20, stroke_bottom, rail_right + 20, stroke_bottom,
-                    paint=canvas_paint(ft.Colors.with_opacity(0.36, "#cfe6ee"), 1.0, dash=[8, 8])),
+            cv.Line(rail_left, stroke_top, rail_left, stroke_bottom, paint=canvas_paint("#4d606a", 2.0)),
+            cv.Line(rail_right, stroke_top, rail_right, stroke_bottom, paint=canvas_paint("#4d606a", 2.0)),
+            cv.Line(rail_left - 14, stroke_top, rail_right + 14, stroke_top,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.20, "#cfe6ee"), 1.0)),
+            cv.Line(rail_left - 14, stroke_bottom, rail_right + 14, stroke_bottom,
+                    paint=canvas_paint(ft.Colors.with_opacity(0.20, "#cfe6ee"), 1.0)),
         ])
         add_profile_text(
             flexlink_shapes,
             rail_left + 4,
-            stroke_top - 34,
-            "SINGLE JAW CARRIAGE",
-            size=10,
-            color=ft.Colors.GREY_300,
+            stroke_top - 28,
+            "JAW CARRIAGE",
+            size=9,
+            color=ft.Colors.GREY_400,
             align=ft.Alignment.TOP_LEFT,
             max_width=220,
         )
-
-        for arrow_y in (stroke_top + 38, stroke_top + stroke_len * 0.50, stroke_bottom - 38):
-            flexlink_add_polygon(
-                flexlink_shapes,
-                [(rail_right + 10, arrow_y), (rail_right + 22, arrow_y), (rail_right + 16, arrow_y + 16)],
-                "#667987",
-                None,
-                0,
-            )
 
         start_u = flexlink_base_in_mm / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0
         end_u = 1.0 - (flexlink_base_out_mm / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0)
@@ -9434,9 +9387,8 @@ def main(page: ft.Page):
             if not flexlink_live:
                 return stroke_top
             if flexlink_phase_in_excite:
-                return_span = max(0.001, end_u - start_u)
-                return_progress = max(0.0, min(1.0, (flexlink_phase_u - start_u) / return_span))
-                return stroke_bottom - return_progress * stroke_len
+                return_progress = (flexlink_phase_u - start_u) / max(0.001, end_u - start_u)
+                return stroke_bottom - max(0.0, min(1.0, return_progress)) * stroke_len
             contact_total = max(0.001, flexlink_base_in_mm + flexlink_base_out_mm)
             if flexlink_phase_u >= end_u:
                 contact_mm = (flexlink_phase_u - end_u) * flexlink_cycle_pitch
@@ -9445,43 +9397,22 @@ def main(page: ft.Page):
             contact_progress = max(0.0, min(1.0, contact_mm / contact_total))
             return stroke_top + contact_progress * stroke_len
 
-        target_y = flexlink_carriage_y_for_phase(flexlink_u, flexlink_in_excite)
-        jaw_y = target_y
-        jaw_in_excite = flexlink_in_excite
         actual_phase = (
-            flexlink_phase_from_slave_position(flexlink_sim_state.get("actual_slave_position"))
+            flexlink_phase_from_slave_position(flexlink_sim_state.get("slave_mpos"))
             if flexlink_live else None
         )
         if actual_phase is not None:
             jaw_y = flexlink_carriage_y_for_phase(actual_phase["u"], actual_phase["in_excite"])
             jaw_in_excite = actual_phase["in_excite"]
+        else:
+            jaw_y = flexlink_carriage_y_for_phase(0.0, False)
+            jaw_in_excite = False
         jaw_in_seal_contact = not jaw_in_excite if flexlink_live else False
         jaw_mode_label = (
             "SYNC DOWNSTROKE - JAWS CLOSED"
             if jaw_in_seal_contact else
             "OPEN RETURN / REG CORRECTION"
         )
-
-        if jaw_in_seal_contact:
-            flexlink_shapes.append(
-                cv.Oval(
-                    center_x - tube_w / 2.0 - 46,
-                    jaw_y - 58,
-                    tube_w + 92,
-                    116,
-                    paint=ft.Paint(color=ft.Colors.with_opacity(0.18, "#38e879"), style=ft.PaintingStyle.FILL),
-                )
-            )
-        else:
-            flexlink_shapes.append(
-                cv.Oval(
-                    center_x - tube_w / 2.0 - 70,
-                    jaw_y - 60,
-                    tube_w + 140,
-                    120,
-                    paint=ft.Paint(color=ft.Colors.with_opacity(0.16, "#ff983d"), style=ft.PaintingStyle.FILL),
-                )
-            )
 
         flexlink_draw_jaw_pair(
             flexlink_shapes,
@@ -9493,16 +9424,16 @@ def main(page: ft.Page):
         )
 
         flexlink_shapes.append(
-            cv.Line(center_x + tube_w / 2.0 + 82, tube_top + 10,
-                    center_x + tube_w / 2.0 + 82, tube_bottom - 20,
-                    paint=canvas_paint("#8aa8b6", 2.0))
+            cv.Line(center_x + tube_w / 2.0 + 64, tube_top + 10,
+                    center_x + tube_w / 2.0 + 64, tube_bottom - 24,
+                    paint=canvas_paint("#8aa8b6", 1.4))
         )
         flexlink_add_polygon(
             flexlink_shapes,
             [
-                (center_x + tube_w / 2.0 + 74, tube_bottom - 32),
-                (center_x + tube_w / 2.0 + 90, tube_bottom - 32),
-                (center_x + tube_w / 2.0 + 82, tube_bottom - 14),
+                (center_x + tube_w / 2.0 + 58, tube_bottom - 34),
+                (center_x + tube_w / 2.0 + 70, tube_bottom - 34),
+                (center_x + tube_w / 2.0 + 64, tube_bottom - 20),
             ],
             "#8aa8b6",
             None,
@@ -9510,35 +9441,14 @@ def main(page: ft.Page):
         )
         add_profile_text(
             flexlink_shapes,
-            center_x + tube_w / 2.0 + 96,
+            center_x + tube_w / 2.0 + 76,
             tube_top + 18,
-            "FILM DOWN",
-            size=10,
+            "FILM",
+            size=9,
             color=ft.Colors.GREY_300,
             align=ft.Alignment.TOP_LEFT,
-            max_width=78,
+            max_width=64,
         )
-
-        if flexlink_live and actual_phase is not None:
-            flexlink_shapes.append(
-                cv.Line(
-                    center_x - tube_w / 2.0 - 102,
-                    target_y,
-                    center_x + tube_w / 2.0 + 102,
-                    target_y,
-                    paint=canvas_paint(ft.Colors.with_opacity(0.72, ft.Colors.CYAN_200), 1.2, dash=[5, 5]),
-                )
-            )
-            add_profile_text(
-                flexlink_shapes,
-                center_x + tube_w / 2.0 + 108,
-                target_y - 8,
-                "target",
-                size=9,
-                color=ft.Colors.CYAN_100,
-                align=ft.Alignment.TOP_LEFT,
-                max_width=58,
-            )
 
         if flexlink_live:
             flexlink_draw_phase_strip(
@@ -9606,14 +9516,6 @@ def main(page: ft.Page):
         border_radius=8,
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
         bgcolor=DARKER_BG,
-    )
-
-    flexlink_reset_btn = ft.OutlinedButton(
-        "Re-zero",
-        icon=ft.Icons.RESTART_ALT,
-        height=38,
-        disabled=True,
-        tooltip="Use current live master/slave positions as the simulation origin.",
     )
 
     def make_flexlink_motion_button(text, icon, color, command, tooltip):
@@ -9731,7 +9633,7 @@ def main(page: ft.Page):
         color=MUTED_TEXT,
     )
 
-    def clear_flexlink_live_state(reset_origin=True):
+    def clear_flexlink_live_state():
         flexlink_sim_state["live_mode"] = False
         flexlink_sim_state["u"] = 0.0
         flexlink_sim_state["belt_offset_px"] = 0.0
@@ -9742,9 +9644,6 @@ def main(page: ft.Page):
         flexlink_sim_state["actual_slave_position"] = None
         flexlink_sim_state["expected_slave_position"] = None
         flexlink_sim_state["sync_error"] = None
-        if reset_origin:
-            flexlink_sim_state["phase_origin_mpos"] = None
-            flexlink_sim_state["slave_origin_mpos"] = None
 
     def flexlink_diag_card(label, value_control, width=185, col=None):
         kwargs = {"col": col} if col is not None else {}
@@ -9792,7 +9691,7 @@ def main(page: ft.Page):
         if flexlink_live:
             flexlink_source_label.value = f"LIVE {flexlink_master_axis}->{flexlink_slave_axis}"
             flexlink_source_label.color = SUCCESS_COLOR
-            flexlink_status_text.value = "Live MPOS/MSPEED from controller. Reset sets the current phase origin."
+            flexlink_status_text.value = "Live MPOS/MSPEED from controller. Jaw position follows absolute slave MPOS."
             flexlink_status_text.color = SUCCESS_COLOR
         elif trio_conn.is_connected():
             flexlink_source_label.value = "Waiting"
@@ -9805,7 +9704,6 @@ def main(page: ft.Page):
             flexlink_status_text.value = "Connect to a controller to enable live simulation."
             flexlink_status_text.color = MUTED_TEXT
 
-        flexlink_reset_btn.disabled = not flexlink_live
         if flexlink_live:
             flexlink_master_speed_label.value = flexlink_format_live_value(
                 flexlink_sim_state.get("master_mspeed"),
@@ -9864,15 +9762,11 @@ def main(page: ft.Page):
             flexlink_sim_state["live_mode"] = True
             flexlink_sim_state["last_live_update"] = now
             flexlink_sim_state["master_mpos"] = master_mpos
-            if flexlink_sim_state["phase_origin_mpos"] is None:
-                flexlink_sim_state["phase_origin_mpos"] = master_mpos
-
-            flexlink_master_delta = master_mpos - flexlink_sim_state["phase_origin_mpos"]
-            flexlink_snapshot = flexlink_profile_snapshot(flexlink_master_delta)
+            flexlink_snapshot = flexlink_profile_snapshot(master_mpos)
             flexlink_sim_state["u"] = flexlink_snapshot["u"]
             flexlink_sim_state["expected_slave_position"] = flexlink_snapshot["expected_position"]
             flexlink_sim_state["belt_offset_px"] = (
-                CONVEYOR_VISUAL_DIRECTION * flexlink_master_delta * scale_px_per_unit[0]
+                CONVEYOR_VISUAL_DIRECTION * master_mpos * scale_px_per_unit[0]
             ) % BELT_SPACING
             dirty = True
 
@@ -9880,13 +9774,10 @@ def main(page: ft.Page):
             flexlink_sim_state["live_mode"] = True
             flexlink_sim_state["last_live_update"] = now
             flexlink_sim_state["slave_mpos"] = slave_mpos
-            if flexlink_sim_state["slave_origin_mpos"] is None:
-                flexlink_sim_state["slave_origin_mpos"] = slave_mpos
-            flexlink_actual = slave_mpos - flexlink_sim_state["slave_origin_mpos"]
-            flexlink_sim_state["actual_slave_position"] = flexlink_actual
+            flexlink_sim_state["actual_slave_position"] = slave_mpos
             flexlink_expected = flexlink_sim_state.get("expected_slave_position")
             if flexlink_expected is not None:
-                flexlink_sim_state["sync_error"] = flexlink_actual - flexlink_expected
+                flexlink_sim_state["sync_error"] = slave_mpos - flexlink_expected
             dirty = True
 
         if dirty:
@@ -9901,7 +9792,7 @@ def main(page: ft.Page):
             if not trio_conn.is_connected() and flexlink_sim_state.get("live_mode"):
                 clear_flexlink_live_state()
             if not trio_conn.is_connected():
-                clear_flexlink_live_state(reset_origin=False)
+                clear_flexlink_live_state()
                 redraw_flexlink_sim()
                 update_flexlink_diagnostics(flexlink_frame_start, force=True)
                 _update_if_mounted(flexlink_sim_container)
@@ -9922,7 +9813,7 @@ def main(page: ft.Page):
         if flexlink_sim_running:
             return
         if not trio_conn.is_connected():
-            clear_flexlink_live_state(reset_origin=False)
+            clear_flexlink_live_state()
             redraw_flexlink_sim()
             update_flexlink_diagnostics(time.perf_counter(), force=True)
             _update_if_mounted(flexlink_sim_container)
@@ -9933,22 +9824,6 @@ def main(page: ft.Page):
     def flexlink_stop_sim():
         nonlocal flexlink_sim_running
         flexlink_sim_running = False
-
-    def flexlink_reset_sim(e):
-        if not flexlink_sim_state.get("live_mode"):
-            return
-        flexlink_sim_state["u"] = 0.0
-        flexlink_sim_state["belt_offset_px"] = 0.0
-        flexlink_sim_state["phase_origin_mpos"] = flexlink_sim_state.get("master_mpos")
-        flexlink_sim_state["slave_origin_mpos"] = flexlink_sim_state.get("slave_mpos")
-        flexlink_sim_state["actual_slave_position"] = 0.0
-        flexlink_sim_state["expected_slave_position"] = 0.0
-        flexlink_sim_state["sync_error"] = 0.0
-        redraw_flexlink_sim()
-        update_flexlink_diagnostics(time.perf_counter(), force=True)
-        page.update()
-
-    flexlink_reset_btn.on_click = flexlink_reset_sim
 
     flexlink_live_readings_row = ft.ResponsiveRow(
         [
@@ -9983,12 +9858,11 @@ def main(page: ft.Page):
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.TUNE, size=14, color=MUTED_TEXT),
-                        ft.Text("SIMULATION CONTROLS", size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD),
+                        ft.Text("SIMULATION STATUS", size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD),
                     ],
                     spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                flexlink_reset_btn,
                 flexlink_status_text,
             ],
             wrap=True,
@@ -10063,7 +9937,7 @@ def main(page: ft.Page):
     flexlink_sim_container = ft.Container(
         content=ft.Column(
             [
-                section_header("VFFS Cross-Seal Simulation", "Single jaw carriage: closed downstroke, open return", ft.Icons.PLAY_CIRCLE),
+                section_header("VFFS Cross-Seal Simulation", "Live jaw carriage and film web phase", ft.Icons.PLAY_CIRCLE),
                 ft.ResponsiveRow(
                     [flexlink_visual_panel, flexlink_right_panel],
                     columns=12,
