@@ -288,7 +288,7 @@
       }
     }
   },
-  "master_speed": "9.83",
+  "master_speed": "5.00",
   "shear_calc": {
     "cut": 90.0,
     "vline": 100.0,
@@ -332,8 +332,8 @@
     "metric": "rpm"
   },
   "flexlink_calc": {
-    "cycle_pitch": 50.0,
-    "line_speed": 50.0,
+    "cycle_pitch": 15.0,
+    "line_speed": 10.0,
     "excite_dist": 50.0,
     "base_in": 30.0,
     "base_out": 5.0,
@@ -347,8 +347,8 @@
     "repeat_mode": "flexlink_repeat",
     "base_in_mm": 3.0,
     "base_out_mm": 3.0,
-    "excite_acc_mm": 3.0,
-    "excite_dec_mm": 3.0,
+    "excite_acc_mm": 4.0,
+    "excite_dec_mm": 4.0,
     "seal_dwell_min_ms": 50.0
   },
   "rotarylink_calc": {

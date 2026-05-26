@@ -14,7 +14,8 @@
       "Bash(python -c \"import flet as ft; print\\([a for a in dir\\(ft.ScrollEvent\\) if not a.startswith\\('_'\\)]\\)\")",
       "Bash(\"E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -m pip install --quiet plotly flet-webview)",
       "Bash(E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe -c ' *)",
-      "Bash(\"E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -m pip install --quiet flet-charts==0.85.0)"
+      "Bash(\"E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -m pip install --quiet flet-charts==0.85.0)",
+      "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('e:/SynologySynchro/Projects/FlyingShear/src/flying_shear_app/app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

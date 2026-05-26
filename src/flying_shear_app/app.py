@@ -1531,8 +1531,12 @@ def main(page: ft.Page):
         ui_update_every = 2
 
         def _batch_read(axis_m, axis_s, cutter_output, read_slow_params, axis_enable_axes):
-            """Runs on the pinned UAPI thread. Returns (results, mpos_t) or
-            (None, None) if there's no connection.
+            """Runs on the pinned UAPI thread. Returns
+            (results, mpos_t, master_mpos_sample_time) or (None, None, None)
+            if there's no connection. master_mpos_sample_time is the midpoint
+            of the master MPOS read - used as the sample time for FLEXLINK
+            visual extrapolation so the displayed position is not skewed by
+            the variable batch-read tail (slave MPOS, slow params, async hop).
 
             Method lookup happens here (not on the UI thread) so the COM object
             is only ever touched from the pinned worker, and reconnects don't
@@ -1540,10 +1544,11 @@ def main(page: ft.Page):
             """
             conn = trio_conn.connection
             if not conn or not trio_conn.is_connected():
-                return None, None
+                return None, None, None
 
             results = {}
             mpos_t = None
+            master_mpos_sample_time = None
             mpos_errors = 0
             try:
                 results[("CUTTER_OUTPUT", "state")] = trio_conn.read_digital_output(cutter_output)
@@ -1578,7 +1583,9 @@ def main(page: ft.Page):
                         t0 = time.perf_counter()
                     val_m = method(axis_m)
                     if pn == "MPOS":
-                        mpos_t = (time.perf_counter() - t0) * 1000.0
+                        t1 = time.perf_counter()
+                        mpos_t = (t1 - t0) * 1000.0
+                        master_mpos_sample_time = (t0 + t1) * 0.5
                     results[(pn, "m")] = val_m
                 except Exception:
                     results[(pn, "m")] = "ERR"
@@ -1594,7 +1601,7 @@ def main(page: ft.Page):
                         mpos_errors += 1
             if mpos_errors >= 2:
                 trio_conn.mark_connection_lost()
-            return results, mpos_t
+            return results, mpos_t, master_mpos_sample_time
 
         while monitor_running:
             # Outside the try so it's always defined for the frame-pacing math
@@ -1612,7 +1619,7 @@ def main(page: ft.Page):
                 axis_enable_axes = get_solution_involved_axes(active_solution_key())
 
                 # Single thread-crossing call for ALL reads
-                results, mpos_t = await loop.run_in_executor(
+                results, mpos_t, master_mpos_sample_time = await loop.run_in_executor(
                     uapi_executor,
                     _batch_read,
                     axis_m_val,
@@ -1625,6 +1632,16 @@ def main(page: ft.Page):
                 if results is None:
                     await asyncio.sleep(0.1)
                     continue
+                sample_received_time = time.perf_counter()
+                # Sample time for the FLEXLINK master extrapolator. Prefer the
+                # in-flight MPOS read midpoint over sample_received_time so the
+                # variable batch tail (slave MPOS, slow params, async hop)
+                # doesn't skew the elapsed-time calculation.
+                flexlink_master_sample_time = (
+                    master_mpos_sample_time
+                    if master_mpos_sample_time is not None
+                    else sample_received_time
+                )
 
                 if mpos_t is not None:
                     comms_lag_samples.append(mpos_t)
@@ -1755,7 +1772,7 @@ def main(page: ft.Page):
                         mpos_val_s,
                         mspeed_val_m,
                         mspeed_val_s,
-                        frame_start,
+                        flexlink_master_sample_time,
                     ):
                         dirty = True
                 except NameError:
@@ -8831,11 +8848,16 @@ def main(page: ft.Page):
         "slave_mpos": None,
         "master_mspeed": None,
         "slave_mspeed": None,
+        "master_visual_speed": None,
+        "slave_visual_speed": None,
         "actual_slave_position": None,
         "expected_slave_position": None,
         "sync_error": None,
         "last_live_update": 0.0,
+        "master_position_time": 0.0,
+        "slave_position_time": 0.0,
         "last_diag_update": 0.0,
+        "last_visual_update": 0.0,
     }
 
     def flexlink_profile_snapshot(master_delta=None):
@@ -8964,6 +8986,70 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             return "--"
         return f"{val:.{digits}f}{suffix}"
+
+    def flexlink_update_position_sample(position_key, time_key, visual_speed_key, new_position, now, unwrap_distance=None):
+        try:
+            position = float(new_position)
+        except (TypeError, ValueError):
+            return
+
+        previous_position = None
+        previous_time = None
+        try:
+            previous_position = float(flexlink_sim_state.get(position_key))
+            previous_time = float(flexlink_sim_state.get(time_key) or 0.0)
+        except (TypeError, ValueError):
+            pass
+
+        if previous_position is not None and previous_time and now > previous_time:
+            sample_dt = now - previous_time
+            delta = position - previous_position
+            # If the source axis wraps (e.g. master MPOS with REP_DIST set to
+            # cycle_pitch on a rotary master), the delta at a wrap looks like
+            # a huge negative jump. Untreated, visual_speed spikes negative for
+            # one sample interval and the extrapolator then projects backwards,
+            # making the jaw and film swing erratically right where the yellow
+            # cursor wraps. Unwrap the delta for the speed calc only - the
+            # stored position remains what the controller actually reports.
+            if unwrap_distance and delta < -unwrap_distance * 0.5:
+                delta += unwrap_distance
+            if 0.004 <= sample_dt <= 0.25:
+                flexlink_sim_state[visual_speed_key] = delta / sample_dt
+
+        flexlink_sim_state[position_key] = position
+        flexlink_sim_state[time_key] = now
+
+    def flexlink_extrapolated_position(position_key, visual_speed_key, speed_key, time_key, now):
+        try:
+            position = float(flexlink_sim_state.get(position_key))
+        except (TypeError, ValueError):
+            return None
+        try:
+            sample_time = float(flexlink_sim_state.get(time_key) or now)
+        except (TypeError, ValueError):
+            return position
+        # Prefer the locally averaged visual_speed over the controller's
+        # instantaneous mspeed. Now that sample_time is the precise MPOS read
+        # midpoint, visual_speed = Δpos / Δt is the exact average velocity
+        # between two samples, which for a constant-velocity master is just
+        # the line speed - no noise. Controller MSPEED is instantaneous and
+        # only refreshed every 3rd monitor frame, so it introduces a
+        # stale-vs-new step on each refresh. Fall back to mspeed only until
+        # we have two samples to compute visual_speed from.
+        speed = None
+        for candidate_key in (visual_speed_key, speed_key):
+            try:
+                speed = float(flexlink_sim_state.get(candidate_key))
+                break
+            except (TypeError, ValueError):
+                pass
+        if speed is None:
+            return position
+        # Cap at 0.5 s so the display freezes if the controller actually stops
+        # responding, but does not freeze just because a UAPI batch read ran
+        # long. Safe for constant-velocity master extrapolation.
+        elapsed = max(0.0, min(0.5, now - sample_time))
+        return position + speed * elapsed
 
     def flexlink_fill_paint(flexlink_color):
         return ft.Paint(color=flexlink_color, style=ft.PaintingStyle.FILL)
@@ -9137,6 +9223,29 @@ def main(page: ft.Page):
                 paint=canvas_paint(ft.Colors.with_opacity(0.20, "#17434c"), 1.0, dash=[10, 9]),
             ),
         ])
+
+        flow_pitch = 82.0
+        flow_y = flexlink_tube_top - flow_pitch + (flexlink_phase_px % flow_pitch)
+        while flow_y < flexlink_tube_bottom + flow_pitch:
+            if flexlink_tube_top + 18 <= flow_y <= flexlink_tube_bottom - 28:
+                flow_x = flexlink_center_x
+                flexlink_shapes.extend([
+                    cv.Line(
+                        flow_x - 12,
+                        flow_y,
+                        flow_x,
+                        flow_y + 12,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.22, "#d9f7ff"), 1.1),
+                    ),
+                    cv.Line(
+                        flow_x + 12,
+                        flow_y,
+                        flow_x,
+                        flow_y + 12,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.22, "#d9f7ff"), 1.1),
+                    ),
+                ])
+            flow_y += flow_pitch
 
         flexlink_visible_seals = []
         flexlink_y = flexlink_seal_zero_y - flexlink_bag_pitch_px + flexlink_phase_px
@@ -9400,10 +9509,34 @@ def main(page: ft.Page):
         flexlink_base_out_mm = flexlink_metrics["base_out_mm"]
         flexlink_open_window = flexlink_metrics["open_window"]
         flexlink_curve_type = str(flexlink_settings.get("curve_type", "sine"))
-        try:
-            flexlink_u = float(flexlink_sim_state.get("u", 0.0) or 0.0) % 1.0
-        except (TypeError, ValueError):
-            flexlink_u = 0.0
+        flexlink_live = bool(flexlink_sim_state.get("live_mode")) and trio_conn.is_connected()
+        flexlink_draw_time = time.perf_counter()
+        flexlink_display_master_mpos = (
+            flexlink_extrapolated_position(
+                "master_mpos",
+                "master_visual_speed",
+                "master_mspeed",
+                "master_position_time",
+                flexlink_draw_time,
+            )
+            if flexlink_live else None
+        )
+        if flexlink_display_master_mpos is not None:
+            # Compute u for the display directly from master position via mod,
+            # rather than going through flexlink_profile_snapshot. The snapshot
+            # has a "snap to cycle boundary" zone (~0.6 mm wide) for control
+            # logic - good for cycle detection but it makes u jump from 0.999
+            # straight to 0 about 0.3 mm before the real wrap, which shows up
+            # as a small step right where the yellow cursor reverses.
+            flexlink_u = (
+                float(flexlink_display_master_mpos) % flexlink_cycle_pitch
+            ) / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0
+            flexlink_u = max(0.0, min(1.0, flexlink_u))
+        else:
+            try:
+                flexlink_u = float(flexlink_sim_state.get("u", 0.0) or 0.0) % 1.0
+            except (TypeError, ValueError):
+                flexlink_u = 0.0
         flexlink_excite_progress, flexlink_in_excite = flexlink_excitation_progress(
             flexlink_u,
             flexlink_cycle_pitch,
@@ -9414,7 +9547,6 @@ def main(page: ft.Page):
             flexlink_curve_type,
         )
         flexlink_in_seal_contact = not flexlink_in_excite
-        flexlink_live = bool(flexlink_sim_state.get("live_mode")) and trio_conn.is_connected()
         if not flexlink_live:
             flexlink_u = 0.0
             flexlink_excite_progress = 0.0
@@ -9474,13 +9606,15 @@ def main(page: ft.Page):
             contact_progress = max(0.0, min(1.0, contact_mm / contact_total))
             return stroke_top + contact_progress * stroke_len
 
-        actual_phase = (
-            flexlink_phase_from_slave_position(flexlink_sim_state.get("slave_mpos"))
-            if flexlink_live else None
-        )
-        if actual_phase is not None:
-            jaw_y = flexlink_carriage_y_for_phase(actual_phase["u"], actual_phase["in_excite"])
-            jaw_in_excite = actual_phase["in_excite"]
+        # Drive the jaw from master phase, not slave_mpos. The slave runs an
+        # s-curve through the open window, but slave_visual_speed only refreshes
+        # per controller sample and the extrapolator is capped at 40 ms - that
+        # makes the displayed position snap on every sample (the "double jump"
+        # during the return). Master moves at constant velocity, so flexlink_u
+        # is linear in time and the carriage stays smooth.
+        if flexlink_live:
+            jaw_y = flexlink_carriage_y_for_phase(flexlink_u, flexlink_in_excite)
+            jaw_in_excite = flexlink_in_excite
         else:
             jaw_y = flexlink_carriage_y_for_phase(0.0, False)
             jaw_in_excite = False
@@ -9505,6 +9639,21 @@ def main(page: ft.Page):
                     center_x + tube_w / 2.0 + 64, tube_bottom - 24,
                     paint=canvas_paint("#8aa8b6", 1.4))
         )
+        side_arrow_x = center_x + tube_w / 2.0 + 64
+        side_arrow_y = tube_top + 54 + ((flexlink_u * 72.0) % 72.0)
+        while side_arrow_y < tube_bottom - 64:
+            flexlink_add_polygon(
+                flexlink_shapes,
+                [
+                    (side_arrow_x - 5, side_arrow_y),
+                    (side_arrow_x + 5, side_arrow_y),
+                    (side_arrow_x, side_arrow_y + 12),
+                ],
+                ft.Colors.with_opacity(0.46, "#8aa8b6"),
+                None,
+                0,
+            )
+            side_arrow_y += 112.0
         flexlink_add_polygon(
             flexlink_shapes,
             [
@@ -9520,11 +9669,11 @@ def main(page: ft.Page):
             flexlink_shapes,
             center_x + tube_w / 2.0 + 76,
             tube_top + 18,
-            "FILM",
+            "FILM DOWN",
             size=9,
             color=ft.Colors.GREY_300,
             align=ft.Alignment.TOP_LEFT,
-            max_width=64,
+            max_width=76,
         )
 
         if flexlink_live:
@@ -9718,9 +9867,14 @@ def main(page: ft.Page):
         flexlink_sim_state["slave_mpos"] = None
         flexlink_sim_state["master_mspeed"] = None
         flexlink_sim_state["slave_mspeed"] = None
+        flexlink_sim_state["master_visual_speed"] = None
+        flexlink_sim_state["slave_visual_speed"] = None
         flexlink_sim_state["actual_slave_position"] = None
         flexlink_sim_state["expected_slave_position"] = None
         flexlink_sim_state["sync_error"] = None
+        flexlink_sim_state["master_position_time"] = 0.0
+        flexlink_sim_state["slave_position_time"] = 0.0
+        flexlink_sim_state["last_visual_update"] = 0.0
 
     def flexlink_diag_card(label, value_control, width=185, col=None):
         kwargs = {"col": col} if col is not None else {}
@@ -9838,7 +9992,14 @@ def main(page: ft.Page):
         if master_mpos is not None:
             flexlink_sim_state["live_mode"] = True
             flexlink_sim_state["last_live_update"] = now
-            flexlink_sim_state["master_mpos"] = master_mpos
+            flexlink_update_position_sample(
+                "master_mpos",
+                "master_position_time",
+                "master_visual_speed",
+                master_mpos,
+                now,
+                unwrap_distance=max(1.0, flexlink_setting_float("cycle_pitch", 300.0)),
+            )
             flexlink_snapshot = flexlink_profile_snapshot(master_mpos)
             flexlink_sim_state["u"] = flexlink_snapshot["u"]
             flexlink_sim_state["expected_slave_position"] = flexlink_snapshot["expected_position"]
@@ -9850,18 +10011,27 @@ def main(page: ft.Page):
         if slave_mpos is not None:
             flexlink_sim_state["live_mode"] = True
             flexlink_sim_state["last_live_update"] = now
-            flexlink_sim_state["slave_mpos"] = slave_mpos
+            flexlink_update_position_sample(
+                "slave_mpos",
+                "slave_position_time",
+                "slave_visual_speed",
+                slave_mpos,
+                now,
+            )
             flexlink_sim_state["actual_slave_position"] = slave_mpos
             flexlink_expected = flexlink_sim_state.get("expected_slave_position")
             if flexlink_expected is not None:
                 flexlink_sim_state["sync_error"] = slave_mpos - flexlink_expected
             dirty = True
 
-        if dirty:
+        flexlink_loop_owns_visual = flexlink_sim_running and trio_conn.is_connected()
+        visual_dirty = False
+        if dirty and not flexlink_loop_owns_visual:
             redraw_flexlink_sim()
-        if update_flexlink_diagnostics(now):
-            dirty = True
-        return dirty
+            visual_dirty = True
+        if not flexlink_loop_owns_visual and update_flexlink_diagnostics(now):
+            visual_dirty = True
+        return visual_dirty
 
     async def flexlink_sim_loop():
         while flexlink_sim_running:
@@ -9879,7 +10049,14 @@ def main(page: ft.Page):
                 update_flexlink_diagnostics(flexlink_frame_start, force=True)
                 _update_if_mounted(flexlink_sim_container)
             if trio_conn.is_connected() and flexlink_sim_state.get("live_mode"):
+                flexlink_dirty = False
+                if flexlink_frame_start - flexlink_sim_state.get("last_visual_update", 0.0) >= FRAME_BUDGET:
+                    flexlink_sim_state["last_visual_update"] = flexlink_frame_start
+                    redraw_flexlink_sim()
+                    flexlink_dirty = True
                 if update_flexlink_diagnostics(flexlink_frame_start):
+                    flexlink_dirty = True
+                if flexlink_dirty:
                     _update_if_mounted(flexlink_sim_container)
             flexlink_elapsed = time.perf_counter() - flexlink_frame_start
             flexlink_remaining = FRAME_BUDGET - flexlink_elapsed
