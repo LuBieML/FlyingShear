@@ -18,7 +18,7 @@
   "scale_px_per_unit": 18.0,
   "solution_axis_params": {
     "flying_shear": {
-      "target_axis": "5",
+      "target_axis": "0",
       "axis_params": {
         "1": {
           "UNITS": "2097152.0",
@@ -288,7 +288,7 @@
       }
     }
   },
-  "master_speed": "2.42",
+  "master_speed": "6.54",
   "shear_calc": {
     "cut": 30.0,
     "vline": 40.0,
@@ -299,7 +299,7 @@
     "link_pos": 0.0,
     "base_dist": 0.0,
     "profile": "trapezoid",
-    "start_mode": "immediate",
+    "start_mode": "absolute",
     "link_source": "mpos",
     "direction_mode": "any",
     "repeat_mode": "program_loop",
@@ -308,11 +308,11 @@
   "cam_calc": {
     "cut": 10.0,
     "drum_dia": 20.0,
-    "n_knives": 5,
+    "n_knives": 1,
     "cut_window": 20.0,
     "cpr": 8388608,
     "n_points": 20000,
-    "blend": 0.4,
+    "blend": 0.9,
     "vline": 10.0,
     "table_start": 1000,
     "drum_circumference": 62.83185307179586,
@@ -324,7 +324,7 @@
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
     "show_debug": false,
-    "slave_jog_speed": "100"
+    "slave_jog_speed": "10"
   },
   "cam_profile_view": {
     "start_deg": 0.0,
@@ -362,7 +362,7 @@
     "profile": "trapezoid",
     "start_mode": "absolute",
     "link_source": "mpos",
-    "merge": true,
+    "merge": false,
     "repeat_mode": "program_loop",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
@@ -371,7 +371,7 @@
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
     "rl_units": 133508.8428860218,
-    "cut_length": 50.0,
+    "cut_length": 100.0,
     "decel": 10.0
   },
   "point_to_point": {

@@ -362,6 +362,94 @@ class TrioConnection:
     def is_connected(self) -> bool:
         return bool(self.connection) and bool(self._is_open)
 
+    def _normalize_axis_numbers(self, axes) -> list[int]:
+        normalized_axes = []
+        seen_axes = set()
+        for axis in axes or []:
+            try:
+                axis_number = int(axis)
+            except (TypeError, ValueError):
+                raise ValueError(f"Axis number must be an integer: {axis!r}") from None
+            if axis_number < 0:
+                raise ValueError(f"Axis number must be >= 0: {axis_number}")
+            if axis_number in seen_axes:
+                continue
+            seen_axes.add(axis_number)
+            normalized_axes.append(axis_number)
+        return normalized_axes
+
+    def _set_servo_for_axes(self, conn, axis_numbers, enabled: bool) -> None:
+        set_servo = getattr(conn, "SetAxisParameter_SERVO", None)
+        if set_servo is None:
+            set_axis_bool = getattr(conn, "SetAxisParameterBoolValue", None)
+            if set_axis_bool is None:
+                raise RuntimeError("SetAxisParameter_SERVO is not available in this Trio UAPI binding")
+            for axis in axis_numbers:
+                set_axis_bool("SERVO", axis, enabled)
+            return
+
+        for axis in axis_numbers:
+            set_servo(axis, enabled)
+
+    def read_axis_enable_state(self, axes):
+        """Read WDOG and SERVO state for the supplied axes."""
+        if not self.is_connected():
+            raise RuntimeError("Cannot read Axis Enable state: not connected")
+
+        axis_numbers = self._normalize_axis_numbers(axes)
+        conn = self.connection
+        if not conn:
+            raise RuntimeError("Cannot read Axis Enable state: no Trio connection")
+
+        get_wdog = getattr(conn, "GetSystemParameter_WDOG", None)
+        if get_wdog is None:
+            raise RuntimeError("GetSystemParameter_WDOG is not available in this Trio UAPI binding")
+        wdog_enabled = bool(get_wdog())
+
+        servo_states = {}
+        get_servo = getattr(conn, "GetAxisParameter_SERVO", None)
+        if get_servo is not None:
+            for axis in axis_numbers:
+                servo_states[axis] = bool(get_servo(axis))
+
+        all_servos_enabled = all(servo_states.get(axis, False) for axis in axis_numbers)
+        return {
+            "enabled": bool(wdog_enabled and all_servos_enabled),
+            "wdog_enabled": wdog_enabled,
+            "servo_axes": axis_numbers,
+            "servo_states": servo_states,
+        }
+
+    def set_axis_enable(self, axes, enabled: bool):
+        """Set WDOG and SERVO for the supplied axes as one UI action."""
+        if not self.is_connected():
+            raise RuntimeError("Cannot set Axis Enable: not connected")
+
+        axis_numbers = self._normalize_axis_numbers(axes)
+        conn = self.connection
+        if not conn:
+            raise RuntimeError("Cannot set Axis Enable: no Trio connection")
+
+        enabled = bool(enabled)
+        if enabled:
+            self._set_servo_for_axes(conn, axis_numbers, True)
+            conn.SetSystemParameter_WDOG(True)
+        else:
+            conn.SetSystemParameter_WDOG(False)
+            self._set_servo_for_axes(conn, axis_numbers, False)
+
+        result = self.read_axis_enable_state(axis_numbers)
+        logging.info(
+            "Set Axis Enable %s for axes %s",
+            "ON" if enabled else "OFF",
+            axis_numbers,
+        )
+        return result
+
+    def enable_wdog_and_servo(self, axes):
+        """Enable the controller watchdog and SERVO for the supplied axes."""
+        return self.set_axis_enable(axes, True)
+
     def read_digital_output(self, output_number: int) -> bool:
         """Read the state of one controller digital output."""
         if not self.is_connected():

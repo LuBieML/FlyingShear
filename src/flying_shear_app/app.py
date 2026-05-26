@@ -741,19 +741,19 @@ def main(page: ft.Page):
         wdog_btn.disabled = busy or not trio_conn.is_connected()
 
         if busy:
-            wdog_btn.text = "WDOG ..."
+            wdog_btn.text = "Axis Enable ..."
             bg_color = ft.Colors.AMBER_700
         elif error:
-            wdog_btn.text = "WDOG ERR"
+            wdog_btn.text = "Axis Enable ERR"
             bg_color = ft.Colors.RED_700
         elif enabled is True:
-            wdog_btn.text = "WDOG ON"
+            wdog_btn.text = "Axis Enable ON"
             bg_color = ft.Colors.GREEN_700
         elif enabled is False:
-            wdog_btn.text = "WDOG OFF"
+            wdog_btn.text = "Axis Enable OFF"
             bg_color = ft.Colors.BLUE_GREY_700
         else:
-            wdog_btn.text = "WDOG --"
+            wdog_btn.text = "Axis Enable --"
             bg_color = ft.Colors.GREY_700
 
         wdog_btn.style = ft.ButtonStyle(bgcolor=bg_color, color=ft.Colors.WHITE)
@@ -770,13 +770,15 @@ def main(page: ft.Page):
             conn = trio_conn.connection
             if not conn or not trio_conn.is_connected():
                 return None
-            return bool(conn.GetSystemParameter_WDOG())
+            return trio_conn.read_axis_enable_state(get_solution_involved_axes(active_solution_key()))
 
         try:
-            enabled = await loop.run_in_executor(uapi_executor, _read)
-            _set_wdog_button_state(enabled)
+            axis_enable_state = await loop.run_in_executor(uapi_executor, _read)
+            _set_wdog_button_state(
+                None if axis_enable_state is None else bool(axis_enable_state.get("enabled"))
+            )
         except Exception as ex:
-            print(f"WDOG read error: {ex}")
+            print(f"Axis enable read error: {ex}")
             _set_wdog_button_state(None, error=True)
         page.update()
 
@@ -784,39 +786,95 @@ def main(page: ft.Page):
         if wdog_state["busy"] or not trio_conn.is_connected():
             return
 
+        solution_key = active_solution_key()
+        involved_axes = get_solution_involved_axes(solution_key)
+        involved_axes_text = _format_axes(involved_axes)
         target_enabled = not bool(wdog_state["enabled"])
+        action = "Enabling" if target_enabled else "Disabling"
+        result_label = "ON" if target_enabled else "OFF"
+
+        status_text.value = f"{action} axes for {involved_axes_text}..."
+        status_text.color = ft.Colors.WHITE
         _set_wdog_button_state(wdog_state["enabled"], busy=True)
         page.update()
 
         loop = asyncio.get_running_loop()
 
-        def _write():
-            conn = trio_conn.connection
-            if not conn or not trio_conn.is_connected():
-                return None
-            conn.SetSystemParameter_WDOG(target_enabled)
-            return bool(conn.GetSystemParameter_WDOG())
-
         try:
-            enabled = await loop.run_in_executor(uapi_executor, _write)
-            _set_wdog_button_state(enabled)
+            enable_result = await loop.run_in_executor(
+                uapi_executor,
+                trio_conn.set_axis_enable,
+                involved_axes,
+                target_enabled,
+            )
+            _set_wdog_button_state(bool(enable_result.get("enabled", False)))
+            status_text.value = f"Axis Enable {result_label} for {involved_axes_text}."
+            status_text.color = SUCCESS_COLOR
+            show_snack(f"Axis Enable {result_label} for {involved_axes_text}.", "success")
         except Exception as ex:
-            print(f"WDOG write error: {ex}")
+            print(f"Axis enable error: {ex}")
             _set_wdog_button_state(None, error=True)
-            status_text.value = f"WDOG control failed: {ex}"
+            status_text.value = f"Axis Enable failed: {ex}"
             status_text.color = ERROR_COLOR
-            show_snack(f"WDOG control failed: {ex}", "error")
+            show_snack(f"Axis Enable failed: {ex}", "error")
         page.update()
 
     wdog_btn = ft.FilledButton(
-        "WDOG --",
+        "Axis Enable --",
         icon=ft.Icons.POWER_SETTINGS_NEW,
         on_click=on_wdog_click,
         disabled=True,
         height=38,
-        tooltip="Toggle controller WDOG master enable",
+        width=165,
+        tooltip="Toggle controller WDOG and SERVO for all active solution axes",
         style=ft.ButtonStyle(bgcolor=ft.Colors.GREY_700, color=ft.Colors.WHITE),
     )
+
+    def _add_unique_axis(axis_values, axis):
+        try:
+            axis_number = int(axis)
+        except (TypeError, ValueError):
+            return
+        if axis_number < 0 or axis_number in axis_values:
+            return
+        axis_values.append(axis_number)
+
+    def _format_axes(axis_values):
+        return ", ".join(f"Axis {axis}" for axis in axis_values) if axis_values else "no axes"
+
+    def get_solution_involved_axes(solution=None):
+        solution_key = active_solution_key(solution)
+        axes = []
+        solution_block = get_solution_axis_block(solution_key, create=False)
+
+        if solution_key == "point_to_point":
+            try:
+                example = point_to_point_example_dropdown.value or "square"
+            except NameError:
+                example = str(point_to_point_settings.get("example", "square"))
+
+            if example == "square":
+                try:
+                    _add_unique_axis(axes, point_to_point_x_axis_dropdown.value)
+                    _add_unique_axis(axes, point_to_point_y_axis_dropdown.value)
+                except NameError:
+                    _add_unique_axis(axes, point_to_point_settings.get("x_axis", "0"))
+                    _add_unique_axis(axes, point_to_point_settings.get("y_axis", "1"))
+            else:
+                try:
+                    _add_unique_axis(axes, point_to_point_axis_dropdown.value)
+                except NameError:
+                    _add_unique_axis(axes, point_to_point_settings.get("axis", "0"))
+        else:
+            _add_unique_axis(axes, axis_m_dropdown.value or settings.get("master_axis", "0"))
+            _add_unique_axis(axes, axis_s_dropdown.value or settings.get("slave_axis", "1"))
+
+        for key in ("axis_params", "axes"):
+            axis_config = solution_block.get(key) if isinstance(solution_block, dict) else None
+            if isinstance(axis_config, dict):
+                for axis in axis_config.keys():
+                    _add_unique_axis(axes, axis)
+        return axes
 
     # --- Master axis Forward / Reverse / Cancel buttons ---
     # Mirrors the gcode parser's jog commands (machine_controller.start_jog / stop_jog):
@@ -1472,7 +1530,7 @@ def main(page: ft.Page):
         # refreshed every frame and flushed on the next .update() tick.
         ui_update_every = 2
 
-        def _batch_read(axis_m, axis_s, cutter_output, read_slow_params):
+        def _batch_read(axis_m, axis_s, cutter_output, read_slow_params, axis_enable_axes):
             """Runs on the pinned UAPI thread. Returns (results, mpos_t) or
             (None, None) if there's no connection.
 
@@ -1493,9 +1551,11 @@ def main(page: ft.Page):
                 results[("CUTTER_OUTPUT", "state")] = "ERR"
             if read_slow_params:
                 try:
-                    results[("WDOG", "state")] = bool(conn.GetSystemParameter_WDOG())
+                    results[("AXIS_ENABLE", "state")] = bool(
+                        trio_conn.read_axis_enable_state(axis_enable_axes)["enabled"]
+                    )
                 except Exception:
-                    results[("WDOG", "state")] = "ERR"
+                    results[("AXIS_ENABLE", "state")] = "ERR"
                 method = getattr(conn, "GetAxisParameter_DEMAND_SPEED", None)
                 if method is None:
                     results[("DEMAND_SPEED", "s")] = None
@@ -1549,10 +1609,17 @@ def main(page: ft.Page):
                 fps_timestamps.append(frame_start)
                 frame_counter += 1
                 read_slow = (frame_counter % 3 == 0)
+                axis_enable_axes = get_solution_involved_axes(active_solution_key())
 
                 # Single thread-crossing call for ALL reads
                 results, mpos_t = await loop.run_in_executor(
-                    uapi_executor, _batch_read, axis_m_val, axis_s_val, cutter_output_val, read_slow
+                    uapi_executor,
+                    _batch_read,
+                    axis_m_val,
+                    axis_s_val,
+                    cutter_output_val,
+                    read_slow,
+                    axis_enable_axes,
                 )
 
                 if results is None:
@@ -1575,13 +1642,13 @@ def main(page: ft.Page):
                 if _set_cutter_output_lamp(cutter_output_val, cutter_state):
                     dirty = True
 
-                wdog_raw = results.get(("WDOG", "state"))
-                if wdog_raw == "ERR":
+                axis_enable_raw = results.get(("AXIS_ENABLE", "state"))
+                if axis_enable_raw == "ERR":
                     _set_wdog_button_state(None, error=True)
                     _update_if_mounted(wdog_btn)
-                elif isinstance(wdog_raw, bool) and not wdog_state["busy"]:
-                    if wdog_state["enabled"] != wdog_raw or wdog_btn.disabled:
-                        _set_wdog_button_state(wdog_raw)
+                elif isinstance(axis_enable_raw, bool) and not wdog_state["busy"]:
+                    if wdog_state["enabled"] != axis_enable_raw or wdog_btn.disabled:
+                        _set_wdog_button_state(axis_enable_raw)
                         _update_if_mounted(wdog_btn)
 
                 target_blade_extension = BLADE_CUT_EXTENSION if cutter_raw is True else BLADE_IDLE_EXTENSION
@@ -1829,6 +1896,7 @@ def main(page: ft.Page):
         # Capture the Flet event loop so background-thread status_callback()
         # invocations can marshal UI updates back via call_soon_threadsafe.
         ui_loop_holder["loop"] = asyncio.get_running_loop()
+        solution_key = active_solution_key()
         status_text.value = "Connecting..."
         status_text.color = ft.Colors.WHITE
         connect_btn.disabled = True
@@ -1845,8 +1913,33 @@ def main(page: ft.Page):
             success = False
 
         if success:
-            status_text.value = "Connected Successfully!"
-            status_text.color = SUCCESS_COLOR
+            involved_axes = get_solution_involved_axes(solution_key)
+            involved_axes_text = _format_axes(involved_axes)
+            enable_error = None
+
+            try:
+                status_text.value = f"Enabling axes for {involved_axes_text}..."
+                status_text.color = ft.Colors.WHITE
+                _set_wdog_button_state(None, busy=True)
+                page.update()
+                enable_result = await loop.run_in_executor(
+                    uapi_executor,
+                    trio_conn.set_axis_enable,
+                    involved_axes,
+                    True,
+                )
+                _set_wdog_button_state(bool(enable_result.get("enabled", False)))
+            except Exception as ex:
+                print(f"Controller enable error: {ex}")
+                enable_error = ex
+                _set_wdog_button_state(None, error=True)
+
+            status_text.value = (
+                "Connected Successfully!"
+                if enable_error is None
+                else f"Connected, but Axis Enable failed: {enable_error}"
+            )
+            status_text.color = SUCCESS_COLOR if enable_error is None else WARNING_COLOR
             connect_btn.disabled = True
             ip_input.disabled = True
             connect_progress.visible = False
@@ -1855,7 +1948,16 @@ def main(page: ft.Page):
             except NameError:
                 pass
             page.update()
-            show_snack("Controller connected. Live monitor is starting.", "success")
+            if enable_error is None:
+                show_snack(
+                    f"Controller connected. Axis Enable ON for {involved_axes_text}.",
+                    "success",
+                )
+            else:
+                show_snack(
+                    f"Controller connected, but Axis Enable failed: {enable_error}",
+                    "warning",
+                )
 
             await refresh_wdog_state()
             try:
@@ -1863,16 +1965,28 @@ def main(page: ft.Page):
             except NameError:
                 pass
             start_monitor()
-            solution_key = active_solution_key()
             solution_name = solution_label(solution_key)
             saved_sets = get_saved_axis_param_sets(solution_key)
             if saved_sets:
-                status_text.value = f"Connected. Review {solution_name} axis parameters before applying."
+                if enable_error is None:
+                    status_text.value = f"Connected. Review {solution_name} axis parameters before applying."
+                else:
+                    status_text.value = (
+                        f"Connected. Axis Enable failed for {involved_axes_text}. "
+                        f"Review {solution_name} axis parameters before applying."
+                    )
                 status_text.color = WARNING_COLOR
                 show_saved_params_dialog(saved_sets, solution_key)
             else:
-                status_text.value = f"Connected. No saved {solution_name} axis parameters found."
-                status_text.color = SUCCESS_COLOR
+                if enable_error is None:
+                    status_text.value = (
+                        f"Connected. Axis Enable ON for {involved_axes_text}. "
+                        f"No saved {solution_name} axis parameters found."
+                    )
+                    status_text.color = SUCCESS_COLOR
+                else:
+                    status_text.value = f"Connected. Axis Enable failed for {involved_axes_text}: {enable_error}"
+                    status_text.color = WARNING_COLOR
                 page.update()
         else:
             status_text.value = "Connection Failed."
@@ -10317,7 +10431,7 @@ def main(page: ft.Page):
     connection_panel = ft.Container(
         content=ft.Column(
             [
-                section_header("Controller Connection", "Connect first, then verify watchdog and saved parameters", ft.Icons.LAN),
+                section_header("Controller Connection", "Connect first, then verify Axis Enable and saved parameters", ft.Icons.LAN),
                 conn_row,
             ],
             spacing=12,
