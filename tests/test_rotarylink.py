@@ -378,22 +378,22 @@ class RotaryLinkTests(unittest.TestCase):
             cut_length=800,
         )
 
+        self.assertTrue(program.startswith("CANCEL(2)\nWA(100)\n\n"))
         startup_setup = (
-            "CANCEL(2)\n"
-            "WA(200)\n"
-            "\n"
             "BASE(link_ax)\n"
             "SERVO = ON\n"
             "DEFPOS(0)\n"
             "\n"
             "BASE(base_ax)\n"
             "SERVO = ON\n"
-            "DEFPOS(0)"
+            "DEFPOS(0)\n"
+            "WA(100)"
         )
         base_setup = "BASE(base_ax)\nSERVO = ON\nDEFPOS(0)"
         self.assertIn(startup_setup, program)
         self.assertIn(base_setup, program)
         self.assertLess(program.index(startup_setup), program.index("WHILE (1)"))
+        self.assertNotIn("WA(200)", program)
         self.assertNotIn("' Add controller-specific axis setup here.", program)
         self.assertNotIn("FORWARD AXIS(link_ax)", program)
 

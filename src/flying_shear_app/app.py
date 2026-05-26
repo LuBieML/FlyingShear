@@ -3083,18 +3083,22 @@ def main(page: ft.Page):
         loop_end = "" if repeat_mode == "movelink_repeat" else "WEND\n"
 
         code_output.value = (
+            f"CANCEL(2)\n"
+            f"WA(100)\n"
+            f"\n"
             f"shear_ax  = {shear_ax}\n"
             f"link_ax   = {link_ax}\n"
             f"cutter_op = {cutter_output}\n"
             f"link_options = {link_options}\n"
             f"link_pos = {link_pos:.3f}\n"
             f"\n"
+            f"BASE(link_ax)\n"
+            f"DEFPOS(0)\n"
+            f"\n"
             f"BASE(shear_ax)\n"
             f"SERVO = ON\n"
-            f"SPEED=100\n"
-            f"MOVEABS(0)\n"
-            f"WAIT IDLE\n"
             f"DEFPOS(0)\n"
+            f"WA(100)\n"
             f"\n"
             f"{loop_start}"
             f"{line_prefix}' Accel to MAX line speed\n"
@@ -5161,7 +5165,6 @@ def main(page: ft.Page):
     rotary_sim_settings.setdefault("drum_direction_reversed", False)
     rotary_sim_settings.setdefault("link_units_to_mm", 1.0)
     rotary_sim_settings.setdefault(ROTARY_MPOS_OVERRIDE_KEY, None)
-    rotary_sim_settings.setdefault("match_tolerance_pct", 2.0)
     rotary_sim_settings.setdefault("show_debug", False)
     rotary_sim_settings.setdefault("slave_jog_speed", "1")
 
@@ -6181,23 +6184,6 @@ def main(page: ft.Page):
             rotary_cut_status_label.value = "Outside"
             rotary_cut_status_label.color = MUTED_TEXT
 
-        if in_cut and line_mm_s is not None and drum_mm_s is not None and not speed_warning:
-            delta = line_mm_s - drum_mm_s
-            denom = abs(line_mm_s) if abs(line_mm_s) > 1e-9 else 1.0
-            pct = abs(delta) / denom * 100.0
-            green_pct = max(0.1, rotary_setting_float("match_tolerance_pct", 2.0))
-            amber_pct = max(5.0, green_pct * 2.5)
-            rotary_match_delta_label.value = f"{delta:+.3f} mm/s ({pct:.1f}%)"
-            if pct < green_pct:
-                rotary_match_delta_label.color = SUCCESS_COLOR
-            elif pct < amber_pct:
-                rotary_match_delta_label.color = WARNING_COLOR
-            else:
-                rotary_match_delta_label.color = ERROR_COLOR
-        else:
-            rotary_match_delta_label.value = "--"
-            rotary_match_delta_label.color = MUTED_TEXT
-
         if rotary_sim_state.get("units_error"):
             rotary_status_text.value = rotary_sim_state["units_error"]
             rotary_status_text.color = ERROR_COLOR
@@ -6399,19 +6385,6 @@ def main(page: ft.Page):
         rotary_sim_settings["show_debug"] = bool(e.control.value)
         save_settings(settings)
         update_rotary_debug_overlay()
-        page.update()
-
-    def on_rotary_tolerance_change(e):
-        try:
-            val = float(e.control.value or "2.0")
-            if val <= 0:
-                raise ValueError
-            rotary_sim_settings["match_tolerance_pct"] = val
-            save_settings(settings)
-        except ValueError:
-            rotary_status_text.value = "Match tolerance must be > 0%."
-            rotary_status_text.color = ERROR_COLOR
-        update_rotary_diagnostics(time.perf_counter())
         page.update()
 
     def make_rotary_axis_dropdown(label, value, handler, width):
@@ -6644,22 +6617,6 @@ def main(page: ft.Page):
         on_submit=on_rotary_override_change,
         tooltip="Blank = auto from drum axis CPR / drum axis UNITS",
     )
-    rotary_tolerance_input = ft.TextField(
-        label="Match green tol",
-        value=str(rotary_sim_settings.get("match_tolerance_pct", 2.0)),
-        width=135,
-        height=45,
-        bgcolor=DARKER_BG,
-        color=TEXT_COLOR,
-        border_color=BORDER_COLOR,
-        focused_border_color=ACCENT_COLOR,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        suffix="%",
-        text_size=12,
-        on_blur=on_rotary_tolerance_change,
-        on_submit=on_rotary_tolerance_change,
-        tooltip="Green tangential-speed match tolerance while knife is in the cut window",
-    )
     rotary_refresh_units_btn = ft.OutlinedButton(
         "Refresh",
         icon=ft.Icons.REFRESH,
@@ -6692,14 +6649,6 @@ def main(page: ft.Page):
     rotary_status_text = ft.Text("Not connected; static schematic.", size=13, color=MUTED_TEXT, width=520)
     rotary_line_speed_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
     rotary_drum_speed_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
-    rotary_match_delta_label = ft.Text(
-        "--",
-        size=15,
-        color=MUTED_TEXT,
-        weight=ft.FontWeight.BOLD,
-        no_wrap=True,
-        overflow=ft.TextOverflow.ELLIPSIS,
-    )
     rotary_cut_status_label = ft.Text("Outside", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
     rotary_encoder_cpr_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
     rotary_drum_units_label = ft.Text("--", size=15, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)
@@ -6756,7 +6705,6 @@ def main(page: ft.Page):
                     [
                         rotary_diag_card("Line speed", rotary_line_speed_label, 230),
                         rotary_diag_card("Drum surface speed", rotary_drum_speed_label, 190),
-                        rotary_diag_card("Match delta", rotary_match_delta_label, 215),
                         rotary_diag_card("Cut zone", rotary_cut_status_label, 150),
                         rotary_diag_card(
                             "MPOS cnts per physical rev",
@@ -7694,14 +7642,21 @@ def main(page: ft.Page):
             )
 
             flexlink_code_output.value = (
+                f"CANCEL(2)\n"
+                f"WA(100)\n"
+                f"\n"
                 f"link_ax    = {flexlink_link_axis}\n"
                 f"slave_ax   = {flexlink_slave_axis}\n"
                 f"link_options = {flexlink_options}\n"
                 f"link_pos   = {flexlink_link_pos:.3f}\n"
                 f"\n"
+                f"BASE(link_ax)\n"
+                f"DEFPOS(0)\n"
+                f"\n"
                 f"BASE(slave_ax)\n"
                 f"SERVO = ON\n"
                 f"DEFPOS(0)\n"
+                f"WA(100)\n"
                 f"\n"
                 f"{flexlink_repeat_comment}"
                 f"{flexlink_loop_start}"

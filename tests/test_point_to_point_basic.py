@@ -2,12 +2,18 @@ import unittest
 
 from src.flying_shear_app.codegen.point_to_point_basic import (
     emit_point_to_point_basic_program,
+    emit_point_to_point_motion_program,
     emit_point_to_point_startup_program,
+    emit_square_motion_basic_program,
     emit_square_move_basic_program,
+    emit_square_startup_basic_program,
 )
 
 
 class PointToPointBasicTests(unittest.TestCase):
+    def assert_starts_with_basic_preamble(self, program):
+        self.assertTrue(program.startswith("CANCEL(2)\nWA(100)\n\n"))
+
     def test_relative_mode_uses_move_distance(self):
         program = emit_point_to_point_basic_program(
             axis=2,
@@ -18,6 +24,8 @@ class PointToPointBasicTests(unittest.TestCase):
             decel=80,
         )
 
+        self.assert_starts_with_basic_preamble(program)
+        self.assertEqual(program.count("CANCEL(2)"), 1)
         self.assertIn("axis_no = 2", program)
         self.assertIn("distance = 25.500", program)
         self.assertIn("MOVE(distance)", program)
@@ -35,6 +43,7 @@ class PointToPointBasicTests(unittest.TestCase):
             wait_idle=False,
         )
 
+        self.assert_starts_with_basic_preamble(program)
         self.assertIn("target_pos = 150.000", program)
         self.assertIn("MOVEABS(target_pos)", program)
         self.assertNotIn("SERVO = ON", program)
@@ -57,6 +66,8 @@ class PointToPointBasicTests(unittest.TestCase):
             decel=100,
         )
 
+        self.assert_starts_with_basic_preamble(program)
+        self.assertEqual(program.count("CANCEL(2)"), 1)
         self.assertIn("BASE(0)\nSERVO = ON\nUNITS = 1.000\nSPEED = 25.000", program)
         self.assertIn("BASE(1)\nSERVO = ON\nUNITS = 1.000\nSPEED = 25.000", program)
         self.assertNotIn("BASE(x_axis, y_axis)", program)
@@ -80,6 +91,7 @@ class PointToPointBasicTests(unittest.TestCase):
             decel=100,
         )
 
+        self.assert_starts_with_basic_preamble(program)
         self.assertIn("BASE(x_axis)\nMOVE(side)", program)
         self.assertIn("BASE(y_axis)\nMOVE(side)", program)
         self.assertIn("BASE(x_axis)\nMOVE(-side)", program)
@@ -106,6 +118,17 @@ class PointToPointBasicTests(unittest.TestCase):
         self.assertIn("SPEED = 10.000", program)
         self.assertIn("DRIVE_FE_LIMIT = 1", program)
         self.assertIn("FS_LIMIT = 0.000", program)
+
+    def test_standalone_point_to_point_outputs_start_with_cancel_wait(self):
+        programs = [
+            emit_point_to_point_startup_program(0, 25, 100, 100),
+            emit_point_to_point_motion_program(0, "relative", 10),
+            emit_square_startup_basic_program(0, 1, 25, 100, 100),
+            emit_square_motion_basic_program(0, 1, "relative", 0, 0, 10),
+        ]
+
+        for program in programs:
+            self.assert_starts_with_basic_preamble(program)
 
 
 if __name__ == "__main__":

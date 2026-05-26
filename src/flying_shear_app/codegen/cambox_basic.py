@@ -21,6 +21,9 @@ def emit_cam_basic_program(
     n_pts = len(table_values)
     table_end = table_start + n_pts - 1
     lines = []
+    lines.append("CANCEL(2)")
+    lines.append("WA(100)")
+    lines.append("")
     lines.append(f"' Rotary knife cam table - {n_pts} pts, "
                  f"{diag['table_resolution_deg']:.4f}°/point on drum")
     lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
@@ -49,10 +52,12 @@ def emit_cam_basic_program(
         idx = table_start + chunk_start
         lines.append(f"TABLE({idx}, {', '.join(str(v) for v in chunk)})")
     lines.append("")
-    lines.append("BASE(drum_ax)")
-    lines.append("SERVO = ON")
-    lines.append("' Jog/home the blade to the top before this line; that is drum position 0.")
+    lines.append("BASE(link_ax)")
     lines.append("DEFPOS(0)")
+    lines.append("")
+    lines.append("BASE(drum_ax)")
+    lines.append("DEFPOS(0)")
+    lines.append("WA(100)")
     lines.append("")
     lines.append("' Bit 2 = repeat continuously")
     lines.append(f"CAMBOX({table_start}, {table_end}, 1, cut_length, link_ax, 4)")
@@ -71,6 +76,9 @@ def emit_cam_quicktest_basic_program(
     n_pts = len(table_values)
     table_end = table_start + n_pts - 1
     lines = []
+    lines.append("CANCEL(2)")
+    lines.append("WA(100)")
+    lines.append("")
     lines.append(f"' Rotary knife QuickTest cam - {n_pts} pts, "
                  f"{diag['table_resolution_deg']:.4f}°/point on drum")
     lines.append(f"' Drum: {diag['drum_circumference']:.2f} mm circumference, "
@@ -98,10 +106,12 @@ def emit_cam_quicktest_basic_program(
     lines.append(f"cut_length = {cut_length:g}")
     lines.append(f"cutter_op  = {cutter_op}")
     lines.append("")
-    lines.append("BASE(drum_ax)")
-    lines.append("SERVO = ON")
-    lines.append("' Jog/home the blade to the top before this line; that is drum position 0.")
+    lines.append("BASE(link_ax)")
     lines.append("DEFPOS(0)")
+    lines.append("")
+    lines.append("BASE(drum_ax)")
+    lines.append("DEFPOS(0)")
+    lines.append("WA(100)")
     lines.append("")
     lines.append("' Bit 2 = repeat continuously")
     lines.append(f"CAMBOX({table_start}, {table_end}, 1, cut_length, link_ax, 4)")

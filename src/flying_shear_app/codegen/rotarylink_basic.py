@@ -89,6 +89,9 @@ def emit_rotarylink_basic_program(
     )
 
     lines = [
+        "CANCEL(2)",
+        "WA(100)",
+        "",
         f"base_ax      = {int(base_axis)}",
         f"link_ax      = {int(link_axis)}",
         f"distance     = {float(distance):.3f}",
@@ -108,9 +111,6 @@ def emit_rotarylink_basic_program(
 
     lines.extend([
         "",
-        "CANCEL(2)",
-        "WA(200)",
-        "",
         "BASE(link_ax)",
         "SERVO = ON",
         "DEFPOS(0)",
@@ -118,6 +118,7 @@ def emit_rotarylink_basic_program(
         "BASE(base_ax)",
         "SERVO = ON",
         "DEFPOS(0)",
+        "WA(100)",
         "",
     ])
 

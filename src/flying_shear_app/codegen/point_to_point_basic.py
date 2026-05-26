@@ -22,6 +22,7 @@ AXIS_PARAMETER_DEFAULTS = {
 }
 AXIS_PARAMETER_ORDER = list(AXIS_PARAMETER_DEFAULTS)
 AXIS_PARAMETER_INT_VALUES = {"DRIVE_FE_LIMIT", "FE_LIMIT", "FE_RANGE"}
+BASIC_PROGRAM_PREAMBLE = ["CANCEL(2)", "WA(100)", ""]
 
 
 def _coerce_axis_param_number(param_name, value):
@@ -75,11 +76,28 @@ def emit_point_to_point_basic_program(
         raise ValueError("move_mode must be 'relative' or 'absolute'")
 
     startup = emit_point_to_point_startup_program(axis, speed, accel, decel, servo_on, axis_params)
-    motion = emit_point_to_point_motion_program(axis, move_mode, target, speed, accel, decel, wait_idle)
+    motion = emit_point_to_point_motion_program(
+        axis,
+        move_mode,
+        target,
+        speed,
+        accel,
+        decel,
+        wait_idle,
+        include_preamble=False,
+    )
     return f"{startup}\n\n{motion}"
 
 
-def emit_point_to_point_startup_program(axis, speed, accel, decel, servo_on=True, axis_params=None):
+def emit_point_to_point_startup_program(
+    axis,
+    speed,
+    accel,
+    decel,
+    servo_on=True,
+    axis_params=None,
+    include_preamble=True,
+):
     """Emit axis setup code intended to run at controller startup."""
     axis_value = int(axis)
     startup_params = dict(axis_params or {})
@@ -88,6 +106,7 @@ def emit_point_to_point_startup_program(axis, speed, accel, decel, servo_on=True
     startup_params.setdefault("DECEL", decel)
 
     lines = [
+        *(BASIC_PROGRAM_PREAMBLE if include_preamble else []),
         "' Point To Point STARTUP axis configuration",
         "' Run this code on startup to configure axes before running motion code.",
     ]
@@ -103,6 +122,7 @@ def emit_point_to_point_motion_program(
     accel=None,
     decel=None,
     wait_idle=True,
+    include_preamble=True,
 ):
     """Emit single-axis point-to-point motion code."""
     if move_mode not in ("relative", "absolute"):
@@ -112,6 +132,7 @@ def emit_point_to_point_motion_program(
     target_value = _format_number(target)
 
     lines = [
+        *(BASIC_PROGRAM_PREAMBLE if include_preamble else []),
         "' Point To Point motion code",
         "' Run STARTUP first so the selected axis is configured.",
         f"axis_no = {axis_value}",
@@ -175,6 +196,7 @@ def emit_square_move_basic_program(
         accel,
         decel,
         wait_idle,
+        include_preamble=False,
     )
     return f"{startup}\n\n{motion}"
 
@@ -187,12 +209,14 @@ def emit_square_startup_basic_program(
     decel,
     servo_on=True,
     axis_params_by_axis=None,
+    include_preamble=True,
 ):
     """Emit square example axis setup code intended to run at startup."""
     x_axis_value = int(x_axis)
     y_axis_value = int(y_axis)
 
     lines = [
+        *(BASIC_PROGRAM_PREAMBLE if include_preamble else []),
         "' Point To Point STARTUP axis configuration",
         "' Run this code on startup to configure axes before running motion code.",
     ]
@@ -227,6 +251,7 @@ def emit_square_motion_basic_program(
     accel=None,
     decel=None,
     wait_idle=True,
+    include_preamble=True,
 ):
     """Emit square motion code using one BASE(axis) before each single-axis move."""
     if move_mode not in ("relative", "absolute"):
@@ -242,6 +267,7 @@ def emit_square_motion_basic_program(
     origin_y_value = float(origin_y)
 
     lines = [
+        *(BASIC_PROGRAM_PREAMBLE if include_preamble else []),
         "' Point To Point square motion code",
         "' Run STARTUP first so both axes are configured.",
         "' Each edge is one single-axis point-to-point move.",
