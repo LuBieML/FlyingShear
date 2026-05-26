@@ -9646,12 +9646,15 @@ def main(page: ft.Page):
 
         start_u = flexlink_base_in_mm / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0
         end_u = 1.0 - (flexlink_base_out_mm / flexlink_cycle_pitch if flexlink_cycle_pitch > 0 else 0.0)
-        def flexlink_carriage_y_for_phase(flexlink_phase_u, flexlink_phase_in_excite):
+        def flexlink_carriage_y_for_phase(flexlink_phase_u, flexlink_phase_in_excite, flexlink_phase_excite_progress):
             if not flexlink_live:
                 return stroke_top
             if flexlink_phase_in_excite:
-                return_progress = (flexlink_phase_u - start_u) / max(0.001, end_u - start_u)
-                return stroke_bottom - max(0.0, min(1.0, return_progress)) * stroke_len
+                # Drive the open-arc return from the excitation progress so the
+                # carriage matches the FLEXLINK s-curve (asymmetric acc/dec is
+                # visible in the motion, not just the velocity chart).
+                return_progress = max(0.0, min(1.0, flexlink_phase_excite_progress))
+                return stroke_bottom - return_progress * stroke_len
             contact_total = max(0.001, flexlink_base_in_mm + flexlink_base_out_mm)
             if flexlink_phase_u >= end_u:
                 contact_mm = (flexlink_phase_u - end_u) * flexlink_cycle_pitch
@@ -9660,17 +9663,17 @@ def main(page: ft.Page):
             contact_progress = max(0.0, min(1.0, contact_mm / contact_total))
             return stroke_top + contact_progress * stroke_len
 
-        # Drive the jaw from master phase, not slave_mpos. The slave runs an
-        # s-curve through the open window, but slave_visual_speed only refreshes
-        # per controller sample and the extrapolator is capped at 40 ms - that
-        # makes the displayed position snap on every sample (the "double jump"
-        # during the return). Master moves at constant velocity, so flexlink_u
-        # is linear in time and the carriage stays smooth.
+        # Drive the jaw from master phase + excitation progress. Master phase
+        # is linear in time so the carriage motion stays smooth across frames;
+        # excitation progress reshapes that linear master phase into the
+        # FLEXLINK s-curve during the open arc.
         if flexlink_live:
-            jaw_y = flexlink_carriage_y_for_phase(flexlink_u, flexlink_in_excite)
+            jaw_y = flexlink_carriage_y_for_phase(
+                flexlink_u, flexlink_in_excite, flexlink_excite_progress
+            )
             jaw_in_excite = flexlink_in_excite
         else:
-            jaw_y = flexlink_carriage_y_for_phase(0.0, False)
+            jaw_y = flexlink_carriage_y_for_phase(0.0, False, 0.0)
             jaw_in_excite = False
         jaw_in_seal_contact = not jaw_in_excite if flexlink_live else False
         jaw_mode_label = (

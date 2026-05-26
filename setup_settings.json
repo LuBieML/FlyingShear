@@ -288,7 +288,7 @@
       }
     }
   },
-  "master_speed": "5.32",
+  "master_speed": "15.8",
   "shear_calc": {
     "cut": 90.0,
     "vline": 100.0,
@@ -339,7 +339,7 @@
     "base_out": 5.0,
     "excite_acc": 10.0,
     "excite_dec": 10.0,
-    "curve_type": "poly9",
+    "curve_type": "sine",
     "start_mode": "immediate",
     "link_pos": 0.0,
     "link_source": "mpos",
@@ -347,8 +347,8 @@
     "repeat_mode": "flexlink_repeat",
     "base_in_mm": 3.0,
     "base_out_mm": 3.0,
-    "excite_acc_mm": 4.0,
-    "excite_dec_mm": 4.0,
+    "excite_acc_mm": 6.0,
+    "excite_dec_mm": 6.0,
     "seal_dwell_min_ms": 50.0,
     "jaw_period": 63.0,
     "reg_trim": 0.0
