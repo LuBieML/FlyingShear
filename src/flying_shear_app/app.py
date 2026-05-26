@@ -6997,8 +6997,9 @@ def main(page: ft.Page):
     flexlink_settings = settings.setdefault("flexlink_calc", {})
     for flexlink_key, flexlink_default in [
         ("cycle_pitch", 180),
+        ("jaw_period", 185),
+        ("reg_trim", 0),
         ("line_speed", 400),
-        ("excite_dist", 5),
         ("base_in_mm", 108),
         ("base_out_mm", 9),
         ("excite_acc_mm", 15),
@@ -7015,12 +7016,13 @@ def main(page: ft.Page):
 
     flexlink_tooltips = {
         "cycle_pitch": "FLEXLINK link_dist = bag length. Master (film pull) distance for one complete cross-seal cycle.",
+        "jaw_period": "Mechanical period of the rotary jaw axis (slave REP_DIST). Fixed by the machine: jaw arm length, gearing, pulleys. Slave moves this distance per cycle. Set once per machine, rarely changes.",
+        "reg_trim": "Optional signed registration trim (mm) added on top of the mechanical seal advance. Use for steady film-stretch offset or as a static print-mark alignment. Leave 0 for plain geometric operation.",
         "line_speed": "Film pull speed used for cycle-time, peak-speed, and heat-seal dwell estimates.",
-        "excite_dist": "Signed per-cycle registration correction applied while the jaws are open. Positive advances the jaw axis relative to the film.",
-        "base_in": "First 1:1 locked seal-contact distance before the open / registration-nudge window.",
-        "base_out": "Second 1:1 locked seal-contact distance after the open / registration-nudge window.",
-        "excite_acc": "Film distance used to ramp into the registration correction during the open window.",
-        "excite_dec": "Film distance used to ramp out of the registration correction during the open window.",
+        "base_in": "First 1:1 locked seal-contact distance before the open / seal-advance window.",
+        "base_out": "Second 1:1 locked seal-contact distance after the open / seal-advance window.",
+        "excite_acc": "Film distance used to ramp into the seal advance during the open window.",
+        "excite_dec": "Film distance used to ramp out of the seal advance during the open window.",
         "seal_dwell_min_ms": "Minimum heat-seal dwell time required by the film material (PE ~80 ms, PP ~120 ms, PET ~150 ms). This is a validation target, not a FLEXLINK parameter.",
         "curve_type": "FLEXLINK curve type encoded into link_options bits 10..12.",
         "start_mode": "Optional trigger for the first FLEXLINK call.",
@@ -7034,12 +7036,13 @@ def main(page: ft.Page):
         "copy": "Copy the generated Trio BASIC FLEXLINK program to the Windows clipboard.",
     }
     CALC_TOOLTIPS.update({
-        "flexlink_excite_window_mm": "Open / registration-nudge window: bag_length - seal_contact_in - seal_contact_out.",
-        "flexlink_flat_mm": "Constant-correction portion of the open window: open_window - nudge_acc - nudge_dec.",
+        "flexlink_excite_window_mm": "Open / seal-advance window: bag_length - seal_contact_in - seal_contact_out.",
+        "flexlink_flat_mm": "Constant-advance portion of the open window: open_window - advance_acc - advance_dec.",
+        "flexlink_seal_advance_mm": "Computed seal advance fed to FLEXLINK as excite_dist. Equals (jaw_period - bag_length) + registration_trim. Positive = jaws advance ahead of film during open arc; negative = jaws retard.",
         "flexlink_seal_dwell_ms": "Heat-seal dwell time: (seal_contact_in + seal_contact_out) / line_speed. This is the 1:1 locked contact time.",
         "flexlink_required_contact_mm": "Minimum total 1:1 seal-contact distance required by Min seal dwell at the current film speed.",
         "flexlink_dwell_margin_ms": "Actual heat-seal dwell minus Min seal dwell.",
-        "flexlink_peak_speed": "Peak jaw-axis speed during the open-window registration correction.",
+        "flexlink_peak_speed": "Peak jaw-axis speed during the open-window seal advance.",
         "flexlink_cycle_time": "Time per bag = bag_length / line_speed.",
         "flexlink_options": "Decimal FLEXLINK link_options value from trigger, source, direction, repeat, and curve bits.",
         "flexlink_curve_label": "Human-readable FLEXLINK curve type.",
@@ -7064,11 +7067,24 @@ def main(page: ft.Page):
     flexlink_line_speed_input.value = str(flexlink_settings.get("line_speed", 400))
     flexlink_line_speed_input.tooltip = flexlink_tooltips["line_speed"]
 
-    flexlink_excite_dist_input = make_input(
-        "Reg. correction", "excite_dist", flexlink_settings.get("excite_dist", 5), suffix="mm"
+    # Machine-config jaw period. Backward-compat: if jaw_period not stored, derive
+    # from legacy bag_length + excite_dist so old setup files keep working.
+    flexlink_default_jaw_period = flexlink_settings.get(
+        "jaw_period",
+        float(flexlink_settings.get("cycle_pitch", 180))
+        + float(flexlink_settings.get("excite_dist", 0)),
     )
-    flexlink_excite_dist_input.value = str(flexlink_settings.get("excite_dist", 5))
-    flexlink_excite_dist_input.tooltip = flexlink_tooltips["excite_dist"]
+    flexlink_jaw_period_input = make_input(
+        "Jaw period", "jaw_period", flexlink_default_jaw_period, suffix="mm"
+    )
+    flexlink_jaw_period_input.value = str(flexlink_default_jaw_period)
+    flexlink_jaw_period_input.tooltip = flexlink_tooltips["jaw_period"]
+
+    flexlink_reg_trim_input = make_input(
+        "Reg. trim", "reg_trim", flexlink_settings.get("reg_trim", 0), width=130, suffix="mm"
+    )
+    flexlink_reg_trim_input.value = str(flexlink_settings.get("reg_trim", 0))
+    flexlink_reg_trim_input.tooltip = flexlink_tooltips["reg_trim"]
 
     flexlink_base_in_input = make_input(
         "Seal contact in", "base_in_mm", flexlink_settings.get("base_in_mm", 108), width=165, suffix="mm"
@@ -7083,13 +7099,13 @@ def main(page: ft.Page):
     flexlink_base_out_input.tooltip = flexlink_tooltips["base_out"]
 
     flexlink_excite_acc_input = make_input(
-        "Nudge accel", "excite_acc_mm", flexlink_settings.get("excite_acc_mm", 15), width=135, suffix="mm"
+        "Advance accel", "excite_acc_mm", flexlink_settings.get("excite_acc_mm", 15), width=135, suffix="mm"
     )
     flexlink_excite_acc_input.value = str(flexlink_settings.get("excite_acc_mm", 15))
     flexlink_excite_acc_input.tooltip = flexlink_tooltips["excite_acc"]
 
     flexlink_excite_dec_input = make_input(
-        "Nudge decel", "excite_dec_mm", flexlink_settings.get("excite_dec_mm", 15), width=135, suffix="mm"
+        "Advance decel", "excite_dec_mm", flexlink_settings.get("excite_dec_mm", 15), width=135, suffix="mm"
     )
     flexlink_excite_dec_input.value = str(flexlink_settings.get("excite_dec_mm", 15))
     flexlink_excite_dec_input.tooltip = flexlink_tooltips["excite_dec"]
@@ -7169,6 +7185,7 @@ def main(page: ft.Page):
     flexlink_result_keys = [
         "flexlink_excite_window_mm",
         "flexlink_flat_mm",
+        "flexlink_seal_advance_mm",
         "flexlink_seal_dwell_ms",
         "flexlink_required_contact_mm",
         "flexlink_dwell_margin_ms",
@@ -7395,7 +7412,7 @@ def main(page: ft.Page):
         )
         flexlink_peak_ratio_value = 1.0 + flexlink_peak_extra_ratio
         add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x4) / 2, flexlink_excite_label_y,
-                         f"Open nudge peak {flexlink_peak_ratio_value:.2f}:1",
+                         f"Open advance peak {flexlink_peak_ratio_value:.2f}:1",
                          size=14, color=ft.Colors.WHITE, max_width=220)
         add_profile_text(flexlink_shapes, (flexlink_x4 + min(flexlink_x5, flexlink_plot_end)) / 2,
                          flexlink_base_y - 20, "1:1 seal", size=12, color=ft.Colors.CYAN_100, max_width=86)
@@ -7436,7 +7453,11 @@ def main(page: ft.Page):
         try:
             flexlink_cycle_pitch = float(flexlink_cycle_pitch_input.value)
             flexlink_line_speed = float(flexlink_line_speed_input.value)
-            flexlink_excite_dist = float(flexlink_excite_dist_input.value)
+            flexlink_jaw_period = float(flexlink_jaw_period_input.value)
+            flexlink_reg_trim = float(flexlink_reg_trim_input.value or 0)
+            # Seal advance is derived: (jaw_period - bag_length) is the mechanical
+            # baseline; reg_trim is the operator's signed offset on top.
+            flexlink_excite_dist = (flexlink_jaw_period - flexlink_cycle_pitch) + flexlink_reg_trim
             flexlink_base_in_mm = float(flexlink_base_in_input.value)
             flexlink_base_out_mm = float(flexlink_base_out_input.value)
             flexlink_excite_acc_mm = float(flexlink_excite_acc_input.value)
@@ -7459,12 +7480,14 @@ def main(page: ft.Page):
         flexlink_errors = []
         if flexlink_cycle_pitch <= 0:
             flexlink_errors.append("Bag length must be > 0")
+        if flexlink_jaw_period <= 0:
+            flexlink_errors.append("Jaw period must be > 0")
         if flexlink_line_speed <= 0:
             flexlink_errors.append("Film speed must be > 0")
         if flexlink_base_in_mm < 0 or flexlink_base_out_mm < 0:
             flexlink_errors.append("Seal contact distances must be >= 0 mm")
         if flexlink_excite_acc_mm < 0 or flexlink_excite_dec_mm < 0:
-            flexlink_errors.append("Nudge accel and decel distances must be >= 0 mm")
+            flexlink_errors.append("Advance accel and decel distances must be >= 0 mm")
         if flexlink_seal_dwell_min_ms < 0:
             flexlink_errors.append("Min seal dwell must be >= 0 ms")
         if flexlink_start_mode in ("absolute", "rmark") and flexlink_link_pos < 0:
@@ -7495,6 +7518,10 @@ def main(page: ft.Page):
             flexlink_excite_dec_pct = 0.0
         # VFFS convention: 1:1 background sync, so slave base_dist == link_dist (= bag length).
         flexlink_base_dist = flexlink_cycle_pitch
+        # Mechanical baseline seal advance = how much the slave must overtake the
+        # master per cycle just to complete one jaw revolution. The operator's
+        # registration trim is the optional small offset on top.
+        flexlink_mech_seal_advance = flexlink_jaw_period - flexlink_cycle_pitch
         flexlink_bump_denom_mm = (
             0.5 * flexlink_excite_acc_mm + flexlink_flat_mm + 0.5 * flexlink_excite_dec_mm
         )
@@ -7530,6 +7557,16 @@ def main(page: ft.Page):
 
         result_labels["flexlink_excite_window_mm"].value = f"{flexlink_excite_window_mm:.2f} mm"
         result_labels["flexlink_flat_mm"].value = f"{flexlink_flat_mm:.2f} mm"
+        # Show the total seal advance fed to FLEXLINK; if the operator added a
+        # registration trim, hint at the split in the value string.
+        if abs(flexlink_reg_trim) > 1e-9:
+            result_labels["flexlink_seal_advance_mm"].value = (
+                f"{flexlink_excite_dist:+.3f} mm  "
+                f"(mech {flexlink_mech_seal_advance:+.2f} + trim {flexlink_reg_trim:+.2f})"
+            )
+        else:
+            result_labels["flexlink_seal_advance_mm"].value = f"{flexlink_excite_dist:+.3f} mm"
+        result_labels["flexlink_seal_advance_mm"].color = ft.Colors.CYAN_200
         result_labels["flexlink_seal_dwell_ms"].value = f"{flexlink_seal_dwell_ms:.1f} ms"
         if flexlink_seal_dwell_min_ms > 0 and flexlink_seal_dwell_ms < flexlink_seal_dwell_min_ms:
             result_labels["flexlink_seal_dwell_ms"].color = ERROR_COLOR
@@ -7580,10 +7617,10 @@ def main(page: ft.Page):
         flexlink_messages = []
         flexlink_severity = "ok"
         if flexlink_base_in_mm + flexlink_base_out_mm >= flexlink_cycle_pitch:
-            flexlink_messages.append("Open / reg-nudge window is zero - reduce seal contact in + out below bag length")
+            flexlink_messages.append("Open / seal-advance window is zero - reduce seal contact in + out below bag length")
             flexlink_severity = "error"
         if flexlink_excite_acc_mm + flexlink_excite_dec_mm > flexlink_excite_window_mm:
-            flexlink_messages.append("Nudge accel + decel distance exceeds the open / reg-nudge window")
+            flexlink_messages.append("Advance accel + decel distance exceeds the open / seal-advance window")
             flexlink_severity = "error"
         if flexlink_errors:
             flexlink_messages.extend(flexlink_errors)
@@ -7599,20 +7636,23 @@ def main(page: ft.Page):
                 )
                 flexlink_severity = "error"
         if flexlink_severity != "error":
-            if (
-                flexlink_excite_window_mm > 0
-                and abs(flexlink_excite_dist) > flexlink_excite_window_mm * 0.5
-            ):
+            if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3:
                 flexlink_messages.append(
-                    "Large open-arc correction - verify this is intentional registration/indexing motion, not normal fine trim"
+                    f"Peak jaw speed {flexlink_peak_speed:.0f} mm/s is {flexlink_peak_speed / flexlink_line_speed:.1f}x film speed - verify servo capability"
                 )
                 flexlink_severity = "warning"
-            if flexlink_line_speed > 0 and flexlink_peak_speed > flexlink_line_speed * 3:
-                flexlink_messages.append("High peak jaw speed - verify servo capability")
-                flexlink_severity = "warning"
             if flexlink_excite_window_mm < 5:
-                flexlink_messages.append("Very short open / reg-nudge window")
+                flexlink_messages.append("Very short open / seal-advance window")
                 flexlink_severity = "warning"
+            if (
+                flexlink_cycle_pitch > 0
+                and abs(flexlink_reg_trim) > flexlink_cycle_pitch * 0.10
+            ):
+                flexlink_messages.append(
+                    f"Registration trim {flexlink_reg_trim:+.2f} mm is large relative to bag length - typical trim is a few mm"
+                )
+                if flexlink_severity == "ok":
+                    flexlink_severity = "warning"
             if (
                 flexlink_seal_dwell_min_ms > 0
                 and flexlink_line_speed > 0
@@ -7673,11 +7713,13 @@ def main(page: ft.Page):
                 f"BASE(slave_ax)\n"
                 f"SERVO = ON\n"
                 f"DEFPOS(0)\n"
+                f"' Slave REP_DIST = mechanical jaw period\n"
+                f"REP_DIST = {flexlink_jaw_period:.3f}\n"
                 f"WA(100)\n"
                 f"\n"
                 f"{flexlink_repeat_comment}"
                 f"{flexlink_loop_start}"
-                f"{flexlink_line_prefix}' VFFS cross-seal: 1:1 locked seal contact with registration nudge in the open arc\n"
+                f"{flexlink_line_prefix}' VFFS cross-seal: 1:1 locked seal contact with seal advance in the open arc\n"
                 f"{flexlink_line_prefix}FLEXLINK({flexlink_base_dist:.3f}, "
                 f"{flexlink_excite_dist:.3f}, {flexlink_cycle_pitch:.3f}, "
                 f"{flexlink_base_in_pct:.2f}, {flexlink_base_out_pct:.2f}, "
@@ -7688,6 +7730,8 @@ def main(page: ft.Page):
             )
 
         flexlink_settings["cycle_pitch"] = flexlink_cycle_pitch
+        flexlink_settings["jaw_period"] = flexlink_jaw_period
+        flexlink_settings["reg_trim"] = flexlink_reg_trim
         flexlink_settings["line_speed"] = flexlink_line_speed
         flexlink_settings["excite_dist"] = flexlink_excite_dist
         flexlink_settings["base_in_mm"] = flexlink_base_in_mm
@@ -7717,8 +7761,9 @@ def main(page: ft.Page):
 
     for flexlink_input in (
         flexlink_cycle_pitch_input,
+        flexlink_jaw_period_input,
+        flexlink_reg_trim_input,
         flexlink_line_speed_input,
-        flexlink_excite_dist_input,
         flexlink_base_in_input,
         flexlink_base_out_input,
         flexlink_excite_acc_input,
@@ -7780,9 +7825,10 @@ def main(page: ft.Page):
             section_header("VFFS Cross-Seal FLEXLINK Calculator", "Continuous vertical form-fill-seal: cross-seal jaws synced to film pull", ft.Icons.WAVES),
             ft.Row(
                 [
+                    flexlink_jaw_period_input,
                     flexlink_cycle_pitch_input,
+                    flexlink_reg_trim_input,
                     flexlink_line_speed_input,
-                    flexlink_excite_dist_input,
                     flexlink_base_in_input,
                     flexlink_base_out_input,
                     flexlink_excite_acc_input,
@@ -7820,8 +7866,9 @@ def main(page: ft.Page):
                     ),
                     ft.Row(
                         [
-                            result_card("Open / reg-nudge", "flexlink_excite_window_mm"),
-                            result_card("Nudge flat", "flexlink_flat_mm"),
+                            result_card("Open / seal advance", "flexlink_excite_window_mm"),
+                            result_card("Advance flat", "flexlink_flat_mm"),
+                            result_card("Seal advance", "flexlink_seal_advance_mm"),
                             result_card("Heat-seal dwell", "flexlink_seal_dwell_ms"),
                             result_card("Required contact", "flexlink_required_contact_mm"),
                             result_card("Dwell margin", "flexlink_dwell_margin_ms"),
@@ -9086,11 +9133,18 @@ def main(page: ft.Page):
         flexlink_base_out_mm = max(0.0, flexlink_setting_float("base_out_mm", 9))
         flexlink_excite_acc_mm = max(0.0, flexlink_setting_float("excite_acc_mm", 15))
         flexlink_excite_dec_mm = max(0.0, flexlink_setting_float("excite_dec_mm", 15))
-        flexlink_excite_dist = flexlink_setting_float("excite_dist", 5)
+        # Derive seal advance the same way the calculator does; fall back to a
+        # legacy excite_dist setting so saved files keep working until re-saved.
+        flexlink_jaw_period = flexlink_setting_float(
+            "jaw_period",
+            flexlink_cycle_pitch + flexlink_setting_float("excite_dist", 0),
+        )
+        flexlink_reg_trim = flexlink_setting_float("reg_trim", 0)
+        flexlink_excite_dist = (flexlink_jaw_period - flexlink_cycle_pitch) + flexlink_reg_trim
         flexlink_open_window = max(0.0, flexlink_cycle_pitch - flexlink_base_in_mm - flexlink_base_out_mm)
-        flexlink_nudge_flat = max(0.0, flexlink_open_window - flexlink_excite_acc_mm - flexlink_excite_dec_mm)
+        flexlink_advance_flat = max(0.0, flexlink_open_window - flexlink_excite_acc_mm - flexlink_excite_dec_mm)
         flexlink_seal_contact = flexlink_base_in_mm + flexlink_base_out_mm
-        flexlink_bump_denom = 0.5 * flexlink_excite_acc_mm + flexlink_nudge_flat + 0.5 * flexlink_excite_dec_mm
+        flexlink_bump_denom = 0.5 * flexlink_excite_acc_mm + flexlink_advance_flat + 0.5 * flexlink_excite_dec_mm
         flexlink_peak_extra = (
             abs(flexlink_excite_dist) * flexlink_line_speed / flexlink_bump_denom
             if flexlink_bump_denom > 0 and flexlink_line_speed > 0 else 0.0
@@ -9104,7 +9158,7 @@ def main(page: ft.Page):
             "excite_dec_mm": flexlink_excite_dec_mm,
             "excite_dist": flexlink_excite_dist,
             "open_window": flexlink_open_window,
-            "nudge_flat": flexlink_nudge_flat,
+            "advance_flat": flexlink_advance_flat,
             "seal_contact": flexlink_seal_contact,
             "seal_dwell_ms": flexlink_seal_contact / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0.0,
             "peak_open_speed": flexlink_line_speed + flexlink_peak_extra,
@@ -9622,7 +9676,7 @@ def main(page: ft.Page):
         jaw_mode_label = (
             "SYNC DOWNSTROKE - JAWS CLOSED"
             if jaw_in_seal_contact else
-            "OPEN RETURN / REG CORRECTION"
+            "OPEN RETURN / SEAL ADVANCE"
         )
 
         flexlink_draw_jaw_pair(
@@ -9710,7 +9764,7 @@ def main(page: ft.Page):
         footer_label = (
             f"LIVE  u={flexlink_u:.2f}  "
             f"{'seal downstroke' if flexlink_in_seal_contact else 'open return'}  "
-            f"nudge={flexlink_excite_progress * 100:.0f}%"
+            f"advance={flexlink_excite_progress * 100:.0f}%"
             if flexlink_live else
             "STOPPED  controller not connected"
         )
@@ -9851,7 +9905,7 @@ def main(page: ft.Page):
     flexlink_seal_contact_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
     flexlink_open_window_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
     flexlink_dwell_time_label = ft.Text("--", size=15, color=ft.Colors.CYAN_200, weight=ft.FontWeight.BOLD)
-    flexlink_reg_correction_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
+    flexlink_seal_advance_label = ft.Text("--", size=15, color=ft.Colors.ORANGE_200, weight=ft.FontWeight.BOLD)
     flexlink_sealed_slip_label = ft.Text("0.00 mm", size=15, color=SUCCESS_COLOR, weight=ft.FontWeight.BOLD)
     flexlink_status_text = ft.Text(
         "Connect to a controller to enable live simulation.",
@@ -9958,7 +10012,7 @@ def main(page: ft.Page):
         flexlink_seal_contact_label.value = f"{flexlink_metrics['seal_contact']:.1f} mm"
         flexlink_open_window_label.value = f"{flexlink_metrics['open_window']:.1f} mm"
         flexlink_dwell_time_label.value = f"{flexlink_metrics['seal_dwell_ms']:.1f} ms"
-        flexlink_reg_correction_label.value = f"{flexlink_metrics['excite_dist']:+.2f} mm"
+        flexlink_seal_advance_label.value = f"{flexlink_metrics['excite_dist']:+.2f} mm"
         flexlink_sealed_slip_label.value = ("0.00 mm" if flexlink_in_seal_contact else "open") if flexlink_live else "--"
         flexlink_sealed_slip_label.color = (
             SUCCESS_COLOR if flexlink_in_seal_contact else ft.Colors.ORANGE_200
@@ -10098,7 +10152,7 @@ def main(page: ft.Page):
             flexlink_diag_card("Seal contact", flexlink_seal_contact_label, col={"xs": 12, "sm": 6}),
             flexlink_diag_card("Open window", flexlink_open_window_label, col={"xs": 12, "sm": 6}),
             flexlink_diag_card("Heat dwell", flexlink_dwell_time_label, col={"xs": 12, "sm": 6}),
-            flexlink_diag_card("Reg correction", flexlink_reg_correction_label, col={"xs": 12, "sm": 6}),
+            flexlink_diag_card("Seal advance", flexlink_seal_advance_label, col={"xs": 12, "sm": 6}),
             flexlink_diag_card("Slip while sealed", flexlink_sealed_slip_label, col={"xs": 12, "sm": 6}),
         ],
         columns=12,
@@ -10266,11 +10320,11 @@ def main(page: ft.Page):
         add_profile_text(flexlink_shapes, (flexlink_x0 + flexlink_x1) / 2, 126,
                          "seal in", size=9, color=ft.Colors.CYAN_100, max_width=70)
         add_profile_text(flexlink_shapes, (flexlink_x1 + flexlink_x2) / 2, 126,
-                         "nudge", size=9, color=ft.Colors.RED_100, max_width=48)
+                         "advance", size=9, color=ft.Colors.RED_100, max_width=48)
         add_profile_text(flexlink_shapes, (flexlink_x2 + flexlink_x3) / 2, 126,
                          "open", size=9, color=ft.Colors.RED_100, max_width=48)
         add_profile_text(flexlink_shapes, (flexlink_x3 + flexlink_x4) / 2, 126,
-                         "nudge", size=9, color=ft.Colors.RED_100, max_width=48)
+                         "advance", size=9, color=ft.Colors.RED_100, max_width=48)
         add_profile_text(flexlink_shapes, (flexlink_x4 + flexlink_x5) / 2, 126,
                          "seal out", size=9, color=ft.Colors.CYAN_100, max_width=70)
         add_profile_text(flexlink_shapes, 11, 74, "ratio", size=10, color=ft.Colors.WHITE, rotate=-1.5708)
@@ -10319,14 +10373,17 @@ def main(page: ft.Page):
                         "Command Shape",
                         [
                             help_text("FLEXLINK(base_dist, excite_dist, link_dist, base_in, base_out, excite_acc, excite_dec, link_axis[, link_options[, start_pos]])"),
-                            help_text("VFFS convention: base_dist = link_dist = bag length, so the cross-seal mechanism is locked 1:1 to film pull during the base_in/base_out portions. excite_dist is a signed registration correction applied only while the jaws are open."),
-                            help_text("Args 4-7 are percentages per Trio FLEXLINK. The UI takes them in mm for readability and converts: base_in% = seal_contact_in_mm / bag_length, excite_acc% = nudge_acc_mm / open_window."),
+                            help_text("VFFS convention: base_dist = link_dist = bag length, so the cross-seal mechanism is locked 1:1 to film pull during the base_in/base_out portions. excite_dist is the seal advance the jaws apply while open."),
+                            help_text("Seal advance is derived, not entered. It is the geometric difference between the (fixed) jaw period and the (chosen) bag length, plus an optional small registration trim."),
+                            help_text("Args 4-7 are percentages per Trio FLEXLINK. The UI takes them in mm for readability and converts: base_in% = seal_contact_in_mm / bag_length, excite_acc% = advance_acc_mm / open_window."),
                             formula_block(
                                 [
+                                    "seal_advance = (jaw_period - bag_length) + reg_trim   -> fed to FLEXLINK as excite_dist",
                                     "open_window_mm = bag_length - seal_contact_in_mm - seal_contact_out_mm",
-                                    "nudge_flat_mm = open_window_mm - nudge_acc_mm - nudge_dec_mm",
+                                    "advance_flat_mm = open_window_mm - advance_acc_mm - advance_dec_mm",
+                                    "slave REP_DIST = jaw_period",
                                     "seal_dwell_ms = (seal_contact_in_mm + seal_contact_out_mm) / line_speed * 1000",
-                                    "peak_extra_speed = excite_dist * line_speed / (nudge_acc/2 + nudge_flat + nudge_dec/2)",
+                                    "peak_extra_speed = seal_advance * line_speed / (advance_acc/2 + advance_flat + advance_dec/2)",
                                     "peak_jaw_ratio = 1 + peak_extra_speed / line_speed",
                                 ]
                             ),
@@ -10343,7 +10400,7 @@ def main(page: ft.Page):
                                 border_radius=8,
                                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
                             ),
-                            help_text("Blue zones: jaws in 1:1 locked contact with the film. Red zone: jaws open while FLEXLINK applies the registration correction."),
+                            help_text("Blue zones: jaws in 1:1 locked contact with the film. Red zone: jaws open while FLEXLINK applies the seal advance."),
                         ],
                         icon=ft.Icons.SHOW_CHART,
                         col={"xs": 12, "xl": 6},
@@ -10358,13 +10415,13 @@ def main(page: ft.Page):
                     help_card(
                         "Worked Example",
                         [
-                            help_text("VFFS example: 180 mm bag, 400 mm/s film, 5 mm reg correction, seal contact in/out 108/9 mm, nudge accel/decel 15/15 mm."),
+                            help_text("VFFS example: 185 mm jaw period on 180 mm bags (-> 5 mm mech seal advance, reg trim 0), 400 mm/s film, seal contact in/out 108/9 mm, advance accel/decel 15/15 mm."),
                             formula_block(
                                 [
                                     f"open_window = 180 - 108 - 9 = {flexlink_example_window:.0f} mm",
-                                    f"nudge_flat = {flexlink_example_window:.0f} - 15 - 15 = {flexlink_example_flat:.0f} mm",
+                                    f"advance_flat = {flexlink_example_window:.0f} - 15 - 15 = {flexlink_example_flat:.0f} mm",
                                     "seal_contact_in% = 108/180*100 = 60, seal_contact_out% = 9/180*100 = 5",
-                                    "nudge_acc% = 15/63*100 = 23.8, nudge_dec% = 15/63*100 = 23.8",
+                                    "advance_acc% = 15/63*100 = 23.8, advance_dec% = 15/63*100 = 23.8",
                                     f"seal_dwell = (108 + 9) / 400 * 1000 = {flexlink_example_dwell_ms:.0f} ms",
                                     f"peak_jaw_speed = 400 + 5*400 / (7.5 + {flexlink_example_flat:.0f} + 7.5) = {flexlink_example_peak:.0f} mm/s",
                                     "FLEXLINK(180.000, 5.000, 180.000, 60.00, 5.00, 23.81, 23.81, link_ax)",
@@ -10406,10 +10463,12 @@ def main(page: ft.Page):
                     help_card(
                         "VFFS Application Notes",
                         [
+                            help_text("Jaw period is a machine constant - set it once per physical jaw assembly and leave it alone. Bag length is the recipe and changes per job."),
                             help_text("Seal contact in/out are the 1:1 locked portions where the jaws press the film. Their sum is the heat-seal dwell distance."),
-                            help_text("Reg. correction (excite_dist) is signed: positive advances jaws relative to film, negative retards. It belongs in the open arc, where jaw/film slip does not smear the seal."),
+                            help_text("Seal advance is derived: (jaw_period - bag_length) is the mechanical baseline (positive = jaws sprint ahead during open arc; negative = jaws retard). Registration trim adds a small signed offset on top for film-stretch or print-mark alignment."),
+                            help_text("When bag_length << jaw_period, the seal advance is large and the jaws behave like a flying shear - 1:1 tracking during the short seal contact, then sprinting through the rest of the jaw revolution. Peak jaw speed becomes the dominant constraint."),
                             help_text("Heat-seal dwell is the dominant constraint for VFFS. Set Min seal dwell to your film's spec (PE ~80 ms, PP ~120 ms, PET ~150 ms). The calculator warns if locked contact time falls below it."),
-                            help_text("Typical defaults keep enough open-window distance for the registration correction while assigning the required dwell to seal contact in/out. Use Sine or Poly5 for smooth open-arc correction."),
+                            help_text("Typical defaults keep enough open-window distance for the seal advance while assigning the required dwell to seal contact in/out. Use Sine or Poly5 for a smooth open-arc advance."),
                             help_text("This calculator targets continuous-motion VFFS only. Intermittent VFFS (film stops, jaws clamp, film pulls) is not FLEXLINK territory - use discrete MOVE commands instead."),
                         ],
                         icon=ft.Icons.NOTES,
@@ -10421,7 +10480,7 @@ def main(page: ft.Page):
                             mini_table(
                                 ["Command", "Use when", "Tradeoff"],
                                 [
-                                    ("FLEXLINK", "Continuous-track tool (VFFS cross-seal, registration nudge)", "No table data; quick tuning"),
+                                    ("FLEXLINK", "Continuous-track tool (VFFS cross-seal, seal advance)", "No table data; quick tuning"),
                                     ("CAMBOX", "Continuous rotary or complex cam law", "Most flexible, needs table generation"),
                                     ("MOVELINK", "Discrete linked move phases", "Best for cut-on-the-fly strokes and returns"),
                                 ],

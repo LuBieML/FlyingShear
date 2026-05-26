@@ -15,7 +15,8 @@
       "Bash(\"E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -m pip install --quiet plotly flet-webview)",
       "Bash(E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe -c ' *)",
       "Bash(\"E:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -m pip install --quiet flet-charts==0.85.0)",
-      "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('e:/SynologySynchro/Projects/FlyingShear/src/flying_shear_app/app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")"
+      "Bash(\"e:/SynologySynchro/Projects/FlyingShear/venv/Scripts/python.exe\" -c \"import ast; ast.parse\\(open\\('e:/SynologySynchro/Projects/FlyingShear/src/flying_shear_app/app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, 'src'\\); from flying_shear_app import app; print\\('import OK'\\)\")"
     ]
   }
 }
