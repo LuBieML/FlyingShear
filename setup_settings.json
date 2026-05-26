@@ -288,7 +288,7 @@
       }
     }
   },
-  "master_speed": "8.66",
+  "master_speed": "9.83",
   "shear_calc": {
     "cut": 90.0,
     "vline": 100.0,
@@ -332,9 +332,9 @@
     "metric": "rpm"
   },
   "flexlink_calc": {
-    "cycle_pitch": 20.0,
+    "cycle_pitch": 50.0,
     "line_speed": 50.0,
-    "excite_dist": 10.0,
+    "excite_dist": 50.0,
     "base_in": 30.0,
     "base_out": 5.0,
     "excite_acc": 10.0,

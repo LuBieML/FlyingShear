@@ -9026,7 +9026,7 @@ def main(page: ft.Page):
 
     def flexlink_draw_vertical_film_tube(flexlink_shapes, flexlink_width, flexlink_height,
                                          flexlink_u, flexlink_cycle_pitch,
-                                         flexlink_contact_distance):
+                                         flexlink_contact_distance, flexlink_base_out_mm):
         flexlink_tube_w = max(132.0, min(178.0, flexlink_width * 0.24))
         flexlink_tube_x = flexlink_width * 0.50 - flexlink_tube_w / 2.0
         flexlink_tube_top = 112.0
@@ -9045,6 +9045,11 @@ def main(page: ft.Page):
         flexlink_phase_px = (
             flexlink_u * flexlink_cycle_pitch * flexlink_sync_px_per_mm
         ) % flexlink_bag_pitch_px
+        flexlink_seal_zero_y = flexlink_stroke_top + (
+            max(0.0, min(flexlink_contact_distance, flexlink_base_out_mm)) * flexlink_sync_px_per_mm
+            if flexlink_contact_distance > 0 else
+            0.0
+        )
 
         flexlink_shapes.extend([
             cv.Rect(0, 0, flexlink_width, flexlink_height,
@@ -9133,18 +9138,63 @@ def main(page: ft.Page):
             ),
         ])
 
-        flexlink_y = flexlink_tube_top - flexlink_bag_pitch_px + flexlink_phase_px
+        flexlink_visible_seals = []
+        flexlink_y = flexlink_seal_zero_y - flexlink_bag_pitch_px + flexlink_phase_px
         while flexlink_y < flexlink_tube_bottom + flexlink_bag_pitch_px:
             if flexlink_tube_top - 20 <= flexlink_y <= flexlink_tube_bottom + 20:
+                is_first_visible_seal = not flexlink_visible_seals
+                flexlink_visible_seals.append(flexlink_y)
+                flexlink_shapes.append(
+                    cv.Rect(
+                        flexlink_tube_x + 6,
+                        flexlink_y - 4,
+                        flexlink_tube_w - 12,
+                        8,
+                        border_radius=ft.BorderRadius.all(3),
+                        paint=ft.Paint(color=ft.Colors.with_opacity(0.34, "#f3f7b3"), style=ft.PaintingStyle.FILL),
+                    )
+                )
                 flexlink_shapes.append(
                     cv.Line(
                         flexlink_tube_x + 8,
                         flexlink_y,
                         flexlink_tube_x + flexlink_tube_w - 8,
                         flexlink_y,
-                        paint=canvas_paint(ft.Colors.with_opacity(0.58, "#e7f7fa"), 1.2),
+                        paint=canvas_paint("#f2f5a8", 1.7),
                     )
                 )
+                if flexlink_tube_top + 28 <= flexlink_y <= flexlink_tube_bottom - 28:
+                    flexlink_shapes.append(
+                        cv.Rect(
+                            flexlink_tube_x + flexlink_tube_w - 42,
+                            flexlink_y - 12,
+                            34,
+                            16,
+                            border_radius=ft.BorderRadius.all(3),
+                            paint=ft.Paint(color=ft.Colors.with_opacity(0.82, "#1b2428"), style=ft.PaintingStyle.FILL),
+                        )
+                    )
+                    add_profile_text(
+                        flexlink_shapes,
+                        flexlink_tube_x + flexlink_tube_w - 25,
+                        flexlink_y - 9,
+                        "SEAL",
+                        size=7,
+                        color="#f2f5a8",
+                        weight=ft.FontWeight.BOLD,
+                        max_width=32,
+                    )
+                    if is_first_visible_seal:
+                        add_profile_text(
+                            flexlink_shapes,
+                            flexlink_tube_x + flexlink_tube_w + 10,
+                            flexlink_y + 8,
+                            f"{flexlink_cycle_pitch:g} mm bag",
+                            size=8,
+                            color=ft.Colors.GREY_300,
+                            align=ft.Alignment.TOP_LEFT,
+                            max_width=82,
+                        )
             mark_y = flexlink_y + flexlink_bag_pitch_px * 0.48
             if flexlink_tube_top + 12 <= mark_y <= flexlink_tube_bottom - 12:
                 flexlink_shapes.append(
@@ -9158,6 +9208,32 @@ def main(page: ft.Page):
                     )
                 )
             flexlink_y += flexlink_bag_pitch_px
+
+        flexlink_visible_seals = [
+            seal_y for seal_y in flexlink_visible_seals
+            if flexlink_tube_top <= seal_y <= flexlink_tube_bottom
+        ]
+        if len(flexlink_visible_seals) >= 2:
+            bracket_y0, bracket_y1 = flexlink_visible_seals[0], flexlink_visible_seals[1]
+            bracket_x = flexlink_tube_x - 24
+            flexlink_shapes.extend([
+                cv.Line(bracket_x, bracket_y0, bracket_x, bracket_y1,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.62, "#f2f5a8"), 1.0)),
+                cv.Line(bracket_x - 7, bracket_y0, bracket_x + 7, bracket_y0,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.62, "#f2f5a8"), 1.0)),
+                cv.Line(bracket_x - 7, bracket_y1, bracket_x + 7, bracket_y1,
+                        paint=canvas_paint(ft.Colors.with_opacity(0.62, "#f2f5a8"), 1.0)),
+            ])
+            add_profile_text(
+                flexlink_shapes,
+                bracket_x - 12,
+                (bracket_y0 + bracket_y1) / 2.0 - 18,
+                "BAG LENGTH",
+                size=7,
+                color=ft.Colors.GREY_300,
+                rotate=-1.5708,
+                max_width=72,
+            )
 
         return {
             "tube_x": flexlink_tube_x,
@@ -9351,6 +9427,7 @@ def main(page: ft.Page):
             flexlink_u,
             flexlink_cycle_pitch,
             flexlink_metrics["seal_contact"],
+            flexlink_base_out_mm,
         )
         tube_x = flexlink_film["tube_x"]
         tube_w = flexlink_film["tube_w"]
