@@ -1,5 +1,5 @@
 {
-  "controller_ip": "192.168.0.250",
+  "controller_ip": "192.168.0.245",
   "param_UNITS": "2097152.0",
   "target_axis": "0",
   "param_SPEED": "10",
@@ -288,7 +288,7 @@
       }
     }
   },
-  "master_speed": "15.8",
+  "master_speed": "26.8",
   "shear_calc": {
     "cut": 90.0,
     "vline": 100.0,
@@ -333,7 +333,7 @@
   },
   "flexlink_calc": {
     "cycle_pitch": 20.0,
-    "line_speed": 10.0,
+    "line_speed": 50.0,
     "excite_dist": 43.0,
     "base_in": 30.0,
     "base_out": 5.0,
@@ -347,24 +347,24 @@
     "repeat_mode": "flexlink_repeat",
     "base_in_mm": 3.0,
     "base_out_mm": 3.0,
-    "excite_acc_mm": 6.0,
-    "excite_dec_mm": 6.0,
-    "seal_dwell_min_ms": 50.0,
+    "excite_acc_mm": 1.0,
+    "excite_dec_mm": 1.0,
+    "seal_dwell_min_ms": 40.0,
     "jaw_period": 63.0,
     "reg_trim": 0.0
   },
   "rotarylink_calc": {
     "distance": 62.83185307179586,
     "link_dist": 62.83185307179586,
-    "acc": 2.0,
-    "sync": 10.0,
-    "sync_pos": 2.0,
+    "acc": 10.0,
+    "sync": 5.0,
+    "sync_pos": 10.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
-    "profile": "trapezoid",
-    "start_mode": "absolute",
+    "profile": "sine",
+    "start_mode": "immediate",
     "link_source": "mpos",
-    "merge": false,
+    "merge": true,
     "repeat_mode": "program_loop",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
@@ -373,7 +373,7 @@
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
     "rl_units": 133508.8428860218,
-    "cut_length": 100.0,
+    "cut_length": 50.0,
     "decel": 10.0
   },
   "point_to_point": {
@@ -391,5 +391,13 @@
     "decel": "100.0",
     "servo_on": true,
     "wait_idle": true
+  },
+  "rotarylink_sim": {
+    "drum_direction_reversed": true,
+    "link_units_to_mm": 1.0,
+    "mpos_counts_per_rev_override": null,
+    "match_tolerance_pct": 5.0,
+    "show_debug": false,
+    "slave_jog_speed": "10"
   }
 }

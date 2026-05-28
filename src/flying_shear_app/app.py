@@ -5167,23 +5167,39 @@ def main(page: ft.Page):
     )
 
     # ============================================================
-    # === Rotary Knife Live Simulation ===========================
+    # === Rotary Live Simulation Instances ======================
     # ============================================================
-    rotary_sim_settings = settings.setdefault("rotary_sim", {})
+    rotary_knife_sim_settings = settings.setdefault("rotary_sim", {})
+    rotarylink_existing_sim_settings = settings.get("rotarylink_sim")
+    if isinstance(rotarylink_existing_sim_settings, dict):
+        rotarylink_sim_settings = rotarylink_existing_sim_settings
+    else:
+        rotarylink_sim_settings = dict(rotary_knife_sim_settings)
+        settings["rotarylink_sim"] = rotarylink_sim_settings
     ROTARY_MPOS_OVERRIDE_KEY = "mpos_counts_per_rev_override"
     ROTARY_LEGACY_MPOS_OVERRIDE_KEY = "drum_mpos_units_override"
-    if ROTARY_MPOS_OVERRIDE_KEY not in rotary_sim_settings:
-        rotary_sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = rotary_sim_settings.pop(
-            ROTARY_LEGACY_MPOS_OVERRIDE_KEY,
-            None,
-        )
-    else:
-        rotary_sim_settings.pop(ROTARY_LEGACY_MPOS_OVERRIDE_KEY, None)
-    rotary_sim_settings.setdefault("drum_direction_reversed", False)
-    rotary_sim_settings.setdefault("link_units_to_mm", 1.0)
-    rotary_sim_settings.setdefault(ROTARY_MPOS_OVERRIDE_KEY, None)
-    rotary_sim_settings.setdefault("show_debug", False)
-    rotary_sim_settings.setdefault("slave_jog_speed", "1")
+
+    def normalize_rotary_sim_settings(sim_settings):
+        if ROTARY_MPOS_OVERRIDE_KEY not in sim_settings:
+            sim_settings[ROTARY_MPOS_OVERRIDE_KEY] = sim_settings.pop(
+                ROTARY_LEGACY_MPOS_OVERRIDE_KEY,
+                None,
+            )
+        else:
+            sim_settings.pop(ROTARY_LEGACY_MPOS_OVERRIDE_KEY, None)
+        sim_settings.setdefault("drum_direction_reversed", False)
+        sim_settings.setdefault("link_units_to_mm", 1.0)
+        sim_settings.setdefault(ROTARY_MPOS_OVERRIDE_KEY, None)
+        sim_settings.setdefault("show_debug", False)
+        sim_settings.setdefault("slave_jog_speed", "1")
+
+    normalize_rotary_sim_settings(rotary_knife_sim_settings)
+    normalize_rotary_sim_settings(rotarylink_sim_settings)
+    rotary_sim_settings_by_solution = {
+        "rotary_knife": rotary_knife_sim_settings,
+        "rotarylink": rotarylink_sim_settings,
+    }
+    rotary_sim_settings = rotary_sim_settings_by_solution["rotary_knife"]
 
     ROTARY_SIM_HEIGHT = 390
     ROTARY_DEFAULT_AXIS_CPR = 8_388_608.0
@@ -5199,32 +5215,39 @@ def main(page: ft.Page):
     ROTARY_MATERIAL_CONTACT_ANGLE_RAD = math.pi
     ROTARY_TANGENTIAL_WARNING_LIMIT_MM_S = 10000.0
 
-    rotary_sim_state = {
-        "line_mpos": None,
-        "drum_mpos": None,
-        "line_mspeed": None,
-        "drum_mspeed": None,
-        "drum_demand_speed": None,
-        "drum_tangential_mm_s": None,
-        "belt_offset_px": 0.0,
-        "drum_angle": 0.0,
-        "axis_cpr": None,
-        "cpr_axis": None,
-        "cpr_source": "not read",
-        "axis_units": None,
-        "units_axis": None,
-        "mpos_per_rev": None,
-        "units_source": "not read",
-        "units_error": None,
-        "units_warning": None,
-        "units_mismatch": False,
-        "last_diag_update": 0.0,
-        "speed_samples": collections.deque(maxlen=8),
-        "last_kinematics": None,
-        "drum_speed_warning": None,
-        "last_drum_angle_mpos": None,
-        "last_drum_angle_time": None,
+    def make_rotary_sim_state():
+        return {
+            "line_mpos": None,
+            "drum_mpos": None,
+            "line_mspeed": None,
+            "drum_mspeed": None,
+            "drum_demand_speed": None,
+            "drum_tangential_mm_s": None,
+            "belt_offset_px": 0.0,
+            "drum_angle": 0.0,
+            "axis_cpr": None,
+            "cpr_axis": None,
+            "cpr_source": "not read",
+            "axis_units": None,
+            "units_axis": None,
+            "mpos_per_rev": None,
+            "units_source": "not read",
+            "units_error": None,
+            "units_warning": None,
+            "units_mismatch": False,
+            "last_diag_update": 0.0,
+            "speed_samples": collections.deque(maxlen=8),
+            "last_kinematics": None,
+            "drum_speed_warning": None,
+            "last_drum_angle_mpos": None,
+            "last_drum_angle_time": None,
+        }
+
+    rotary_sim_states = {
+        "rotary_knife": make_rotary_sim_state(),
+        "rotarylink": make_rotary_sim_state(),
     }
+    rotary_sim_state = rotary_sim_states["rotary_knife"]
 
     def rotary_setting_float(key, default):
         try:
@@ -5437,32 +5460,91 @@ def main(page: ft.Page):
         except (TypeError, ValueError):
             return None
 
-    def live_saved_units_mismatch_warning(axis, live_units):
+    def calculated_rotarylink_units():
+        if rotary_sim_mode.get("solution") != "rotarylink":
+            return None
+        try:
+            units = compute_rotary_units_per_mm(
+                rotarylink_encoder_cpr_input.value,
+                rotarylink_drum_dia_input.value,
+            )
+            return units if units > 0 else None
+        except (NameError, TypeError, ValueError):
+            pass
+        try:
+            units = float(settings.get("rotarylink_calc", {}).get("rl_units"))
+            return units if units > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def calculated_rotarylink_cpr():
+        if rotary_sim_mode.get("solution") != "rotarylink":
+            return None
+        try:
+            cpr = float(rotarylink_encoder_cpr_input.value)
+            return cpr if cpr > 0 else None
+        except (NameError, TypeError, ValueError):
+            pass
+        try:
+            cpr = float(settings.get("rotarylink_calc", {}).get("rl_encoder_counts_per_rev"))
+            return cpr if cpr > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def expected_drum_cpr_for_axis(axis):
+        if rotary_sim_mode.get("solution") == "rotarylink":
+            calculated_cpr = calculated_rotarylink_cpr()
+            if calculated_cpr is not None:
+                return (
+                    calculated_cpr,
+                    f"calculated RotaryLink CPR {format_rotary_count(calculated_cpr)}",
+                )
+        return (
+            ROTARY_DEFAULT_AXIS_CPR,
+            f"default CPR {format_rotary_count(ROTARY_DEFAULT_AXIS_CPR)}",
+        )
+
+    def expected_drum_units_for_axis(axis):
+        if rotary_sim_mode.get("solution") == "rotarylink":
+            calculated_units = calculated_rotarylink_units()
+            if calculated_units is not None:
+                return (
+                    calculated_units,
+                    f"calculated RotaryLink UNITS {format_rotary_count(calculated_units)}",
+                )
+
         saved_units = saved_drum_units_for_axis(axis)
-        if saved_units is None or live_units is None:
+        if saved_units is not None:
+            return saved_units, f"saved UNITS {format_rotary_count(saved_units)}"
+        return None, None
+
+    def live_expected_units_mismatch_warning(axis, live_units):
+        expected_units, expected_source = expected_drum_units_for_axis(axis)
+        if expected_units is None or live_units is None:
             return None
         try:
             live_value = float(live_units)
-            saved_value = float(saved_units)
+            expected_value = float(expected_units)
         except (TypeError, ValueError):
             return None
-        if live_value <= 0 or saved_value <= 0:
+        if live_value <= 0 or expected_value <= 0:
             return None
-        if math.isclose(live_value, saved_value, rel_tol=0.005, abs_tol=1e-6):
+        if math.isclose(live_value, expected_value, rel_tol=0.005, abs_tol=1e-6):
             return None
         return (
             f"Controller axis {axis} UNITS {format_rotary_count(live_value)} differs "
-            f"from saved {solution_label()} UNITS {format_rotary_count(saved_value)}; "
-            "apply saved axis parameters to the controller."
+            f"from {expected_source}; "
+            "save/apply axis parameters to the controller."
         )
 
     def apply_saved_rotary_units_fallback(axis):
-        units = saved_drum_units_for_axis(axis)
+        units, units_source = expected_drum_units_for_axis(axis)
+        cpr, cpr_source = expected_drum_cpr_for_axis(axis)
         rotary_sim_state["units_warning"] = None
         rotary_sim_state["units_mismatch"] = False
-        rotary_sim_state["axis_cpr"] = ROTARY_DEFAULT_AXIS_CPR
+        rotary_sim_state["axis_cpr"] = cpr
         rotary_sim_state["cpr_axis"] = axis
-        rotary_sim_state["cpr_source"] = f"default CPR {format_rotary_count(ROTARY_DEFAULT_AXIS_CPR)}"
+        rotary_sim_state["cpr_source"] = cpr_source
 
         if units is None:
             rotary_sim_state["axis_units"] = None
@@ -5471,7 +5553,7 @@ def main(page: ft.Page):
         else:
             rotary_sim_state["axis_units"] = units
             rotary_sim_state["units_axis"] = axis
-            rotary_sim_state["units_source"] = f"saved UNITS {units:g}"
+            rotary_sim_state["units_source"] = units_source
         rotary_sim_state["units_error"] = None
         rotary_sim_state["speed_samples"].clear()
         update_rotary_units_label()
@@ -5527,7 +5609,7 @@ def main(page: ft.Page):
 
         if not trio_conn.is_connected():
             apply_saved_rotary_units_fallback(axis)
-            rotary_status_text.value = "Controller not connected; using saved axis UNITS if available."
+            rotary_status_text.value = "Controller not connected; using calculated/saved axis UNITS if available."
             rotary_status_text.color = MUTED_TEXT
             redraw_rotary_sim()
             page.update()
@@ -5559,18 +5641,18 @@ def main(page: ft.Page):
             warnings = []
 
             if cpr is None:
-                cpr = ROTARY_DEFAULT_AXIS_CPR
-                rotary_sim_state["cpr_source"] = f"default CPR {format_rotary_count(cpr)}"
+                cpr, cpr_source = expected_drum_cpr_for_axis(axis)
+                rotary_sim_state["cpr_source"] = cpr_source
                 cpr_error = read_errors.get("CPR", "")
                 if cpr_error and "unavailable" not in cpr_error:
                     warnings.append(
-                        f"CPR read failed ({read_errors.get('CPR', 'unknown')}); using default axis CPR."
+                        f"CPR read failed ({read_errors.get('CPR', 'unknown')}); using {cpr_source}."
                     )
             else:
                 rotary_sim_state["cpr_source"] = f"axis {axis} CPR {format_rotary_count(cpr)}"
 
             if units is None:
-                units = saved_drum_units_for_axis(axis)
+                units, units_source = expected_drum_units_for_axis(axis)
                 if units is None:
                     units = 1.0
                     rotary_sim_state["units_source"] = "fallback UNITS 1"
@@ -5578,16 +5660,16 @@ def main(page: ft.Page):
                         f"UNITS read failed ({read_errors.get('UNITS', 'unknown')}); using fallback UNITS 1."
                     )
                 else:
-                    rotary_sim_state["units_source"] = f"saved UNITS {format_rotary_count(units)}"
+                    rotary_sim_state["units_source"] = units_source
                     warnings.append(
-                        f"UNITS read failed ({read_errors.get('UNITS', 'unknown')}); using saved UNITS."
+                        f"UNITS read failed ({read_errors.get('UNITS', 'unknown')}); using {units_source}."
                     )
             else:
                 rotary_sim_state["units_source"] = f"axis {axis} UNITS {units:g}"
 
             mismatch_warning = None
             if "UNITS" not in read_errors:
-                mismatch_warning = live_saved_units_mismatch_warning(axis, units)
+                mismatch_warning = live_expected_units_mismatch_warning(axis, units)
                 if mismatch_warning:
                     warnings.append(mismatch_warning)
 
@@ -5609,14 +5691,13 @@ def main(page: ft.Page):
                 )
                 rotary_status_text.color = SUCCESS_COLOR
         except Exception as ex:
-            fallback_cpr = ROTARY_DEFAULT_AXIS_CPR
-            cpr_text = f"default CPR {format_rotary_count(fallback_cpr)}"
-            fallback_units = saved_drum_units_for_axis(axis)
+            fallback_cpr, cpr_text = expected_drum_cpr_for_axis(axis)
+            fallback_units, fallback_units_source = expected_drum_units_for_axis(axis)
             if fallback_units is None:
                 fallback_units = 1.0
                 fallback_text = "fallback UNITS 1"
             else:
-                fallback_text = f"saved UNITS {format_rotary_count(fallback_units)}"
+                fallback_text = fallback_units_source
             rotary_sim_state["axis_cpr"] = fallback_cpr
             rotary_sim_state["cpr_axis"] = axis
             rotary_sim_state["cpr_source"] = cpr_text
@@ -6931,20 +7012,37 @@ def main(page: ft.Page):
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
+    def sync_rotary_sim_controls_from_active_settings():
+        rotary_reverse_checkbox.value = bool(rotary_sim_settings.get("drum_direction_reversed", False))
+        rotary_link_units_input.value = str(rotary_sim_settings.get("link_units_to_mm", 1.0))
+        override = rotary_sim_settings.get(ROTARY_MPOS_OVERRIDE_KEY)
+        rotary_mpos_override_input.value = "" if override is None else str(override)
+        rotary_debug_checkbox.value = bool(rotary_sim_settings.get("show_debug", False))
+        rotary_debug_container.visible = bool(rotary_sim_settings.get("show_debug", False))
+        rotary_slave_jog_panel.speed_input.value = str(rotary_sim_settings.get("slave_jog_speed", "1"))
+
     def set_rotary_sim_labels(solution):
+        nonlocal rotary_sim_settings, rotary_sim_state
         if solution == "rotarylink":
+            rotary_sim_settings = rotary_sim_settings_by_solution["rotarylink"]
+            rotary_sim_state = rotary_sim_states["rotarylink"]
             rotary_sim_mode["solution"] = "rotarylink"
             rotary_sim_title_text.value = "RotaryLink Simulation"
             rotary_sim_subtitle_text.value = "Live rotary/base geometry from ROTARYLINK calculator and axes"
             rotary_axis_m_dropdown.label = "Link / master axis"
             rotary_axis_s_dropdown.label = "Rotary / base axis"
         else:
+            rotary_sim_settings = rotary_sim_settings_by_solution["rotary_knife"]
+            rotary_sim_state = rotary_sim_states["rotary_knife"]
             rotary_sim_mode["solution"] = "rotary_knife"
             rotary_sim_title_text.value = "Live Monitor"
             rotary_sim_subtitle_text.value = "Live drum geometry from CAMBOX axes"
             rotary_axis_m_dropdown.label = "Material / encoder axis"
             rotary_axis_s_dropdown.label = "Drum axis"
-        refresh_rotary_sim_geometry()
+        sync_rotary_sim_controls_from_active_settings()
+        if solution in ("rotary_knife", "rotarylink"):
+            request_rotary_units_refresh()
+            refresh_rotary_sim_geometry()
 
     rotary_sim_container = ft.Container(
         content=ft.Column(
@@ -8160,6 +8258,20 @@ def main(page: ft.Page):
             param_inputs["UNITS"].value = units_text
             param_inputs["UNITS"].error_text = None
 
+        if active_solution_key() == "rotarylink":
+            try:
+                if str(rotary_sim_state.get("units_axis")) in (base_axis, "None"):
+                    rotary_sim_state["axis_units"] = float(axis_units)
+                    rotary_sim_state["units_axis"] = base_axis
+                    rotary_sim_state["units_source"] = f"saved UNITS {format_rotary_count(axis_units)}"
+                    rotary_sim_state["units_error"] = None
+                    rotary_sim_state["units_warning"] = None
+                    rotary_sim_state["units_mismatch"] = False
+                    rotary_sim_state["speed_samples"].clear()
+                    update_rotary_units_label()
+            except NameError:
+                pass
+
         refresh_axis_dropdown()
         save_settings(settings)
         return base_axis, units_text
@@ -8525,6 +8637,25 @@ def main(page: ft.Page):
             rotarylink_settings["rl_vline"] = rotarylink_vline
             save_settings(settings)
 
+        def rotarylink_apply_calculated_units_to_active_sim():
+            if active_solution_key() != "rotarylink" or rotarylink_axis_units is None:
+                return
+            try:
+                base_axis = str(rotarylink_axis_s_dropdown.value or axis_s_dropdown.value or "1")
+            except NameError:
+                base_axis = "1"
+            rotary_sim_state["axis_cpr"] = rotarylink_encoder_cpr
+            rotary_sim_state["cpr_axis"] = base_axis
+            rotary_sim_state["cpr_source"] = f"calculated RotaryLink CPR {format_rotary_count(rotarylink_encoder_cpr)}"
+            rotary_sim_state["axis_units"] = rotarylink_axis_units
+            rotary_sim_state["units_axis"] = base_axis
+            rotary_sim_state["units_source"] = f"calculated RotaryLink UNITS {format_rotary_count(rotarylink_axis_units)}"
+            rotary_sim_state["units_error"] = None
+            rotary_sim_state["units_warning"] = None
+            rotary_sim_state["units_mismatch"] = False
+            rotary_sim_state["speed_samples"].clear()
+            update_rotary_units_label()
+
         try:
             rotarylink_profile_diag = calculate_rotarylink_profile(
                 rotarylink_distance,
@@ -8672,6 +8803,7 @@ def main(page: ft.Page):
             )
 
         rotarylink_save_current_settings()
+        rotarylink_apply_calculated_units_to_active_sim()
         try:
             refresh_rotary_sim_geometry()
         except NameError:
