@@ -119,16 +119,25 @@ class PointToPointBasicTests(unittest.TestCase):
         self.assertIn("DRIVE_FE_LIMIT = 1", program)
         self.assertIn("FS_LIMIT = 0.000", program)
 
-    def test_standalone_point_to_point_outputs_start_with_cancel_wait(self):
+    def test_standalone_motion_outputs_start_with_cancel_wait(self):
         programs = [
-            emit_point_to_point_startup_program(0, 25, 100, 100),
             emit_point_to_point_motion_program(0, "relative", 10),
-            emit_square_startup_basic_program(0, 1, 25, 100, 100),
             emit_square_motion_basic_program(0, 1, "relative", 0, 0, 10),
         ]
 
         for program in programs:
             self.assert_starts_with_basic_preamble(program)
+
+    def test_standalone_startup_outputs_do_not_start_with_cancel_wait(self):
+        programs = [
+            emit_point_to_point_startup_program(0, 25, 100, 100),
+            emit_square_startup_basic_program(0, 1, 25, 100, 100),
+        ]
+
+        for program in programs:
+            self.assertNotIn("CANCEL(2)", program)
+            self.assertNotIn("WA(100)", program)
+            self.assertTrue(program.startswith("' Point To Point STARTUP axis configuration"))
 
 
 if __name__ == "__main__":

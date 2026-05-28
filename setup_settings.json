@@ -373,7 +373,7 @@
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
     "rl_units": 133508.8428860218,
-    "cut_length": 50.0,
+    "cut_length": 60.0,
     "decel": 10.0
   },
   "point_to_point": {

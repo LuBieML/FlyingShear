@@ -1,59 +1,21 @@
 """Trio BASIC generation for point-to-point MOVE examples."""
 
-import math
+from .axis_startup_basic import (
+    AXIS_PARAMETER_DEFAULTS,
+    AXIS_PARAMETER_INT_VALUES,
+    AXIS_PARAMETER_ORDER,
+    BASIC_PROGRAM_PREAMBLE,
+    axis_param_lines,
+    format_axis_param_value,
+)
 
 
 def _format_number(value):
     return f"{float(value):.3f}"
 
 
-AXIS_PARAMETER_DEFAULTS = {
-    "UNITS": "1.0",
-    "SPEED": "10.0",
-    "ACCEL": "1.0",
-    "DECEL": "1.0",
-    "FASTDEC": "200.0",
-    "JERK": "100000.0",
-    "DRIVE_FE_LIMIT": "1",
-    "FE_LIMIT": "1",
-    "FE_RANGE": "1",
-    "RS_LIMIT": "0.0",
-    "FS_LIMIT": "0.0",
-}
-AXIS_PARAMETER_ORDER = list(AXIS_PARAMETER_DEFAULTS)
-AXIS_PARAMETER_INT_VALUES = {"DRIVE_FE_LIMIT", "FE_LIMIT", "FE_RANGE"}
-BASIC_PROGRAM_PREAMBLE = ["CANCEL(2)", "WA(100)", ""]
-
-
-def _coerce_axis_param_number(param_name, value):
-    default = AXIS_PARAMETER_DEFAULTS[param_name]
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        number = float(default)
-    if not math.isfinite(number):
-        number = float(default)
-    return number
-
-
-def _format_axis_param_value(param_name, value):
-    number = _coerce_axis_param_number(param_name, value)
-    if param_name in AXIS_PARAMETER_INT_VALUES:
-        return str(int(number))
-    return _format_number(number)
-
-
-def _axis_param_lines(axis, axis_params=None, servo_on=True):
-    params = dict(AXIS_PARAMETER_DEFAULTS)
-    if axis_params:
-        params.update(axis_params)
-
-    lines = [f"BASE({int(axis)})"]
-    if servo_on:
-        lines.append("SERVO = ON")
-    for param_name in AXIS_PARAMETER_ORDER:
-        lines.append(f"{param_name} = {_format_axis_param_value(param_name, params[param_name])}")
-    return lines
+_format_axis_param_value = format_axis_param_value
+_axis_param_lines = axis_param_lines
 
 
 def emit_point_to_point_basic_program(
@@ -75,7 +37,15 @@ def emit_point_to_point_basic_program(
     if move_mode not in ("relative", "absolute"):
         raise ValueError("move_mode must be 'relative' or 'absolute'")
 
-    startup = emit_point_to_point_startup_program(axis, speed, accel, decel, servo_on, axis_params)
+    startup = emit_point_to_point_startup_program(
+        axis,
+        speed,
+        accel,
+        decel,
+        servo_on,
+        axis_params,
+        include_preamble=True,
+    )
     motion = emit_point_to_point_motion_program(
         axis,
         move_mode,
@@ -96,7 +66,7 @@ def emit_point_to_point_startup_program(
     decel,
     servo_on=True,
     axis_params=None,
-    include_preamble=True,
+    include_preamble=False,
 ):
     """Emit axis setup code intended to run at controller startup."""
     axis_value = int(axis)
@@ -184,6 +154,7 @@ def emit_square_move_basic_program(
         decel,
         servo_on,
         axis_params_by_axis,
+        include_preamble=True,
     )
     motion = emit_square_motion_basic_program(
         x_axis,
@@ -209,7 +180,7 @@ def emit_square_startup_basic_program(
     decel,
     servo_on=True,
     axis_params_by_axis=None,
-    include_preamble=True,
+    include_preamble=False,
 ):
     """Emit square example axis setup code intended to run at startup."""
     x_axis_value = int(x_axis)

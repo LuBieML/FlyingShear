@@ -16,6 +16,7 @@ from .bootstrap.windows_timer import (
     begin_windows_timer_resolution,
     end_windows_timer_resolution,
 )
+from .codegen.axis_startup_basic import emit_axis_startup_basic_program
 from .codegen.cambox_basic import (
     emit_cam_basic_program,
     emit_cam_quicktest_basic_program,
@@ -370,14 +371,52 @@ def main(page: ft.Page):
             ctl.value = value
             _update_if_mounted(ctl)
 
+    def refresh_startup_outputs():
+        try:
+            update_shear_startup_code()
+        except NameError:
+            pass
+        try:
+            update_cam_startup_code()
+        except NameError:
+            pass
+        try:
+            update_flexlink_startup_code()
+        except NameError:
+            pass
+        try:
+            update_rotarylink_startup_code()
+        except NameError:
+            pass
+        try:
+            point_to_point_update_code(save=False)
+        except NameError:
+            pass
+
+    def refresh_axis_dependent_generated_code(e=None):
+        try:
+            recalc(e)
+        except NameError:
+            pass
+        try:
+            cam_recalc(e)
+        except NameError:
+            pass
+        try:
+            flexlink_recalc(e)
+        except NameError:
+            pass
+        try:
+            rotarylink_recalc(e)
+        except NameError:
+            pass
+        refresh_startup_outputs()
+
     def on_axis_m_change(e):
         settings["master_axis"] = e.control.value
         _sync_bound_value(axis_m_bound_controls, e.control.value, e.control)
         save_settings(settings)
-        try:
-            recalc()
-        except NameError:
-            pass
+        refresh_axis_dependent_generated_code(e)
 
     def on_axis_s_change(e):
         settings["slave_axis"] = e.control.value
@@ -387,10 +426,7 @@ def main(page: ft.Page):
             request_rotary_units_refresh()
         except NameError:
             pass
-        try:
-            recalc()
-        except NameError:
-            pass
+        refresh_axis_dependent_generated_code(e)
 
     axis_m_dropdown = ft.Dropdown(
         label="Material / encoder axis", width=165, height=45,
@@ -2137,6 +2173,7 @@ def main(page: ft.Page):
                 point_to_point_update_code(e, save=False)
             except NameError:
                 pass
+            refresh_startup_outputs()
         return handler
 
     for param, default in parameters:
@@ -2218,6 +2255,7 @@ def main(page: ft.Page):
             point_to_point_update_code(save=False)
         except NameError:
             pass
+        refresh_startup_outputs()
         page.update()
 
     axis_dropdown.on_select = on_target_axis_change
@@ -2263,6 +2301,7 @@ def main(page: ft.Page):
             point_to_point_update_code(save=False)
         except NameError:
             pass
+        refresh_startup_outputs()
         show_snack(f"Copied saved parameters from Axis {src} to Axis {dst}.", "success")
         page.update()
 
@@ -2361,6 +2400,34 @@ def main(page: ft.Page):
                 saved_sets.append((axis, param_values))
 
         return saved_sets
+
+    def axis_startup_params_for_solution(solution, axis):
+        axis_settings = {}
+        for saved_axis, param_values in get_saved_axis_param_sets(solution):
+            if str(saved_axis) == str(axis):
+                axis_settings = param_values
+                break
+        if not axis_settings:
+            axis_settings = get_axis_params_store(solution, create=False).get(str(axis), {})
+        return {
+            param_name: str(axis_settings.get(param_name, parameter_defaults[param_name]))
+            for param_name, _ in parameters
+        }
+
+    def emit_solution_axis_startup_code(solution, title, axes):
+        axis_values = []
+        for axis in axes:
+            _add_unique_axis(axis_values, axis)
+        axis_params_by_axis = {
+            axis: axis_startup_params_for_solution(solution, axis)
+            for axis in axis_values
+        }
+        return emit_axis_startup_basic_program(
+            title,
+            axis_values,
+            axis_params_by_axis=axis_params_by_axis,
+            servo_on=True,
+        )
 
     async def apply_saved_params_after_connection(solution=None):
         solution_key = active_solution_key(solution)
@@ -2503,6 +2570,7 @@ def main(page: ft.Page):
 
         save_settings(settings)
         refresh_axis_dropdown()
+        refresh_startup_outputs()
 
         loop = asyncio.get_running_loop()
         apply_btn.disabled = True
@@ -2926,6 +2994,22 @@ def main(page: ft.Page):
         expand=True,
         tooltip=CALC_TOOLTIPS["code"],
     )
+    shear_startup_code_output = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True,
+        tooltip="Generated Trio BASIC STARTUP axis configuration program.",
+    )
+
+    def update_shear_startup_code():
+        shear_startup_code_output.value = emit_solution_axis_startup_code(
+            "flying_shear",
+            "Flying Shear",
+            [axis_m_dropdown.value or "0", axis_s_dropdown.value or "1"],
+        )
 
     def result_card(label, key, tooltip_key=None):
         return ft.Container(
@@ -2946,6 +3030,7 @@ def main(page: ft.Page):
         return f"{value:.2f}"
 
     def recalc(e=None):
+        update_shear_startup_code()
         try:
             L     = float(cut_input.value)
             v     = float(vline_input.value)
@@ -3190,6 +3275,17 @@ def main(page: ft.Page):
         height=38,
         tooltip=CALC_TOOLTIPS["copy"],
     )
+    copy_btn_shear_startup = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=lambda e: copy_text_to_clipboard(
+            shear_startup_code_output.value,
+            "Flying Shear STARTUP program copied to clipboard.",
+        ),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Copy the generated Trio BASIC STARTUP program to the Windows clipboard.",
+    )
 
     axis_assignment_cluster = control_cluster(
         "Axis & knife assignment",
@@ -3259,15 +3355,54 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 6},
     )
 
-    trio_basic_panel = ft.Container(
-        content=ft.Column([
+    def shear_basic_tab_content(output, copy_button, title, subtitle):
+        return ft.Column([
             ft.Row([
-                section_header("Trio BASIC Program", "Generated controller code", ft.Icons.CODE),
+                section_header(title, subtitle, ft.Icons.CODE),
                 ft.Container(expand=True),
-                copy_btn_shear,
+                copy_button,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            code_output,
-        ], expand=True, spacing=12),
+            output,
+        ], expand=True, spacing=12)
+
+    trio_basic_panel = ft.Container(
+        content=ft.Tabs(
+            length=2,
+            selected_index=0,
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
+                            ft.Tab(label="STARTUP", icon=ft.Icons.TUNE),
+                        ],
+                        label_color=ft.Colors.CYAN_200,
+                        unselected_label_color=MUTED_TEXT,
+                        indicator_color=ACCENT_COLOR,
+                        divider_color=BORDER_COLOR,
+                    ),
+                    ft.TabBarView(
+                        controls=[
+                            shear_basic_tab_content(
+                                code_output,
+                                copy_btn_shear,
+                                "Trio BASIC Program",
+                                "Generated controller code",
+                            ),
+                            shear_basic_tab_content(
+                                shear_startup_code_output,
+                                copy_btn_shear_startup,
+                                "STARTUP",
+                                "Axis configuration code",
+                            ),
+                        ],
+                        expand=1,
+                    ),
+                ],
+                expand=1,
+            ),
+            expand=1,
+        ),
         bgcolor=PANEL_BG,
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
@@ -3808,6 +3943,13 @@ def main(page: ft.Page):
         text_style=ft.TextStyle(font_family="Consolas", size=12),
         expand=True, tooltip=CAM_TOOLTIPS["code"],
     )
+    cam_startup_code_output = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR, focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True, tooltip="Generated Trio BASIC STARTUP axis configuration program.",
+    )
     cam_quicktest_status = ft.Text(
         "Generate a valid profile before sending table data.",
         size=12,
@@ -3824,6 +3966,13 @@ def main(page: ft.Page):
     def set_cam_code_output(basic_value, quicktest_value=""):
         cam_code_output.value = basic_value
         cam_code_output_tab2.value = quicktest_value
+
+    def update_cam_startup_code():
+        cam_startup_code_output.value = emit_solution_axis_startup_code(
+            "rotary_knife",
+            "Rotary Knife",
+            [axis_m_dropdown.value or "0", axis_s_dropdown.value or "1"],
+        )
 
     def cam_table_signature(table_values, table_start):
         return (int(table_start), tuple(float(v) for v in table_values))
@@ -4537,6 +4686,7 @@ def main(page: ft.Page):
 
         refresh_axis_dropdown()
         save_settings(settings)
+        update_cam_startup_code()
         return drum_axis, units_text
 
     def cam_on_save_units(e):
@@ -4566,6 +4716,7 @@ def main(page: ft.Page):
         page.update()
 
     def cam_recalc(e=None):
+        update_cam_startup_code()
         try:
             cut_len   = float(cam_cut_input.value)
             drum_dia  = float(cam_drum_dia_input.value)
@@ -4826,6 +4977,17 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
         height=38, tooltip="Copy generated QuickTest program to clipboard",
     )
+    copy_cam_startup_btn = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=lambda e: copy_text_to_clipboard(
+            cam_startup_code_output.value,
+            "Rotary Knife STARTUP program copied to clipboard.",
+        ),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Copy the generated Trio BASIC STARTUP program to clipboard",
+    )
     cam_quicktest_send_btn = ft.FilledButton(
         "Send table data",
         icon=ft.Icons.UPLOAD,
@@ -4887,10 +5049,10 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 6},
     )
 
-    def cam_basic_tab_content(code_output, copy_button):
+    def cam_basic_tab_content(code_output, copy_button, title, subtitle):
         return ft.Column([
             ft.Row([
-                section_header("Trio BASIC Program", "Generated TABLE + CAMBOX", ft.Icons.CODE),
+                section_header(title, subtitle, ft.Icons.CODE),
                 ft.Container(expand=True),
                 copy_button,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -4925,14 +5087,15 @@ def main(page: ft.Page):
 
     cam_basic_panel = ft.Container(
         content=ft.Tabs(
-            length=2,
+            length=3,
             selected_index=0,
             content=ft.Column(
                 [
                     ft.TabBar(
                         tabs=[
                             ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
-                            ft.Tab(label="tab 2", icon=ft.Icons.CODE),
+                            ft.Tab(label="STARTUP", icon=ft.Icons.TUNE),
+                            ft.Tab(label="QuickTest", icon=ft.Icons.PLAY_CIRCLE),
                         ],
                         label_color=ft.Colors.CYAN_200,
                         unselected_label_color=MUTED_TEXT,
@@ -4941,7 +5104,18 @@ def main(page: ft.Page):
                     ),
                     ft.TabBarView(
                         controls=[
-                            cam_basic_tab_content(cam_code_output, copy_cam_btn),
+                            cam_basic_tab_content(
+                                cam_code_output,
+                                copy_cam_btn,
+                                "Trio BASIC Program",
+                                "Generated TABLE + CAMBOX",
+                            ),
+                            cam_basic_tab_content(
+                                cam_startup_code_output,
+                                copy_cam_startup_btn,
+                                "STARTUP",
+                                "Axis configuration code",
+                            ),
                             cam_quicktest_tab_content(),
                         ],
                         expand=1,
@@ -7329,6 +7503,22 @@ def main(page: ft.Page):
         expand=True,
         tooltip=flexlink_tooltips["code"],
     )
+    flexlink_startup_code_output = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True,
+        tooltip="Generated Trio BASIC STARTUP axis configuration program.",
+    )
+
+    def update_flexlink_startup_code():
+        flexlink_startup_code_output.value = emit_solution_axis_startup_code(
+            "flow_wrapper",
+            "VFFS",
+            [axis_m_dropdown.value or "0", axis_s_dropdown.value or "1"],
+        )
 
     flexlink_curve_labels = {
         "sine": "Sine",
@@ -7548,6 +7738,7 @@ def main(page: ft.Page):
     ], spacing=6)
 
     def flexlink_recalc(e=None):
+        update_flexlink_startup_code()
         try:
             flexlink_cycle_pitch = float(flexlink_cycle_pitch_input.value)
             flexlink_line_speed = float(flexlink_line_speed_input.value)
@@ -7917,6 +8108,17 @@ def main(page: ft.Page):
         height=38,
         tooltip=flexlink_tooltips["copy"],
     )
+    flexlink_startup_copy_btn = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=lambda e: copy_text_to_clipboard(
+            flexlink_startup_code_output.value,
+            "VFFS STARTUP program copied to clipboard.",
+        ),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Copy the generated Trio BASIC STARTUP program to clipboard",
+    )
 
     flexlink_params_panel = ft.Container(
         content=ft.Column([
@@ -7997,15 +8199,54 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 6},
     )
 
-    flexlink_trio_basic_panel = ft.Container(
-        content=ft.Column([
+    def flexlink_basic_tab_content(output, copy_button, title, subtitle):
+        return ft.Column([
             ft.Row([
-                section_header("Trio BASIC Program", "Generated FLEXLINK code", ft.Icons.CODE),
+                section_header(title, subtitle, ft.Icons.CODE),
                 ft.Container(expand=True),
-                flexlink_copy_btn,
+                copy_button,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            flexlink_code_output,
-        ], expand=True, spacing=12),
+            output,
+        ], expand=True, spacing=12)
+
+    flexlink_trio_basic_panel = ft.Container(
+        content=ft.Tabs(
+            length=2,
+            selected_index=0,
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
+                            ft.Tab(label="STARTUP", icon=ft.Icons.TUNE),
+                        ],
+                        label_color=ft.Colors.CYAN_200,
+                        unselected_label_color=MUTED_TEXT,
+                        indicator_color=ACCENT_COLOR,
+                        divider_color=BORDER_COLOR,
+                    ),
+                    ft.TabBarView(
+                        controls=[
+                            flexlink_basic_tab_content(
+                                flexlink_code_output,
+                                flexlink_copy_btn,
+                                "Trio BASIC Program",
+                                "Generated FLEXLINK code",
+                            ),
+                            flexlink_basic_tab_content(
+                                flexlink_startup_code_output,
+                                flexlink_startup_copy_btn,
+                                "STARTUP",
+                                "Axis configuration code",
+                            ),
+                        ],
+                        expand=1,
+                    ),
+                ],
+                expand=1,
+            ),
+            expand=1,
+        ),
         bgcolor=PANEL_BG,
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
@@ -8273,6 +8514,7 @@ def main(page: ft.Page):
                 pass
 
         refresh_axis_dropdown()
+        refresh_startup_outputs()
         save_settings(settings)
         return base_axis, units_text
 
@@ -8316,11 +8558,9 @@ def main(page: ft.Page):
 
     def on_rotarylink_axis_m_change(e):
         on_axis_m_change(e)
-        rotarylink_recalc(e)
 
     def on_rotarylink_axis_s_change(e):
         on_axis_s_change(e)
-        rotarylink_recalc(e)
 
     rotarylink_axis_m_dropdown = make_rotary_axis_dropdown(
         "Link / master axis",
@@ -8388,6 +8628,25 @@ def main(page: ft.Page):
         expand=True,
         tooltip=rotarylink_tooltips["code"],
     )
+    rotarylink_startup_code_output = ft.TextField(
+        value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
+        bgcolor=DARKER_BG, color=ft.Colors.GREEN_200,
+        border_color=BORDER_COLOR,
+        focused_border_color=ACCENT_COLOR,
+        text_style=ft.TextStyle(font_family="Consolas", size=12),
+        expand=True,
+        tooltip="Generated Trio BASIC STARTUP axis configuration program.",
+    )
+
+    def update_rotarylink_startup_code():
+        rotarylink_startup_code_output.value = emit_solution_axis_startup_code(
+            "rotarylink",
+            "RotaryLink",
+            [
+                rotarylink_axis_m_dropdown.value or axis_m_dropdown.value or "0",
+                rotarylink_axis_s_dropdown.value or axis_s_dropdown.value or "1",
+            ],
+        )
 
     def rotarylink_apply_sync_pos_state(start_mode, uses_sync_pos=False):
         rotarylink_sync_pos_input.disabled = False
@@ -8549,6 +8808,7 @@ def main(page: ft.Page):
     ], spacing=6)
 
     def rotarylink_recalc(e=None):
+        update_rotarylink_startup_code()
         try:
             rotarylink_cut_length = float(rotarylink_cut_length_input.value)
             rotarylink_acc = float(rotarylink_acc_input.value)
@@ -8880,6 +9140,17 @@ def main(page: ft.Page):
         height=38,
         tooltip=rotarylink_tooltips["copy"],
     )
+    rotarylink_startup_copy_btn = ft.FilledButton(
+        "Copy program",
+        icon=ft.Icons.CONTENT_COPY,
+        on_click=lambda e: copy_text_to_clipboard(
+            rotarylink_startup_code_output.value,
+            "RotaryLink STARTUP program copied to clipboard.",
+        ),
+        style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_700, color=ft.Colors.WHITE),
+        height=38,
+        tooltip="Copy the generated Trio BASIC STARTUP program to clipboard",
+    )
 
     rotarylink_params_panel = ft.Container(
         content=ft.Column([
@@ -8989,16 +9260,61 @@ def main(page: ft.Page):
         col={"xs": 12, "xl": 7},
     )
 
+    def rotarylink_basic_tab_content(output, copy_button, title, subtitle, extra_controls=None):
+        return ft.Column(
+            [
+                ft.Row([
+                    section_header(title, subtitle, ft.Icons.CODE),
+                    ft.Container(expand=True),
+                    copy_button,
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                output,
+                *(extra_controls or []),
+            ],
+            expand=True,
+            spacing=12,
+            horizontal_alignment=ft.CrossAxisAlignment.START,
+        )
+
     rotarylink_trio_basic_panel = ft.Container(
-        content=ft.Column([
-            ft.Row([
-                section_header("Trio BASIC Program", "Generated ROTARYLINK code", ft.Icons.CODE),
-                ft.Container(expand=True),
-                rotarylink_copy_btn,
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            rotarylink_code_output,
-            rotarylink_phase_bar,
-        ], expand=True, spacing=12, horizontal_alignment=ft.CrossAxisAlignment.START),
+        content=ft.Tabs(
+            length=2,
+            selected_index=0,
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
+                            ft.Tab(label="STARTUP", icon=ft.Icons.TUNE),
+                        ],
+                        label_color=ft.Colors.CYAN_200,
+                        unselected_label_color=MUTED_TEXT,
+                        indicator_color=ACCENT_COLOR,
+                        divider_color=BORDER_COLOR,
+                    ),
+                    ft.TabBarView(
+                        controls=[
+                            rotarylink_basic_tab_content(
+                                rotarylink_code_output,
+                                rotarylink_copy_btn,
+                                "Trio BASIC Program",
+                                "Generated ROTARYLINK code",
+                                [rotarylink_phase_bar],
+                            ),
+                            rotarylink_basic_tab_content(
+                                rotarylink_startup_code_output,
+                                rotarylink_startup_copy_btn,
+                                "STARTUP",
+                                "Axis configuration code",
+                            ),
+                        ],
+                        expand=1,
+                    ),
+                ],
+                expand=1,
+            ),
+            expand=1,
+        ),
         bgcolor=PANEL_BG,
         border=ft.Border.all(1, BORDER_COLOR),
         border_radius=8,
