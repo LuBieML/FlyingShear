@@ -1,0 +1,297 @@
+{
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\build.ps1": {
+    "mtime": 1778670166.7513132,
+    "ast_hash": "05d7cbf9ed73dbcc58bec511405bf7a1",
+    "semantic_hash": "05d7cbf9ed73dbcc58bec511405bf7a1"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\flet_uapi_setup.py": {
+    "mtime": 1778586708.17928,
+    "ast_hash": "6f5ff7e8679f31092aaf1d8d90482b9a",
+    "semantic_hash": "6f5ff7e8679f31092aaf1d8d90482b9a"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\main.py": {
+    "mtime": 1778671444.8023026,
+    "ast_hash": "32622a5511b99f277cdd8de4c0c49fcf",
+    "semantic_hash": "32622a5511b99f277cdd8de4c0c49fcf"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\rotary_knife_cam_self_test.py": {
+    "mtime": 1778904926.3203096,
+    "ast_hash": "76b4ac11992065ada8439563e77c66c4",
+    "semantic_hash": "76b4ac11992065ada8439563e77c66c4"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\setup_settings.json": {
+    "mtime": 1779958061.9536645,
+    "ast_hash": "e11dfd2c787e1dcc26dbb5d725000010",
+    "semantic_hash": "e11dfd2c787e1dcc26dbb5d725000010"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\trio_connection.py": {
+    "mtime": 1779769408.4000385,
+    "ast_hash": "15354402251d7012676c08ea9d0f03b4",
+    "semantic_hash": "15354402251d7012676c08ea9d0f03b4"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\settings.local.json": {
+    "mtime": 1779812226.5092125,
+    "ast_hash": "500ebfab03b7c0d02655f8e84d886df2",
+    "semantic_hash": "500ebfab03b7c0d02655f8e84d886df2"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\owasp-mobile-security-checker\\scripts\\analyze_storage_security.py": {
+    "mtime": 1778304219.6484072,
+    "ast_hash": "ccae0f288b170b70390321a5d026f240",
+    "semantic_hash": "ccae0f288b170b70390321a5d026f240"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\owasp-mobile-security-checker\\scripts\\check_dependencies.py": {
+    "mtime": 1778304219.6509256,
+    "ast_hash": "973881ad29d896c224106a7705db6bc1",
+    "semantic_hash": "973881ad29d896c224106a7705db6bc1"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\owasp-mobile-security-checker\\scripts\\check_network_security.py": {
+    "mtime": 1778304219.651921,
+    "ast_hash": "33d3ea0fd9b26ebeed1aca264a27c44c",
+    "semantic_hash": "33d3ea0fd9b26ebeed1aca264a27c44c"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\__init__.py": {
+    "mtime": 1778586460.5961351,
+    "ast_hash": "9369d927dea0a86eb4157b220e5af92e",
+    "semantic_hash": "9369d927dea0a86eb4157b220e5af92e"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\app.py": {
+    "mtime": 1779945364.8349319,
+    "ast_hash": "d41c56be2f7bd1da1fa9d5c75ddaf19a",
+    "semantic_hash": "d41c56be2f7bd1da1fa9d5c75ddaf19a"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\__init__.py": {
+    "mtime": 1778586754.371153,
+    "ast_hash": "f0fde379beac5f8366ed5c2f5f390ab3",
+    "semantic_hash": "f0fde379beac5f8366ed5c2f5f390ab3"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\bootstrap\\asyncio_windows.py": {
+    "mtime": 1778909634.4035182,
+    "ast_hash": "b25a68b9752e4a54319d22f0949f049e",
+    "semantic_hash": "b25a68b9752e4a54319d22f0949f049e"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\bootstrap\\flet_charts_patch.py": {
+    "mtime": 1778586461.0445619,
+    "ast_hash": "2d2d4b30c8973eea1d592d78eab16803",
+    "semantic_hash": "2d2d4b30c8973eea1d592d78eab16803"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\bootstrap\\windows_timer.py": {
+    "mtime": 1778586461.1047645,
+    "ast_hash": "00c0ed534f30d9899f8664dd9b3ef95d",
+    "semantic_hash": "00c0ed534f30d9899f8664dd9b3ef95d"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\bootstrap\\__init__.py": {
+    "mtime": 1779269861.5697253,
+    "ast_hash": "0fbcd2ec75c5d13b0b59f7ec5d77836a",
+    "semantic_hash": "0fbcd2ec75c5d13b0b59f7ec5d77836a"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\codegen\\axis_startup_basic.py": {
+    "mtime": 1779945439.9356463,
+    "ast_hash": "a7d9026b4fb7a1d4a45e772874a863a1",
+    "semantic_hash": "a7d9026b4fb7a1d4a45e772874a863a1"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\codegen\\cambox_basic.py": {
+    "mtime": 1779771104.965464,
+    "ast_hash": "9472e0845d7b3eddddc6e97da536e9b9",
+    "semantic_hash": "9472e0845d7b3eddddc6e97da536e9b9"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\codegen\\point_to_point_basic.py": {
+    "mtime": 1779945445.7732992,
+    "ast_hash": "314db1b29c7e2d42339de59d8b01dcc4",
+    "semantic_hash": "314db1b29c7e2d42339de59d8b01dcc4"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\codegen\\rotarylink_basic.py": {
+    "mtime": 1779770264.7325778,
+    "ast_hash": "4a976d772cae70ffc8a903a2f7c1c64f",
+    "semantic_hash": "4a976d772cae70ffc8a903a2f7c1c64f"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\codegen\\__init__.py": {
+    "mtime": 1778586460.983475,
+    "ast_hash": "8ad43a24bee11168489583a8a3b036d3",
+    "semantic_hash": "8ad43a24bee11168489583a8a3b036d3"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\config\\settings.py": {
+    "mtime": 1778669811.9554415,
+    "ast_hash": "ca838ab9129402235046d2c6e192c1c9",
+    "semantic_hash": "ca838ab9129402235046d2c6e192c1c9"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\config\\__init__.py": {
+    "mtime": 1778586460.7864869,
+    "ast_hash": "2ee0ac839d8a0f230fb7fdca97243054",
+    "semantic_hash": "2ee0ac839d8a0f230fb7fdca97243054"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\controller\\trio_connection.py": {
+    "mtime": 1779769408.3269713,
+    "ast_hash": "15354402251d7012676c08ea9d0f03b4",
+    "semantic_hash": "15354402251d7012676c08ea9d0f03b4"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\controller\\__init__.py": {
+    "mtime": 1778586460.8590572,
+    "ast_hash": "62ed4ad4c2e9a656880c812a3ed5b641",
+    "semantic_hash": "62ed4ad4c2e9a656880c812a3ed5b641"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\cambox_math.py": {
+    "mtime": 1778904807.3374684,
+    "ast_hash": "90760e2256bb14129cbd0d8787644ee7",
+    "semantic_hash": "90760e2256bb14129cbd0d8787644ee7"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\flexlink_math.py": {
+    "mtime": 1779812866.6166253,
+    "ast_hash": "0a406d30d7a9bf5d5891253d59f36ee9",
+    "semantic_hash": "0a406d30d7a9bf5d5891253d59f36ee9"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\link_options.py": {
+    "mtime": 1779169710.5130146,
+    "ast_hash": "7199661b14c18ff87dfa4691b81189df",
+    "semantic_hash": "7199661b14c18ff87dfa4691b81189df"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\profile_points.py": {
+    "mtime": 1778587067.5506527,
+    "ast_hash": "a1bc69912d1a48c2bfe93054713a9960",
+    "semantic_hash": "a1bc69912d1a48c2bfe93054713a9960"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\rotarylink_math.py": {
+    "mtime": 1779136100.5301876,
+    "ast_hash": "88e4be949db5c3652571f949ad780feb",
+    "semantic_hash": "88e4be949db5c3652571f949ad780feb"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\rotary_math.py": {
+    "mtime": 1779164699.8781426,
+    "ast_hash": "a3dcc3a4da1606397f0e8a9eb5feef68",
+    "semantic_hash": "a3dcc3a4da1606397f0e8a9eb5feef68"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\domain\\__init__.py": {
+    "mtime": 1778586460.9224708,
+    "ast_hash": "8283b4ab4b2bcf1df72a31fbdd2356a1",
+    "semantic_hash": "8283b4ab4b2bcf1df72a31fbdd2356a1"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\ui\\jog_panel.py": {
+    "mtime": 1778996400.5417686,
+    "ast_hash": "a7e6f0900bc576f6742a9dd9b80d9900",
+    "semantic_hash": "a7e6f0900bc576f6742a9dd9b80d9900"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\src\\flying_shear_app\\ui\\__init__.py": {
+    "mtime": 1778993776.3010201,
+    "ast_hash": "665d708fbcd9c85e8db8865f18b4196f",
+    "semantic_hash": "665d708fbcd9c85e8db8865f18b4196f"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_asyncio_windows.py": {
+    "mtime": 1778909654.229662,
+    "ast_hash": "563585d8428731f89080b2bef557cf17",
+    "semantic_hash": "563585d8428731f89080b2bef557cf17"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_axis_startup_basic.py": {
+    "mtime": 1779945452.405844,
+    "ast_hash": "7736cf6a5f4a6b0352806be7fa1bb420",
+    "semantic_hash": "7736cf6a5f4a6b0352806be7fa1bb420"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_jog_panel.py": {
+    "mtime": 1778994850.8536968,
+    "ast_hash": "b80866968c65213d8931cfbe06d6b631",
+    "semantic_hash": "b80866968c65213d8931cfbe06d6b631"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_point_to_point_basic.py": {
+    "mtime": 1779945461.0432227,
+    "ast_hash": "312871ca722bc07c007cbf4a21cf2436",
+    "semantic_hash": "312871ca722bc07c007cbf4a21cf2436"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_rotarylink.py": {
+    "mtime": 1779770264.9546301,
+    "ast_hash": "0cfc869f6f97753e3b4038952a5a22c0",
+    "semantic_hash": "0cfc869f6f97753e3b4038952a5a22c0"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_rotary_knife_cam.py": {
+    "mtime": 1779771105.0377438,
+    "ast_hash": "5f4649863b5d312f6323d1d9dfeacb4f",
+    "semantic_hash": "5f4649863b5d312f6323d1d9dfeacb4f"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\tests\\test_trio_connection.py": {
+    "mtime": 1779769506.9143355,
+    "ast_hash": "36825063f77be9b7fcd86df976a15bdf",
+    "semantic_hash": "36825063f77be9b7fcd86df976a15bdf"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\Calc.md": {
+    "mtime": 1778584440.7153542,
+    "ast_hash": "9b7640302c917524dd6acffb5fef9d52",
+    "semantic_hash": "9b7640302c917524dd6acffb5fef9d52"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\CAMBOX.md": {
+    "mtime": 1776330481.412643,
+    "ast_hash": "6417e8d1abb7fd31967619ca3bd41117",
+    "semantic_hash": "6417e8d1abb7fd31967619ca3bd41117"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\FLEXLINK.md": {
+    "mtime": 1776330481.5006442,
+    "ast_hash": "27aa5d32f1488306d15a6421b63fa4f6",
+    "semantic_hash": "27aa5d32f1488306d15a6421b63fa4f6"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\MOVELINK.md": {
+    "mtime": 1776330481.5936427,
+    "ast_hash": "d83c289a2e48646c757ec9ef86a4dd10",
+    "semantic_hash": "d83c289a2e48646c757ec9ef86a4dd10"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\movelink_deck (1).html": {
+    "mtime": 1779252870.7969303,
+    "ast_hash": "cc8497e8014d38e38562c0135b9c6e04",
+    "semantic_hash": "cc8497e8014d38e38562c0135b9c6e04"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\movelink_deck_redesigned.html": {
+    "mtime": 1779274783.3735,
+    "ast_hash": "3b8aeb048bc0f6ef8832a9033b35136d",
+    "semantic_hash": "3b8aeb048bc0f6ef8832a9033b35136d"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\presenter_notes.txt": {
+    "mtime": 1779266844.508206,
+    "ast_hash": "f43a597d7c23c5ddcac0c6708a0bffa4",
+    "semantic_hash": "f43a597d7c23c5ddcac0c6708a0bffa4"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\requirements.txt": {
+    "mtime": 1778669812.0177152,
+    "ast_hash": "95d29cc81e28bcfcf6c8ec02b6d89237",
+    "semantic_hash": "95d29cc81e28bcfcf6c8ec02b6d89237"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\README.md": {
+    "mtime": 1778304219.6308568,
+    "ast_hash": "1b28c8624b076cfe3b3ac94a09e9c6a6",
+    "semantic_hash": "1b28c8624b076cfe3b3ac94a09e9c6a6"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\flutter-tester\\SKILL.md": {
+    "mtime": 1778304219.6338556,
+    "ast_hash": "3d17ebddd5c851dc52f06d2f9f6e47ab",
+    "semantic_hash": "3d17ebddd5c851dc52f06d2f9f6e47ab"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\flutter-tester\\references\\layer_testing_patterns.md": {
+    "mtime": 1778304219.6348557,
+    "ast_hash": "2aecd01b07f09d07e7ce7be55a10b7fb",
+    "semantic_hash": "2aecd01b07f09d07e7ce7be55a10b7fb"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\flutter-tester\\references\\riverpod_testing_guide.md": {
+    "mtime": 1778304219.6388597,
+    "ast_hash": "cbe23ca9533dabcf039a376bb6abc100",
+    "semantic_hash": "cbe23ca9533dabcf039a376bb6abc100"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\flutter-tester\\references\\widget_testing_guide.md": {
+    "mtime": 1778304219.6408613,
+    "ast_hash": "d0776b161afaabba67b9fc27ed98816b",
+    "semantic_hash": "d0776b161afaabba67b9fc27ed98816b"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\owasp-mobile-security-checker\\SKILL.md": {
+    "mtime": 1778304219.6448991,
+    "ast_hash": "92b90f03d9a3a0b761fc5d3814d4e7d7",
+    "semantic_hash": "92b90f03d9a3a0b761fc5d3814d4e7d7"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\.claude\\skills\\flutter-claude-skills\\owasp-mobile-security-checker\\references\\owasp_mobile_top_10_2024.md": {
+    "mtime": 1778304219.6464055,
+    "ast_hash": "f1db5d1454edbe63372f237ea4068896",
+    "semantic_hash": "f1db5d1454edbe63372f237ea4068896"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\ROTARYLINK_Help File_V2.pdf": {
+    "mtime": 1778591853.957804,
+    "ast_hash": "edcac53c435b7c039abc7cf8e4f11669",
+    "semantic_hash": "edcac53c435b7c039abc7cf8e4f11669"
+  },
+  "E:\\SynologySynchro\\Projects\\FlyingShear\\Trio_UnifiedApi_CPP.pdf": {
+    "mtime": 1757666532.0,
+    "ast_hash": "87adc5f67a0f07d4c99369ebba084f4c",
+    "semantic_hash": "87adc5f67a0f07d4c99369ebba084f4c"
+  }
+}

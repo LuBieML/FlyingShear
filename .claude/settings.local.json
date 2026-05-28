@@ -19,5 +19,8 @@
       "Bash(python -c \"import sys; sys.path.insert\\(0, 'src'\\); from flying_shear_app import app; print\\('import OK'\\)\")",
       "Bash(python -c \"import sys; sys.path.insert\\(0, 'src'\\); import ast; ast.parse\\(open\\('src/flying_shear_app/app.py', encoding='utf-8'\\).read\\(\\)\\); from flying_shear_app import app; print\\('OK'\\)\")"
     ]
+  },
+  "env": {
+    "ENABLE_LSP_TOOL": "1"
   }
 }
