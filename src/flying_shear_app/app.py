@@ -29,6 +29,7 @@ from .codegen.point_to_point_basic import (
 )
 from .codegen.rotarylink_basic import emit_rotarylink_basic_program
 from .config.settings import load_settings, save_settings
+from .context import AppContext, CallbackRegistry
 from .controller.trio_connection import TrioConnection
 from .domain.cambox_math import generate_rotary_knife_cam_table
 from .domain.link_options import (
@@ -64,6 +65,27 @@ from .domain.rotarylink_math import (
     estimate_rotarylink_slave_accel,
     validate_rotarylink_profile,
 )
+from .ui.common import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    DARK_BG,
+    DARKER_BG,
+    ERROR_COLOR,
+    LABEL_STYLE,
+    MUTED_TEXT,
+    PANEL_ALT_BG,
+    PANEL_BG,
+    SUCCESS_COLOR,
+    TEXT_COLOR,
+    VALUE_STYLE_M,
+    VALUE_STYLE_S,
+    WARNING_COLOR,
+    _update_if_mounted,
+    canvas_paint,
+    control_cluster as common_control_cluster,
+    make_show_snack,
+    section_header as common_section_header,
+)
 from .ui.jog_panel import JogPanelTheme, SlaveJogPanel
 
 
@@ -84,20 +106,6 @@ def main(page: ft.Page):
     page.window.height = default_window_height
     page.window.min_width = 1120
     page.window.min_height = 760
-
-    # Industrial dark theme tokens. The palette keeps the tool calm and
-    # readable while giving machine-state colors clear priority.
-    DARK_BG = "#17191c"
-    DARKER_BG = "#111316"
-    PANEL_BG = "#20242a"
-    PANEL_ALT_BG = "#181b20"
-    BORDER_COLOR = "#343a40"
-    ACCENT_COLOR = "#007acc"
-    TEXT_COLOR = "#d4d4d4"
-    MUTED_TEXT = ft.Colors.GREY_500
-    SUCCESS_COLOR = ft.Colors.GREEN_300
-    WARNING_COLOR = ft.Colors.AMBER_300
-    ERROR_COLOR = ft.Colors.RED_300
 
     page.bgcolor = DARK_BG
     page.theme = ft.Theme(color_scheme_seed=ACCENT_COLOR, use_material3=True)
@@ -196,101 +204,34 @@ def main(page: ft.Page):
         solution_block["target_axis"] = axis_key
         settings["target_axis"] = axis_key
 
-    def _update_if_mounted(control):
-        if getattr(control, "parent", None) is None:
-            return False
-        try:
-            control.update()
-            return True
-        except AssertionError:
-            return False
-        except RuntimeError as ex:
-            if "must be added to the page first" in str(ex):
-                return False
-            raise
-
-    def show_snack(message, type_="info"):
-        palette = {
-            "success": ("#133a25", ft.Icons.CHECK_CIRCLE, SUCCESS_COLOR),
-            "warning": ("#3a2a0d", ft.Icons.WARNING_AMBER, WARNING_COLOR),
-            "error": ("#3a1515", ft.Icons.ERROR, ERROR_COLOR),
-            "info": ("#102d3f", ft.Icons.INFO, ft.Colors.CYAN_200),
-        }
-        bg, icon, icon_color = palette.get(type_, palette["info"])
-        snack = ft.SnackBar(
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=18, color=icon_color),
-                    ft.Text(message, color=ft.Colors.WHITE, size=13),
-                ],
-                spacing=10,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            bgcolor=bg,
-            behavior=ft.SnackBarBehavior.FLOATING,
-            show_close_icon=True,
-            close_icon_color=ft.Colors.WHITE,
-            duration=4200,
-        )
-        if hasattr(page, "show_dialog"):
-            page.show_dialog(snack)
-        else:
-            page.snack_bar = snack
-            snack.open = True
-            page.update()
-
-    def section_header(title, subtitle=None, icon=None):
-        leading = []
-        if icon:
-            leading.append(ft.Icon(icon, size=18, color=ft.Colors.CYAN_200))
-        return ft.Row(
-            leading + [
-                ft.Column(
-                    [
-                        ft.Text(title, size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-                        ft.Text(subtitle, size=12, color=MUTED_TEXT) if subtitle else ft.Container(height=0),
-                    ],
-                    spacing=2,
-                    tight=True,
-                )
-            ],
-            spacing=10,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-
-    def control_cluster(title, controls, icon=None, col=None, height=None):
-        heading = [ft.Text(title.upper(), size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD)]
-        if icon:
-            heading.insert(0, ft.Icon(icon, size=14, color=MUTED_TEXT))
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(heading, spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Row(
-                        controls,
-                        wrap=True,
-                        spacing=8,
-                        run_spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                ],
-                spacing=8,
-                tight=True,
-            ),
-            bgcolor=PANEL_ALT_BG,
-            border=ft.Border.all(1, BORDER_COLOR),
-            border_radius=8,
-            padding=12,
-            height=height,
-            col=col or {"xs": 12, "md": 6, "xl": 3},
-        )
-
     # Initialize the TrioConnection
     trio_conn = TrioConnection(status_callback=lambda msg, type_: print(f"[{type_}] {msg}"))
 
     # status_callback may be invoked from the pinned UAPI worker thread (e.g. during
     # connect()), so UI mutations must be marshalled back to the Flet event loop.
     ui_loop_holder = {"loop": None}
+    # Trio UAPI is thread-affine (COM/STA): all calls — connect AND polling — must
+    # happen on the same thread, otherwise we deadlock the .NET marshaller.
+    # A 1-worker executor pins everything to one Python thread.
+    uapi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="uapi")
+    registry = CallbackRegistry()
+    ctx = AppContext(
+        page=page,
+        settings=settings,
+        trio_conn=trio_conn,
+        uapi_executor=uapi_executor,
+        ui_loop_holder=ui_loop_holder,
+        current_solution=current_solution,
+        registry=registry,
+        active_solution_key=active_solution_key,
+        save_settings=save_settings,
+    )
+    ctx.show_snack = make_show_snack(page)
+    ctx.section_header = common_section_header
+    ctx.control_cluster = common_control_cluster
+    show_snack = ctx.show_snack
+    section_header = ctx.section_header
+    control_cluster = ctx.control_cluster
 
     def status_callback(msg, type_):
         def update_status():
@@ -348,10 +289,6 @@ def main(page: ft.Page):
         ("MSPEED", "Measured Speed"),
         ("DRIVE_FE", "Following Error"),
     ]
-
-    LABEL_STYLE = {"size": 12, "color": ft.Colors.GREY_400, "width": 130}
-    VALUE_STYLE_M = {"size": 14, "color": ft.Colors.CYAN_200, "weight": ft.FontWeight.BOLD, "width": 120}
-    VALUE_STYLE_S = {"size": 14, "color": ft.Colors.ORANGE_200, "weight": ft.FontWeight.BOLD, "width": 120}
 
     # Axis Selectors. Duplicate controls in other tabs are registered in these
     # lists so Flet never has to mount the same control in two parents.
@@ -911,6 +848,8 @@ def main(page: ft.Page):
                 for axis in axis_config.keys():
                     _add_unique_axis(axes, axis)
         return axes
+
+    ctx.get_solution_involved_axes = get_solution_involved_axes
 
     # --- Master axis Forward / Reverse / Cancel buttons ---
     # Mirrors the gcode parser's jog commands (machine_controller.start_jog / stop_jog):
@@ -1537,11 +1476,6 @@ def main(page: ft.Page):
     scale_plus10_btn = ft.IconButton(icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT, icon_size=18,
                                      tooltip="Increase scale by 10",
                                      on_click=on_scale_step(10))
-
-    # Trio UAPI is thread-affine (COM/STA): all calls — connect AND polling — must
-    # happen on the same thread, otherwise we deadlock the .NET marshaller.
-    # A 1-worker executor pins everything to one Python thread.
-    uapi_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="uapi")
 
     # Comms lag label – rolling average of MPOS read on master axis (last 100 samples)
     comms_lag_label = ft.Text("MPOS read: -- ms (avg 100)", size=10, color=ft.Colors.GREY_500)
@@ -2812,15 +2746,6 @@ def main(page: ft.Page):
         if abs_value >= 10:
             return f"{value:.1f}"
         return f"{value:.2f}"
-
-    def canvas_paint(color, width=1, dash=None, style=ft.PaintingStyle.STROKE):
-        return ft.Paint(
-            color=color,
-            stroke_width=width,
-            stroke_cap=ft.StrokeCap.ROUND,
-            stroke_dash_pattern=dash,
-            style=style,
-        )
 
     def add_profile_text(shapes, x, y, value, size=11, color=ft.Colors.GREY_300,
                          weight=None, align=ft.Alignment.CENTER, max_width=None, rotate=0):
