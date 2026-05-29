@@ -5750,13 +5750,20 @@ def main(page: ft.Page):
                 pass
             return
 
+        # Seed axis_cpr/axis_units from calculated/saved values first so the
+        # drum has valid kinematics immediately. The live controller read (if
+        # connected) overlays its values on top when it completes; without this
+        # seed, a freshly-switched rotarylink sim state has axis_units=None
+        # until the async read finishes — and if create_task raises RuntimeError
+        # below, axis_units would stay None and the drum would never animate.
+        apply_saved_rotary_units_fallback(axis)
+        redraw_rotary_sim()
+        try:
+            _update_if_mounted(rotary_sim_container)
+        except NameError:
+            pass
+
         if not trio_conn.is_connected():
-            apply_saved_rotary_units_fallback(axis)
-            redraw_rotary_sim()
-            try:
-                _update_if_mounted(rotary_sim_container)
-            except NameError:
-                pass
             return
 
         try:
