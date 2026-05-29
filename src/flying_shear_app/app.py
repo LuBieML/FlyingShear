@@ -5775,22 +5775,49 @@ def main(page: ft.Page):
                 rotary_sim_state["units_source"] = f"axis {axis} UNITS {units:g}"
 
             mismatch_warning = None
+            auto_applied_units = None
             if "UNITS" not in read_errors:
                 mismatch_warning = live_expected_units_mismatch_warning(axis, units)
                 if mismatch_warning:
-                    warnings.append(mismatch_warning)
+                    # In RotaryLink mode the calculated UNITS (encoder counts/rev /
+                    # drum circumference) are authoritative for the simulation. When
+                    # the controller still holds a different value, adopt the
+                    # calculated UNITS automatically so the drum sim is correct on
+                    # every start instead of requiring a manual "Save units" press.
+                    calculated_units = (
+                        calculated_rotarylink_units()
+                        if rotary_sim_mode.get("solution") == "rotarylink"
+                        else None
+                    )
+                    if calculated_units is not None:
+                        auto_applied_units = calculated_units
+                    else:
+                        warnings.append(mismatch_warning)
 
             rotary_sim_state["axis_cpr"] = cpr
             rotary_sim_state["cpr_axis"] = axis
-            rotary_sim_state["axis_units"] = units
+            if auto_applied_units is not None:
+                rotary_sim_state["axis_units"] = auto_applied_units
+                rotary_sim_state["units_source"] = (
+                    f"calculated RotaryLink UNITS {format_rotary_count(auto_applied_units)} "
+                    f"(controller axis {axis} UNITS {format_rotary_count(units)})"
+                )
+            else:
+                rotary_sim_state["axis_units"] = units
             rotary_sim_state["units_axis"] = axis
             rotary_sim_state["units_error"] = None
             rotary_sim_state["units_warning"] = " ".join(warnings) if warnings else None
-            rotary_sim_state["units_mismatch"] = mismatch_warning is not None
+            rotary_sim_state["units_mismatch"] = mismatch_warning is not None and auto_applied_units is None
             rotary_sim_state["speed_samples"].clear()
             if warnings:
                 rotary_status_text.value = rotary_sim_state["units_warning"]
                 rotary_status_text.color = WARNING_COLOR
+            elif auto_applied_units is not None:
+                rotary_status_text.value = (
+                    f"Applied calculated RotaryLink UNITS {format_rotary_count(auto_applied_units)} "
+                    f"to drum axis {axis} sim (controller reports {format_rotary_count(units)})."
+                )
+                rotary_status_text.color = SUCCESS_COLOR
             else:
                 rotary_status_text.value = (
                     f"Drum axis {axis} CPR/UNITS read: "
