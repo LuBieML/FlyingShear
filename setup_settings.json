@@ -288,7 +288,7 @@
       }
     }
   },
-  "master_speed": "26.8",
+  "master_speed": "12.0",
   "shear_calc": {
     "cut": 90.0,
     "vline": 100.0,
@@ -398,6 +398,6 @@
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
     "show_debug": false,
-    "slave_jog_speed": "10"
+    "slave_jog_speed": "50"
   }
 }
