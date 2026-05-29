@@ -1652,7 +1652,13 @@ def main(page: ft.Page):
                 fps_timestamps.append(frame_start)
                 frame_counter += 1
                 read_slow = (frame_counter % 3 == 0)
-                axis_enable_axes = get_solution_involved_axes(active_solution_key())
+                active_sol = active_solution_key()
+                # Only the on-screen solution's simulation gets fed + redrawn.
+                # The off-screen canvas isn't visible, so skip its kinematics
+                # and (more importantly) its per-frame protocol serialization.
+                rotary_active = active_sol in ("rotary_knife", "rotarylink")
+                flexlink_active = active_sol == "flow_wrapper"
+                axis_enable_axes = get_solution_involved_axes(active_sol)
 
                 # Single thread-crossing call for ALL reads
                 results, mpos_t, master_mpos_sample_time = await loop.run_in_executor(
@@ -1789,30 +1795,32 @@ def main(page: ft.Page):
                         shear_position_spacer.width = new_left
                         dirty = True
 
-                try:
-                    if update_rotary_sim_from_reads(
-                        mpos_val_m,
-                        mpos_val_s,
-                        mspeed_val_m,
-                        mspeed_val_s,
-                        demand_speed_val_s,
-                        frame_start,
-                    ):
-                        dirty = True
-                except NameError:
-                    pass
+                if rotary_active:
+                    try:
+                        if update_rotary_sim_from_reads(
+                            mpos_val_m,
+                            mpos_val_s,
+                            mspeed_val_m,
+                            mspeed_val_s,
+                            demand_speed_val_s,
+                            frame_start,
+                        ):
+                            dirty = True
+                    except NameError:
+                        pass
 
-                try:
-                    if update_flexlink_sim_from_reads(
-                        mpos_val_m,
-                        mpos_val_s,
-                        mspeed_val_m,
-                        mspeed_val_s,
-                        flexlink_master_sample_time,
-                    ):
-                        dirty = True
-                except NameError:
-                    pass
+                if flexlink_active:
+                    try:
+                        if update_flexlink_sim_from_reads(
+                            mpos_val_m,
+                            mpos_val_s,
+                            mspeed_val_m,
+                            mspeed_val_s,
+                            flexlink_master_sample_time,
+                        ):
+                            dirty = True
+                    except NameError:
+                        pass
 
                 # Update FPS display
                 if len(fps_timestamps) >= 2:
@@ -1835,14 +1843,18 @@ def main(page: ft.Page):
                     # params_panel lives outside monitor_container (in the
                     # connection header row), so it needs its own update.
                     _update_if_mounted(params_panel)
-                    try:
-                        _update_if_mounted(rotary_sim_container)
-                    except NameError:
-                        pass
-                    try:
-                        _update_if_mounted(flexlink_sim_container)
-                    except NameError:
-                        pass
+                    # Only refresh the sim canvas that's on screen, and only
+                    # when its dedicated render loop isn't already driving it.
+                    if rotary_sim_visible and not rotary_sim_running:
+                        try:
+                            _update_if_mounted(rotary_sim_container)
+                        except NameError:
+                            pass
+                    if flexlink_sim_visible and not flexlink_sim_running:
+                        try:
+                            _update_if_mounted(flexlink_sim_container)
+                        except NameError:
+                            pass
             except Exception as ex:
                 print(f"Monitor error: {ex}")
 
@@ -5415,6 +5427,11 @@ def main(page: ft.Page):
             "drum_speed_warning": None,
             "last_drum_angle_mpos": None,
             "last_drum_angle_time": None,
+            # Decoupled render loop bookkeeping. last_visual_update throttles
+            # the redraw to the frame budget; last_extrap_time anchors the
+            # between-reads dead-reckoning of drum angle + belt offset.
+            "last_visual_update": 0.0,
+            "last_extrap_time": None,
         }
 
     rotary_sim_states = {
@@ -5422,6 +5439,13 @@ def main(page: ft.Page):
         "rotarylink": make_rotary_sim_state(),
     }
     rotary_sim_state = rotary_sim_states["rotary_knife"]
+    # Owns the rotary canvas redraw while a rotary solution's sim tab is live.
+    # Mirrors flexlink_sim_running: when set, the dedicated render loop drives
+    # the visual at the frame budget and the monitor loop only feeds samples.
+    rotary_sim_running = False
+    # Whether the rotary sim canvas is the on-screen tab. Off-screen we keep
+    # feeding state but skip the redraw + protocol serialization entirely.
+    rotary_sim_visible = False
 
     def rotary_setting_float(key, default):
         try:
@@ -6476,7 +6500,7 @@ def main(page: ft.Page):
         update_rotary_debug_overlay()
         return True
 
-    def update_rotary_drum_angle_from_kinematics(kinematics, now):
+    def update_rotary_drum_angle_from_kinematics(kinematics, now, allow_dead_reckon=True):
         if not kinematics:
             return False
 
@@ -6509,7 +6533,7 @@ def main(page: ft.Page):
         effective_mspeed = kinematics.get("effective_drum_mspeed")
         mpos_per_rev = kinematics.get("mpos_per_rev")
         last_angle_time = rotary_sim_state.get("last_drum_angle_time")
-        if not used_absolute_angle and effective_mspeed is not None and mpos_per_rev:
+        if allow_dead_reckon and not used_absolute_angle and effective_mspeed is not None and mpos_per_rev:
             try:
                 elapsed = 0.0 if last_angle_time is None else max(0.0, min(float(now) - float(last_angle_time), 0.25))
                 if elapsed > 0 and abs(float(effective_mspeed)) > 1e-9:
@@ -6529,6 +6553,11 @@ def main(page: ft.Page):
         ) > 1e-6
 
     def update_rotary_sim_from_reads(line_mpos, drum_mpos, line_mspeed, drum_mspeed, drum_demand_speed, now):
+        # When the dedicated render loop is driving the canvas it owns both the
+        # redraw and the between-reads dead-reckoning. The monitor loop then
+        # only feeds fresh samples + re-anchors the absolute drum angle, so we
+        # don't double-advance the angle or serialize the canvas twice.
+        rotary_loop_owns_visual = rotary_sim_running and trio_conn.is_connected()
         dirty = False
         if line_mspeed is not None:
             rotary_sim_state["line_mspeed"] = line_mspeed
@@ -6563,7 +6592,9 @@ def main(page: ft.Page):
                         rotary_drum_direction_reversed(),
                     )
                     rotary_sim_state["last_kinematics"] = kinematics
-                    if update_rotary_drum_angle_from_kinematics(kinematics, now):
+                    if update_rotary_drum_angle_from_kinematics(
+                        kinematics, now, allow_dead_reckon=not rotary_loop_owns_visual
+                    ):
                         dirty = True
                 except ValueError:
                     rotary_sim_state["last_kinematics"] = None
@@ -6579,16 +6610,117 @@ def main(page: ft.Page):
                     rotary_drum_direction_reversed(),
                 )
                 rotary_sim_state["last_kinematics"] = kinematics
-                if update_rotary_drum_angle_from_kinematics(kinematics, now):
+                if update_rotary_drum_angle_from_kinematics(
+                    kinematics, now, allow_dead_reckon=not rotary_loop_owns_visual
+                ):
                     dirty = True
             except ValueError:
                 rotary_sim_state["last_kinematics"] = None
 
+        # The render loop owns the canvas + diagnostics while it runs; only the
+        # standalone monitor path (loop idle) redraws straight from reads here,
+        # and only when the canvas is actually the on-screen tab.
+        if rotary_loop_owns_visual or not rotary_sim_visible:
+            return False
         if dirty:
             redraw_rotary_sim()
         if update_rotary_diagnostics(now):
             dirty = True
         return dirty
+
+    def rotary_advance_visual(now):
+        """Dead-reckon the drum angle + belt offset forward from the last live
+        samples so the canvas animates smoothly between (slower) comms reads.
+
+        Reads re-anchor the absolute values; this fills in the frames between
+        them. Returns True when something moved enough to warrant a redraw.
+        """
+        last_t = rotary_sim_state.get("last_extrap_time")
+        rotary_sim_state["last_extrap_time"] = now
+        if last_t is None:
+            return False
+        # Clamp so a stalled tab / GC pause doesn't teleport the drum forward.
+        elapsed = max(0.0, min(float(now) - float(last_t), 0.25))
+        if elapsed <= 0:
+            return False
+
+        moved = False
+        kinematics = rotary_sim_state.get("last_kinematics") or {}
+        effective_mspeed = kinematics.get("effective_drum_mspeed")
+        mpos_per_rev = kinematics.get("mpos_per_rev")
+        if effective_mspeed is not None and mpos_per_rev and abs(float(effective_mspeed)) > 1e-9:
+            try:
+                new_angle = advance_rotary_drum_angle_rad(
+                    rotary_sim_state.get("drum_angle", 0.0),
+                    effective_mspeed,
+                    mpos_per_rev,
+                    elapsed,
+                )
+                if shortest_angle_distance_rad(
+                    rotary_sim_state.get("drum_angle", 0.0), new_angle
+                ) > 1e-6:
+                    rotary_sim_state["drum_angle"] = new_angle
+                    rotary_sim_state["last_drum_angle_time"] = now
+                    moved = True
+            except (TypeError, ValueError):
+                pass
+
+        line_mspeed = rotary_sim_state.get("line_mspeed")
+        if line_mspeed is not None and abs(float(line_mspeed)) > 1e-9:
+            advance_px = (
+                CONVEYOR_VISUAL_DIRECTION * float(line_mspeed) * elapsed * scale_px_per_unit[0]
+            )
+            if abs(advance_px) > 1e-6:
+                rotary_sim_state["belt_offset_px"] = (
+                    float(rotary_sim_state.get("belt_offset_px", 0.0)) + advance_px
+                ) % BELT_SPACING
+                moved = True
+
+        return moved
+
+    async def rotary_sim_loop():
+        while rotary_sim_running:
+            frame_start = time.perf_counter()
+            if not trio_conn.is_connected():
+                redraw_rotary_sim()
+                update_rotary_diagnostics(frame_start)
+                _update_if_mounted(rotary_sim_container)
+                rotary_stop_sim()
+                break
+            visual_dirty = False
+            if rotary_advance_visual(frame_start) and (
+                frame_start - rotary_sim_state.get("last_visual_update", 0.0) >= FRAME_BUDGET
+            ):
+                rotary_sim_state["last_visual_update"] = frame_start
+                redraw_rotary_sim()
+                visual_dirty = True
+            if update_rotary_diagnostics(frame_start):
+                visual_dirty = True
+            if visual_dirty:
+                _update_if_mounted(rotary_sim_container)
+            elapsed = time.perf_counter() - frame_start
+            remaining = FRAME_BUDGET - elapsed
+            await asyncio.sleep(remaining if remaining > 0 else 0)
+
+    def rotary_start_sim():
+        nonlocal rotary_sim_running
+        if rotary_sim_running:
+            return
+        # Draw the current state once regardless; only spin the render loop
+        # when there's a live controller feeding samples to extrapolate.
+        redraw_rotary_sim()
+        update_rotary_diagnostics(time.perf_counter())
+        _update_if_mounted(rotary_sim_container)
+        if not trio_conn.is_connected():
+            return
+        rotary_sim_running = True
+        rotary_sim_state["last_extrap_time"] = None
+        rotary_sim_state["last_visual_update"] = 0.0
+        asyncio.create_task(rotary_sim_loop())
+
+    def rotary_stop_sim():
+        nonlocal rotary_sim_running
+        rotary_sim_running = False
 
     def refresh_rotary_sim_geometry(update=False):
         rotary_sim_state["speed_samples"].clear()
@@ -9335,6 +9467,8 @@ def main(page: ft.Page):
 
     flexlink_sim_height = 720
     flexlink_sim_running = False
+    # See rotary_sim_visible: True only while the FlexLink sim tab is on screen.
+    flexlink_sim_visible = False
     flexlink_sim_state = {
         "u": 0.0,
         "live_mode": False,
@@ -10530,11 +10664,14 @@ def main(page: ft.Page):
             dirty = True
 
         flexlink_loop_owns_visual = flexlink_sim_running and trio_conn.is_connected()
+        # Redraw from reads only when the canvas is on screen and no dedicated
+        # render loop is already driving it.
+        flexlink_should_redraw = flexlink_sim_visible and not flexlink_loop_owns_visual
         visual_dirty = False
-        if dirty and not flexlink_loop_owns_visual:
+        if dirty and flexlink_should_redraw:
             redraw_flexlink_sim()
             visual_dirty = True
-        if not flexlink_loop_owns_visual and update_flexlink_diagnostics(now):
+        if flexlink_should_redraw and update_flexlink_diagnostics(now):
             visual_dirty = True
         return visual_dirty
 
@@ -12004,11 +12141,23 @@ def main(page: ft.Page):
                 (ft.Tab(label="Live Monitor", icon=ft.Icons.ANALYTICS), flying_shear_monitor_page),
             ]
 
+        # Index of the live-simulation tab inside each solution's tab set, so we
+        # only spin a render loop while its canvas is actually on screen.
+        SIM_TAB_INDEX = {"flow_wrapper": 1, "rotary_knife": 4, "rotarylink": 0}
+
         def on_solution_tab_change(e):
-            if solution == "flow_wrapper" and int(e.control.selected_index or 0) == 1:
-                flexlink_start_sim()
+            nonlocal rotary_sim_visible, flexlink_sim_visible
+            idx = int(e.control.selected_index or 0)
+            on_sim_tab = idx == SIM_TAB_INDEX.get(solution)
+            rotary_sim_visible = on_sim_tab and solution in ("rotary_knife", "rotarylink")
+            flexlink_sim_visible = on_sim_tab and solution == "flow_wrapper"
+            if solution == "flow_wrapper":
+                flexlink_start_sim() if on_sim_tab else flexlink_stop_sim()
+            elif solution in ("rotary_knife", "rotarylink"):
+                rotary_start_sim() if on_sim_tab else rotary_stop_sim()
             else:
                 flexlink_stop_sim()
+                rotary_stop_sim()
 
         return ft.Tabs(
             length=len(tab_specs),
@@ -12057,10 +12206,17 @@ def main(page: ft.Page):
         )
 
     def show_solution_workspace(solution):
+        nonlocal rotary_sim_visible, flexlink_sim_visible
         current_solution["value"] = solution
         load_axis_param_controls_for_solution(solution)
         if solution != "flow_wrapper":
             flexlink_stop_sim()
+        if solution not in ("rotary_knife", "rotarylink"):
+            rotary_stop_sim()
+        # Each workspace opens on its tab index 0; only RotaryLink puts its sim
+        # canvas there, so that's the sole solution whose sim starts visible.
+        rotary_sim_visible = solution == "rotarylink"
+        flexlink_sim_visible = False
         set_rotary_sim_labels(solution)
         solution_name = (
             "Point To Point Move" if solution == "point_to_point"
@@ -12073,6 +12229,10 @@ def main(page: ft.Page):
         set_workspace_appbar(solution_name)
         app_root.content = build_solution_tabs(solution)
         page.update()
+        # RotaryLink opens straight onto its sim tab (index 0), so on_change
+        # won't fire — kick the render loop here now the canvas is mounted.
+        if solution == "rotarylink":
+            rotary_start_sim()
         prompt_solution_axis_params_if_connected(solution)
 
     def solution_card(label, subtitle, icon, solution):
