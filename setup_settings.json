@@ -292,7 +292,7 @@
   "shear_calc": {
     "cut": 90.0,
     "vline": 100.0,
-    "amax": 5000.0,
+    "amax": 7000.0,
     "tsync": 500.0,
     "safety": 1.5,
     "vmax": 210.0,

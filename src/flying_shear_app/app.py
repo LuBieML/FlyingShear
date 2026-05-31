@@ -38,6 +38,11 @@ from .domain.link_options import (
     build_rotarylink_options,
     format_movelink,
 )
+from .domain.flying_shear_math import (
+    build_flying_shear_movelink_commands,
+    calculate_flying_shear_profile,
+    emit_flying_shear_movelink_only,
+)
 from .domain.flexlink_math import flexlink_excitation_progress
 from .domain.profile_points import (
     build_rotary_speed_profile_points,
@@ -2900,6 +2905,187 @@ def main(page: ft.Page):
 
         return shapes
 
+    movelink_only_state = {"text": ""}
+    movelink_param_dialog = ft.AlertDialog(modal=True, bgcolor=PANEL_BG)
+    movelink_command_list = ft.Column([], spacing=6, tight=True)
+
+    def close_movelink_param_dialog(e=None):
+        movelink_param_dialog.open = False
+        page.update()
+
+    def source_field(label, value, mono=False, color=TEXT_COLOR):
+        return ft.Column(
+            [
+                ft.Text(label.upper(), size=10, color=MUTED_TEXT, weight=ft.FontWeight.BOLD),
+                ft.Text(
+                    value,
+                    size=12,
+                    color=color,
+                    font_family="Consolas" if mono else None,
+                    selectable=True,
+                ),
+            ],
+            spacing=3,
+            tight=True,
+        )
+
+    def show_movelink_param_source(param):
+        source = param.source
+        detail_controls = [
+            source_field("Parameter", f"{param.name} = {param.text}", mono=True, color=ft.Colors.CYAN_200),
+            source_field("Formula", source.formula, mono=True, color=ft.Colors.GREEN_200),
+            source_field("Substitution", source.substitution, mono=True, color=TEXT_COLOR),
+            source_field("Result", source.result, mono=True, color=ft.Colors.CYAN_200),
+        ]
+        if source.details:
+            detail_controls.append(ft.Divider(height=1, color=BORDER_COLOR))
+            detail_controls.extend(
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=14, color=ft.Colors.CYAN_200),
+                        ft.Text(detail, size=12, color=ft.Colors.GREY_300, selectable=True, expand=True),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                )
+                for detail in source.details
+            )
+
+        movelink_param_dialog.title = ft.Row(
+            [
+                ft.Icon(ft.Icons.FUNCTIONS, size=18, color=ft.Colors.CYAN_200),
+                ft.Text(source.title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        movelink_param_dialog.content = ft.Container(
+            content=ft.Column(detail_controls, spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+            width=560,
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=14,
+        )
+        movelink_param_dialog.actions = [
+            ft.TextButton("Close", icon=ft.Icons.CLOSE, on_click=close_movelink_param_dialog),
+        ]
+        movelink_param_dialog.actions_alignment = ft.MainAxisAlignment.END
+        if hasattr(page, "show_dialog"):
+            page.show_dialog(movelink_param_dialog)
+        else:
+            page.dialog = movelink_param_dialog
+            movelink_param_dialog.open = True
+            page.update()
+
+    def build_movelink_command_row(command):
+        base_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREEN_200)
+        punct_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREY_400)
+        param_style = ft.TextStyle(
+            font_family="Consolas",
+            size=12,
+            color=ft.Colors.CYAN_200,
+            decoration=ft.TextDecoration.UNDERLINE,
+        )
+
+        spans = [
+            ft.TextSpan("MOVELINK", style=base_style),
+            ft.TextSpan("(", style=punct_style),
+        ]
+        for index, param in enumerate(command.parameters):
+            spans.append(
+                ft.TextSpan(
+                    param.text,
+                    style=param_style,
+                    tooltip=f"{param.name}: {param.source.title}",
+                    on_click=lambda e, p=param: show_movelink_param_source(p),
+                )
+            )
+            if index < len(command.parameters) - 1:
+                spans.append(ft.TextSpan(", ", style=punct_style))
+        spans.append(ft.TextSpan(")", style=punct_style))
+
+        phase_badge = ft.Container(
+            content=ft.Text(
+                command.phase.upper(),
+                size=10,
+                color=ft.Colors.CYAN_100,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            width=72,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+            bgcolor="#12384a",
+            border=ft.Border.all(1, "#1f5f78"),
+            border_radius=6,
+            alignment=ft.Alignment.CENTER,
+        )
+        return ft.Container(
+            content=ft.Row(
+                [
+                    phase_badge,
+                    ft.Text(spans=spans, no_wrap=False, selectable=False, expand=True),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=DARKER_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+
+    def set_movelink_only_commands(commands):
+        movelink_only_state["text"] = emit_flying_shear_movelink_only(commands)
+        movelink_command_list.controls = [build_movelink_command_row(command) for command in commands]
+
+    def clear_movelink_only_commands(message):
+        movelink_only_state["text"] = ""
+        movelink_command_list.controls = [
+            ft.Text(message, size=12, color=MUTED_TEXT, selectable=True)
+        ]
+
+    movelink_only_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.LINK, size=15, color=ft.Colors.CYAN_200),
+                                ft.Text(
+                                    "MOVELINK COMMANDS",
+                                    size=10,
+                                    color=MUTED_TEXT,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY,
+                            icon_color=ft.Colors.CYAN_200,
+                            tooltip="Copy MOVELINK commands",
+                            on_click=lambda e: copy_text_to_clipboard(
+                                movelink_only_state["text"],
+                                "MOVELINK commands copied to clipboard.",
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                movelink_command_list,
+            ],
+            spacing=8,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+    )
+
     phase_bar = ft.Column([
         ft.Text("Generated MOVELINK velocity profile", size=12, color=ft.Colors.GREY_400),
         ft.Container(
@@ -2909,7 +3095,8 @@ def main(page: ft.Page):
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             tooltip=CALC_TOOLTIPS["profile_graph"],
         ),
-    ], spacing=6)
+        movelink_only_panel,
+    ], spacing=8)
 
     code_output = ft.TextField(
         value="", read_only=True, multiline=True, min_lines=29, max_lines=45,
@@ -2970,6 +3157,7 @@ def main(page: ft.Page):
             warning_text.value = "Invalid inputs: enter numeric values for the shear calculator."
             _apply_warning_severity("error")
             code_output.value = ""
+            clear_movelink_only_commands("Invalid inputs")
             page.update()
             return
 
@@ -2977,6 +3165,7 @@ def main(page: ft.Page):
             warning_text.value = "Invalid inputs: cut, max speed, accel, and safety must be > 0; MAX line speed and sync time must be >= 0"
             _apply_warning_severity("error")
             code_output.value = ""
+            clear_movelink_only_commands("Invalid inputs")
             page.update()
             return
 
@@ -2992,22 +3181,17 @@ def main(page: ft.Page):
         calc_settings["use_base_dist"] = bool(base_dist_checkbox.value)
         refresh_conveyor_speed_limit(v)
 
-        # Shear (slave) distances
-        accel_dist = (v * v) / (2 * a) * sf
-        decel_dist = accel_dist
-        sync_dist  = v * (tsync / 1000.0)
-        stroke     = accel_dist + sync_dist + decel_dist
-
-        # Link (master) distances
-        accel_link = 2 * accel_dist     # Rule 1: accel ramp uses 2x shear travel
-        decel_link = 2 * decel_dist     # Rule 1 mirror
-        sync_link  = sync_dist          # Rule 2: matched speed = equal distances
-        ret_link   = L - (accel_link + sync_link + decel_link)
-        ret_ad     = ret_link / 4 if ret_link > 0 else 0
-        if ret_link > 0:
-            v_retract_peak = (4.0 / 3.0) * v * (stroke / ret_link)
-        else:
-            v_retract_peak = float("inf")
+        shear_profile = calculate_flying_shear_profile(L, v, vmax, a, tsync, sf)
+        accel_dist = shear_profile.accel_dist
+        decel_dist = shear_profile.decel_dist
+        sync_dist = shear_profile.sync_dist
+        stroke = shear_profile.stroke
+        accel_link = shear_profile.accel_link
+        decel_link = shear_profile.decel_link
+        sync_link = shear_profile.sync_link
+        ret_link = shear_profile.ret_link
+        ret_ad = shear_profile.ret_ad
+        v_retract_peak = shear_profile.v_retract_peak
 
         result_labels["stroke"].value = f"{stroke:.2f} mm"
         result_labels["acc"].value    = f"{accel_link:.2f} mm"
@@ -3106,6 +3290,20 @@ def main(page: ft.Page):
         )
 
         base_arg = base_dist if use_base_dist else None
+        movelink_commands = build_flying_shear_movelink_commands(
+            shear_profile,
+            profile,
+            start_mode,
+            link_pos,
+            link_source,
+            direction_mode,
+            repeat_mode,
+            use_base_dist,
+            base_dist,
+            link_ax,
+        )
+        set_movelink_only_commands(movelink_commands)
+
         loop_start = "" if repeat_mode == "movelink_repeat" else "WHILE TRUE\n"
         line_prefix = "" if repeat_mode == "movelink_repeat" else "    "
         loop_end = "" if repeat_mode == "movelink_repeat" else "WEND\n"
