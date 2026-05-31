@@ -1,11 +1,159 @@
 """CAMBOX rotary-knife profile calculations."""
 
+from dataclasses import dataclass
 import math
 
 from .rotary_math import (
     compute_rotary_drum_circumference_mm,
     compute_rotary_units_per_mm,
 )
+
+
+@dataclass(frozen=True)
+class CamBoxValueSource:
+    """Human-readable source for one generated CAMBOX parameter."""
+
+    title: str
+    formula: str
+    substitution: str
+    result: str
+    details: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CamBoxParameter:
+    """One rendered CAMBOX argument and its calculation source."""
+
+    name: str
+    text: str
+    source: CamBoxValueSource
+
+
+@dataclass(frozen=True)
+class CamBoxCommand:
+    """One CAMBOX command row for the rotary-knife profile."""
+
+    phase: str
+    purpose: str
+    parameters: tuple[CamBoxParameter, ...]
+    table_summary: str = ""
+
+    @property
+    def text(self):
+        return f"CAMBOX({', '.join(param.text for param in self.parameters)})"
+
+
+def _fmt3(value):
+    return f"{float(value):.3f}"
+
+
+def _param(name, text, title, formula, substitution, result=None, details=()):
+    return CamBoxParameter(
+        name=name,
+        text=text,
+        source=CamBoxValueSource(
+            title=title,
+            formula=formula,
+            substitution=substitution,
+            result=text if result is None else result,
+            details=tuple(details),
+        ),
+    )
+
+
+def build_rotary_knife_cambox_commands(
+    table_values,
+    diag,
+    cut_length,
+    link_axis,
+    table_start,
+):
+    """Build CAMBOX-only command metadata with parameter provenance."""
+    table_count = len(table_values)
+    table_start = int(table_start)
+    table_end = table_start + table_count - 1
+    cut_length = float(cut_length)
+    table_points_input = max(0, table_count - 1)
+
+    table_details = (
+        f"Generated table count = {table_count} values.",
+        f"UI table points = {table_points_input}; the generated table includes both endpoints, so count = table_points + 1.",
+        f"Each value is a drum-axis position scaled to cut_segment_counts = {float(diag.get('cut_segment_counts', 0.0)):.3f}.",
+        f"Table resolution = {float(diag.get('table_resolution_deg', 0.0)):.4f} degrees per point on one knife segment.",
+    )
+    table_summary = (
+        f"TABLE load: {table_count} values at TABLE({table_start}..{table_end}); "
+        "CAMBOX reads that range as the drum position profile."
+    )
+
+    options = 4
+    command = CamBoxCommand(
+        phase="CAMBOX",
+        purpose="Run the generated rotary-knife table continuously over one material cut length.",
+        table_summary=table_summary,
+        parameters=(
+            _param(
+                "start_point",
+                str(table_start),
+                "start_point",
+                "start_point = TABLE start index",
+                f"{table_start} = {table_start}",
+                details=table_details,
+            ),
+            _param(
+                "end_point",
+                str(table_end),
+                "end_point",
+                "end_point = table_start + generated_table_count - 1",
+                f"{table_start} + {table_count} - 1 = {table_end}",
+                details=table_details,
+            ),
+            _param(
+                "table_multiplier",
+                "1",
+                "table_multiplier",
+                "table_multiplier = 1",
+                "TABLE values are already generated in drum-axis encoder counts.",
+                result="1",
+                details=(
+                    "CAMBOX subtracts the first TABLE value, then multiplies by table_multiplier.",
+                    "The app writes absolute drum counts directly, so no extra multiplier is needed.",
+                ),
+            ),
+            _param(
+                "link_distance",
+                _fmt3(cut_length),
+                "link_distance",
+                "link_distance = cut_length",
+                f"{_fmt3(cut_length)} = {_fmt3(cut_length)}",
+                details=(
+                    "This is the positive material/link-axis distance for one cut cycle.",
+                ),
+            ),
+            _param(
+                "link_axis",
+                str(int(link_axis)) if isinstance(link_axis, int) else str(link_axis),
+                "link_axis",
+                "Material axis selector",
+                f"CAMBOX follows material/link axis {link_axis}",
+            ),
+            _param(
+                "link_options",
+                str(options),
+                "link_options",
+                "link_options = 1 << 2",
+                "4 = bit 2",
+                details=(
+                    "Bit 2 repeats the CAMBOX profile continuously.",
+                ),
+            ),
+        ),
+    )
+    return (command,)
+
+
+def emit_rotary_knife_cambox_only(commands):
+    return "\n".join(command.text for command in commands)
 
 
 def generate_rotary_knife_cam_table(

@@ -1,11 +1,54 @@
 """Pure ROTARYLINK profile calculations and validation."""
 
+from dataclasses import dataclass
 import math
 
+from .link_options import format_rotarylink
 from .rotary_math import (
     compute_rotary_drum_circumference_mm,
     compute_rotary_units_per_mm,
 )
+
+
+@dataclass(frozen=True)
+class RotaryLinkValueSource:
+    """Human-readable source for one generated ROTARYLINK parameter."""
+
+    title: str
+    formula: str
+    substitution: str
+    result: str
+    details: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RotaryLinkParameter:
+    """One rendered ROTARYLINK argument and its calculation source."""
+
+    name: str
+    text: str
+    source: RotaryLinkValueSource
+
+
+@dataclass(frozen=True)
+class RotaryLinkCommand:
+    """One ROTARYLINK command row for the rotary knife profile."""
+
+    phase: str
+    purpose: str
+    parameters: tuple[RotaryLinkParameter, ...]
+
+    @property
+    def text(self):
+        return format_rotarylink(
+            self.parameters[0].text,
+            self.parameters[1].text,
+            self.parameters[2].text,
+            self.parameters[3].text,
+            self.parameters[4].text,
+            self.parameters[5].text,
+            self.parameters[6].text,
+        )
 
 
 def _finite_float(value, label):
@@ -15,8 +58,26 @@ def _finite_float(value, label):
     return result
 
 
-def _format_rotarylink_value(value):
+def _fmt3(value):
     return f"{float(value):.3f}"
+
+
+def _format_rotarylink_value(value):
+    return _fmt3(value)
+
+
+def _param(name, text, title, formula, substitution, result=None, details=()):
+    return RotaryLinkParameter(
+        name=name,
+        text=text,
+        source=RotaryLinkValueSource(
+            title=title,
+            formula=formula,
+            substitution=substitution,
+            result=text if result is None else result,
+            details=tuple(details),
+        ),
+    )
 
 
 def derive_rotarylink_geometry(
@@ -127,6 +188,162 @@ def calculate_rotarylink_profile(
             {"name": "decel", "base": base_decel},
         ],
     }
+
+
+def _describe_rotarylink_option_bits(
+    start_mode,
+    profile_mode,
+    link_source,
+    merge,
+    options,
+):
+    options = int(options)
+    start_labels = {
+        "immediate": "bits 0..1 = 0 for immediate / absolute start",
+        "absolute": "bits 0..1 = 0 for absolute sync position",
+        "mark": "bits 0..1 = 1 for MARK start",
+        "markb": "bits 0..1 = 2 for MARKB start",
+        "rmark": "bits 0..1 = 3 for R_MARK channel",
+    }
+    profile_labels = {
+        "trapezoid": "bits 2..4 = 0 for trapezoidal profile",
+        "sine": "bits 2..4 = 1 for sine speed profile",
+        "power9": "bits 2..4 = 2 for power 9 polynomial speed profile",
+        "power7": "bits 2..4 = 3 for power 7 polynomial speed profile",
+        "power5": "bits 2..4 = 4 for power 5 polynomial speed profile",
+    }
+    set_bits = [str(bit) for bit in range(15) if options & (1 << bit)]
+    return (
+        f"Decimal link_options = {options}",
+        f"Set bits: {', '.join(set_bits) if set_bits else 'none'}",
+        f"Start: {start_labels.get(start_mode, start_mode)}",
+        f"Profile: {profile_labels.get(profile_mode, profile_mode)}",
+        (
+            "Merge: bit 5 ON because cut_length is shorter than distance"
+            if merge
+            else "Merge: bit 5 OFF because cut_length is at least distance"
+        ),
+        (
+            "Source: bit 6 ON, follow master DPOS"
+            if link_source == "dpos"
+            else "Source: bit 6 OFF, follow master MPOS"
+        ),
+    )
+
+
+def build_rotarylink_commands(
+    profile,
+    geometry,
+    link_axis="link_ax",
+    link_options=0,
+    start_pos=0.0,
+    start_mode="absolute",
+    profile_mode="trapezoid",
+    link_source="mpos",
+    merge=False,
+):
+    """Build ROTARYLINK-only command metadata with parameter provenance."""
+    distance = float(profile["distance"])
+    link_dist = float(profile["link_dist"])
+    base_acc = float(profile["base_acc"])
+    base_sync = float(profile["base_sync"])
+    cut_length = float(profile["cut_length"])
+    line_idle = float(profile["line_per_idle"])
+    start_pos = float(start_pos)
+    link_axis_text = str(int(link_axis)) if isinstance(link_axis, int) else str(link_axis)
+    options = int(link_options)
+    circumference = float(geometry["circumference"])
+    drum_diameter = float(geometry["drum_diameter"])
+    knives_on_drum = int(geometry["knives_on_drum"])
+
+    command = RotaryLinkCommand(
+        phase="Profile",
+        purpose="Run one rotary/base-axis cycle linked to one knife segment.",
+        parameters=(
+            _param(
+                "distance",
+                _fmt3(distance),
+                "distance",
+                "distance = circumference / knives_on_drum",
+                f"{_fmt3(circumference)} / {knives_on_drum} = {_fmt3(distance)}",
+                details=(
+                    f"circumference = pi * drum_diameter = pi * {_fmt3(drum_diameter)} = {_fmt3(circumference)}.",
+                    "This is the base-axis travel for one knife segment.",
+                ),
+            ),
+            _param(
+                "linkdist",
+                _fmt3(link_dist),
+                "linkdist",
+                "linkdist = distance",
+                f"{_fmt3(distance)} = {_fmt3(link_dist)}",
+                details=(
+                    "For matched 1:1 surface speed, ROTARYLINK uses the same distance on the link axis.",
+                ),
+            ),
+            _param(
+                "base_acc",
+                _fmt3(base_acc),
+                "base_acc",
+                "base_acc = Base accel input",
+                f"{_fmt3(base_acc)} = {_fmt3(base_acc)}",
+                details=(
+                    "ROTARYLINK expects a base-axis accel distance here, not an acceleration rate.",
+                ),
+            ),
+            _param(
+                "base_sync",
+                _fmt3(base_sync),
+                "base_sync",
+                "base_sync = Sync distance input",
+                f"{_fmt3(base_sync)} = {_fmt3(base_sync)}",
+                details=(
+                    "This is the base-axis distance over which the knife is synchronized with the material.",
+                ),
+            ),
+            _param(
+                "link_axis",
+                link_axis_text,
+                "link_axis",
+                "Material axis selector",
+                f"ROTARYLINK follows material/link axis {link_axis_text}",
+            ),
+            _param(
+                "moveoptions",
+                str(options),
+                "moveoptions",
+                "moveoptions = build_rotarylink_options(start, profile, source, merge)",
+                (
+                    f"start={start_mode}, profile={profile_mode}, source={link_source}, "
+                    f"merge={bool(merge)}"
+                ),
+                result=str(options),
+                details=_describe_rotarylink_option_bits(
+                    start_mode,
+                    profile_mode,
+                    link_source,
+                    merge,
+                    options,
+                ),
+            ),
+            _param(
+                "start_pos",
+                _fmt3(start_pos),
+                "start_pos",
+                "start_pos = base_acc",
+                f"{_fmt3(base_acc)} = {_fmt3(start_pos)}",
+                details=(
+                    "The generated loop increments start_pos by cut_length after each ROTARYLINK call.",
+                    f"line_idle_between_cuts = cut_length - distance = {_fmt3(cut_length)} - {_fmt3(distance)} = {_fmt3(line_idle)}.",
+                ),
+            ),
+        ),
+    )
+    return (command,)
+
+
+def emit_rotarylink_only(commands):
+    return "\n".join(command.text for command in commands)
 
 
 def validate_rotarylink_profile(profile, abs_tol=1e-6, rel_tol=1e-9):

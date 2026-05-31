@@ -31,7 +31,11 @@ from .codegen.rotarylink_basic import emit_rotarylink_basic_program
 from .config.settings import load_settings, save_settings
 from .context import AppContext, CallbackRegistry
 from .controller.trio_connection import TrioConnection
-from .domain.cambox_math import generate_rotary_knife_cam_table
+from .domain.cambox_math import (
+    build_rotary_knife_cambox_commands,
+    emit_rotary_knife_cambox_only,
+    generate_rotary_knife_cam_table,
+)
 from .domain.link_options import (
     build_flexlink_options as flexlink_build_options,
     build_movelink_options as build_link_options,
@@ -69,9 +73,11 @@ from .domain.rotary_math import (
     shortest_angle_distance_rad,
 )
 from .domain.rotarylink_math import (
+    build_rotarylink_commands,
     calculate_rotarylink_base_sync_speed,
     calculate_rotarylink_profile,
     derive_rotarylink_geometry,
+    emit_rotarylink_only,
     estimate_rotarylink_slave_accel,
     validate_rotarylink_profile,
 )
@@ -4232,6 +4238,176 @@ def main(page: ft.Page):
                          color=ft.Colors.GREY_300, align=ft.Alignment.CENTER_LEFT)
         return shapes
 
+    cambox_only_state = {"text": ""}
+    cambox_param_dialog = ft.AlertDialog(modal=True, bgcolor=PANEL_BG)
+    cambox_table_summary_text = ft.Text("", size=12, color=ft.Colors.GREY_300, selectable=True)
+    cambox_command_list = ft.Column([], spacing=6, tight=True)
+
+    def close_cambox_param_dialog(e=None):
+        cambox_param_dialog.open = False
+        page.update()
+
+    def show_cambox_param_source(param):
+        source = param.source
+        detail_controls = [
+            source_field("Parameter", f"{param.name} = {param.text}", mono=True, color=ft.Colors.CYAN_200),
+            source_field("Formula", source.formula, mono=True, color=ft.Colors.GREEN_200),
+            source_field("Substitution", source.substitution, mono=True, color=TEXT_COLOR),
+            source_field("Result", source.result, mono=True, color=ft.Colors.CYAN_200),
+        ]
+        if source.details:
+            detail_controls.append(ft.Divider(height=1, color=BORDER_COLOR))
+            detail_controls.extend(
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=14, color=ft.Colors.CYAN_200),
+                        ft.Text(detail, size=12, color=ft.Colors.GREY_300, selectable=True, expand=True),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                )
+                for detail in source.details
+            )
+
+        cambox_param_dialog.title = ft.Row(
+            [
+                ft.Icon(ft.Icons.FUNCTIONS, size=18, color=ft.Colors.CYAN_200),
+                ft.Text(source.title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        cambox_param_dialog.content = ft.Container(
+            content=ft.Column(detail_controls, spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+            width=560,
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=14,
+        )
+        cambox_param_dialog.actions = [
+            ft.TextButton("Close", icon=ft.Icons.CLOSE, on_click=close_cambox_param_dialog),
+        ]
+        cambox_param_dialog.actions_alignment = ft.MainAxisAlignment.END
+        if hasattr(page, "show_dialog"):
+            page.show_dialog(cambox_param_dialog)
+        else:
+            page.dialog = cambox_param_dialog
+            cambox_param_dialog.open = True
+            page.update()
+
+    def build_cambox_command_row(command):
+        base_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREEN_200)
+        punct_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREY_400)
+        param_style = ft.TextStyle(
+            font_family="Consolas",
+            size=12,
+            color=ft.Colors.CYAN_200,
+            decoration=ft.TextDecoration.UNDERLINE,
+        )
+
+        spans = [
+            ft.TextSpan("CAMBOX", style=base_style),
+            ft.TextSpan("(", style=punct_style),
+        ]
+        for index, param in enumerate(command.parameters):
+            spans.append(
+                ft.TextSpan(
+                    param.text,
+                    style=param_style,
+                    tooltip=f"{param.name}: {param.source.title}",
+                    on_click=lambda e, p=param: show_cambox_param_source(p),
+                )
+            )
+            if index < len(command.parameters) - 1:
+                spans.append(ft.TextSpan(", ", style=punct_style))
+        spans.append(ft.TextSpan(")", style=punct_style))
+
+        phase_badge = ft.Container(
+            content=ft.Text(
+                command.phase,
+                size=10,
+                color=ft.Colors.CYAN_100,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            width=72,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+            bgcolor="#12384a",
+            border=ft.Border.all(1, "#1f5f78"),
+            border_radius=6,
+            alignment=ft.Alignment.CENTER,
+            tooltip=command.purpose,
+        )
+        return ft.Container(
+            content=ft.Row(
+                [
+                    phase_badge,
+                    ft.Text(spans=spans, no_wrap=False, selectable=False, expand=True),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=DARKER_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+
+    def set_cambox_only_commands(commands):
+        cambox_only_state["text"] = emit_rotary_knife_cambox_only(commands)
+        cambox_table_summary_text.value = commands[0].table_summary if commands else ""
+        cambox_command_list.controls = [build_cambox_command_row(command) for command in commands]
+
+    def clear_cambox_only_commands(message):
+        cambox_only_state["text"] = ""
+        cambox_table_summary_text.value = ""
+        cambox_command_list.controls = [
+            ft.Text(message, size=12, color=MUTED_TEXT, selectable=True)
+        ]
+
+    cambox_only_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.LINK, size=15, color=ft.Colors.CYAN_200),
+                                ft.Text(
+                                    "CAMBOX COMMAND",
+                                    size=10,
+                                    color=MUTED_TEXT,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY,
+                            icon_color=ft.Colors.CYAN_200,
+                            tooltip="Copy CAMBOX command",
+                            on_click=lambda e: copy_text_to_clipboard(
+                                cambox_only_state["text"],
+                                "CAMBOX command copied to clipboard.",
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                cambox_table_summary_text,
+                cambox_command_list,
+            ],
+            spacing=8,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+    )
+
     profile_view_settings = settings.get("cam_profile_view", {})
 
     def profile_view_setting_float(key, default):
@@ -4861,6 +5037,7 @@ def main(page: ft.Page):
             cam_warning_text.color = ERROR_COLOR
             set_cam_code_output("", "")
             clear_cam_quicktest_table_state("Generate a valid profile before sending table data.")
+            clear_cambox_only_commands("Invalid inputs")
             clear_cam_result_labels()
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
@@ -4885,6 +5062,7 @@ def main(page: ft.Page):
             cam_warning_text.color = ERROR_COLOR
             set_cam_code_output("", "")
             clear_cam_quicktest_table_state("Fix profile inputs before sending table data.")
+            clear_cambox_only_commands("Fix profile inputs to generate a CAMBOX command.")
             clear_cam_result_labels()
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
@@ -4904,6 +5082,7 @@ def main(page: ft.Page):
             cam_warning_text.color = ERROR_COLOR
             set_cam_code_output("", "")
             clear_cam_quicktest_table_state("Fix profile inputs before sending table data.")
+            clear_cambox_only_commands("Fix profile inputs to generate a CAMBOX command.")
             cam_profile_canvas.shapes = []
             rotary_profile_view_state["table"] = []
             rotary_profile_view_state["diag"] = {}
@@ -4982,6 +5161,15 @@ def main(page: ft.Page):
             f"drum Axis {drum_ax}, knife OP {cutter_op}, "
             f"{len(table)} table points starting at TABLE({table_start})."
         )
+
+        cambox_commands = build_rotary_knife_cambox_commands(
+            table,
+            diag,
+            cut_len,
+            link_ax,
+            table_start,
+        )
+        set_cambox_only_commands(cambox_commands)
 
         basic_program = emit_cam_basic_program(
             table_values=table, diag=diag, cut_length=cut_len,
@@ -5167,7 +5355,8 @@ def main(page: ft.Page):
                     border_radius=8,
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 ),
-            ], spacing=6),
+                cambox_only_panel,
+            ], spacing=8),
             cam_warning_text,
             cam_review_text,
             ft.Text("Material axis (above) → CAMBOX link_ax. Shear axis → CAMBOX BASE drum_ax.",
@@ -9124,6 +9313,174 @@ def main(page: ft.Page):
 
         return shapes
 
+    rotarylink_only_state = {"text": ""}
+    rotarylink_param_dialog = ft.AlertDialog(modal=True, bgcolor=PANEL_BG)
+    rotarylink_command_list = ft.Column([], spacing=6, tight=True)
+
+    def close_rotarylink_param_dialog(e=None):
+        rotarylink_param_dialog.open = False
+        page.update()
+
+    def show_rotarylink_param_source(param):
+        source = param.source
+        detail_controls = [
+            source_field("Parameter", f"{param.name} = {param.text}", mono=True, color=ft.Colors.CYAN_200),
+            source_field("Formula", source.formula, mono=True, color=ft.Colors.GREEN_200),
+            source_field("Substitution", source.substitution, mono=True, color=TEXT_COLOR),
+            source_field("Result", source.result, mono=True, color=ft.Colors.CYAN_200),
+        ]
+        if source.details:
+            detail_controls.append(ft.Divider(height=1, color=BORDER_COLOR))
+            detail_controls.extend(
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=14, color=ft.Colors.CYAN_200),
+                        ft.Text(detail, size=12, color=ft.Colors.GREY_300, selectable=True, expand=True),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                )
+                for detail in source.details
+            )
+
+        rotarylink_param_dialog.title = ft.Row(
+            [
+                ft.Icon(ft.Icons.FUNCTIONS, size=18, color=ft.Colors.CYAN_200),
+                ft.Text(source.title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        rotarylink_param_dialog.content = ft.Container(
+            content=ft.Column(detail_controls, spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+            width=560,
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=14,
+        )
+        rotarylink_param_dialog.actions = [
+            ft.TextButton("Close", icon=ft.Icons.CLOSE, on_click=close_rotarylink_param_dialog),
+        ]
+        rotarylink_param_dialog.actions_alignment = ft.MainAxisAlignment.END
+        if hasattr(page, "show_dialog"):
+            page.show_dialog(rotarylink_param_dialog)
+        else:
+            page.dialog = rotarylink_param_dialog
+            rotarylink_param_dialog.open = True
+            page.update()
+
+    def build_rotarylink_command_row(command):
+        base_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREEN_200)
+        punct_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREY_400)
+        param_style = ft.TextStyle(
+            font_family="Consolas",
+            size=12,
+            color=ft.Colors.CYAN_200,
+            decoration=ft.TextDecoration.UNDERLINE,
+        )
+
+        spans = [
+            ft.TextSpan("ROTARYLINK", style=base_style),
+            ft.TextSpan("(", style=punct_style),
+        ]
+        for index, param in enumerate(command.parameters):
+            spans.append(
+                ft.TextSpan(
+                    param.text,
+                    style=param_style,
+                    tooltip=f"{param.name}: {param.source.title}",
+                    on_click=lambda e, p=param: show_rotarylink_param_source(p),
+                )
+            )
+            if index < len(command.parameters) - 1:
+                spans.append(ft.TextSpan(", ", style=punct_style))
+        spans.append(ft.TextSpan(")", style=punct_style))
+
+        phase_badge = ft.Container(
+            content=ft.Text(
+                command.phase.upper(),
+                size=10,
+                color=ft.Colors.CYAN_100,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            width=72,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+            bgcolor="#12384a",
+            border=ft.Border.all(1, "#1f5f78"),
+            border_radius=6,
+            alignment=ft.Alignment.CENTER,
+            tooltip=command.purpose,
+        )
+        return ft.Container(
+            content=ft.Row(
+                [
+                    phase_badge,
+                    ft.Text(spans=spans, no_wrap=False, selectable=False, expand=True),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=DARKER_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+
+    def set_rotarylink_only_commands(commands):
+        rotarylink_only_state["text"] = emit_rotarylink_only(commands)
+        rotarylink_command_list.controls = [
+            build_rotarylink_command_row(command) for command in commands
+        ]
+
+    def clear_rotarylink_only_commands(message):
+        rotarylink_only_state["text"] = ""
+        rotarylink_command_list.controls = [
+            ft.Text(message, size=12, color=MUTED_TEXT, selectable=True)
+        ]
+
+    rotarylink_only_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.LINK, size=15, color=ft.Colors.CYAN_200),
+                                ft.Text(
+                                    "ROTARYLINK COMMAND",
+                                    size=10,
+                                    color=MUTED_TEXT,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY,
+                            icon_color=ft.Colors.CYAN_200,
+                            tooltip="Copy ROTARYLINK command",
+                            on_click=lambda e: copy_text_to_clipboard(
+                                rotarylink_only_state["text"],
+                                "ROTARYLINK command copied to clipboard.",
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                rotarylink_command_list,
+            ],
+            spacing=8,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+    )
+
     rotarylink_phase_bar = ft.Column([
         ft.Text("Generated ROTARYLINK base phase profile", size=12, color=ft.Colors.GREY_400),
         ft.Container(
@@ -9133,7 +9490,8 @@ def main(page: ft.Page):
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             tooltip=rotarylink_tooltips["rotarylink_graph"],
         ),
-    ], spacing=6)
+        rotarylink_only_panel,
+    ], spacing=8)
 
     def rotarylink_recalc(e=None):
         update_rotarylink_startup_code()
@@ -9152,6 +9510,7 @@ def main(page: ft.Page):
             rotarylink_warning_text.value = "Invalid inputs: enter numeric values for the ROTARYLINK calculator."
             _apply_warning_severity("error", rotarylink_warning_banner, rotarylink_warning_icon, rotarylink_warning_text)
             rotarylink_code_output.value = ""
+            clear_rotarylink_only_commands("Invalid inputs")
             page.update()
             return
 
@@ -9176,6 +9535,7 @@ def main(page: ft.Page):
         rotarylink_sync_pos_input.value = f"{rotarylink_sync_pos:.3f}"
         rotarylink_circumference = None
         rotarylink_axis_units = None
+        rotarylink_geometry = None
         rotarylink_distance = 0.0
         rotarylink_link_dist = 0.0
         rotarylink_errors = []
@@ -9362,12 +9722,26 @@ def main(page: ft.Page):
 
         if rotarylink_severity == "error":
             rotarylink_code_output.value = ""
+            clear_rotarylink_only_commands("Resolve validation errors to generate a ROTARYLINK command.")
         else:
             try:
                 rotarylink_link_axis = int(rotarylink_axis_m_dropdown.value or axis_m_dropdown.value or "0")
                 rotarylink_base_axis = int(rotarylink_axis_s_dropdown.value or axis_s_dropdown.value or "1")
             except ValueError:
                 rotarylink_link_axis, rotarylink_base_axis = 0, 1
+
+            rotarylink_commands = build_rotarylink_commands(
+                rotarylink_profile_diag,
+                rotarylink_geometry,
+                link_axis=rotarylink_link_axis,
+                link_options=rotarylink_options,
+                start_pos=rotarylink_sync_pos,
+                start_mode=rotarylink_start_mode,
+                profile_mode=rotarylink_profile,
+                link_source=rotarylink_link_source,
+                merge=rotarylink_effective_merge,
+            )
+            set_rotarylink_only_commands(rotarylink_commands)
 
             rotarylink_code_output.value = emit_rotarylink_basic_program(
                 rotarylink_distance,
