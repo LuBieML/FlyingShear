@@ -43,7 +43,12 @@ from .domain.flying_shear_math import (
     calculate_flying_shear_profile,
     emit_flying_shear_movelink_only,
 )
-from .domain.flexlink_math import flexlink_excitation_progress
+from .domain.flexlink_math import (
+    build_vffs_flexlink_commands,
+    calculate_vffs_flexlink_profile,
+    emit_vffs_flexlink_only,
+    flexlink_excitation_progress,
+)
 from .domain.profile_points import (
     build_rotary_speed_profile_points,
     interpolate_profile_table_value,
@@ -7884,6 +7889,172 @@ def main(page: ft.Page):
             )
         return flexlink_shapes
 
+    flexlink_only_state = {"text": ""}
+    flexlink_param_dialog = ft.AlertDialog(modal=True, bgcolor=PANEL_BG)
+    flexlink_command_list = ft.Column([], spacing=6, tight=True)
+
+    def close_flexlink_param_dialog(e=None):
+        flexlink_param_dialog.open = False
+        page.update()
+
+    def show_flexlink_param_source(param):
+        source = param.source
+        detail_controls = [
+            source_field("Parameter", f"{param.name} = {param.text}", mono=True, color=ft.Colors.CYAN_200),
+            source_field("Formula", source.formula, mono=True, color=ft.Colors.GREEN_200),
+            source_field("Substitution", source.substitution, mono=True, color=TEXT_COLOR),
+            source_field("Result", source.result, mono=True, color=ft.Colors.CYAN_200),
+        ]
+        if source.details:
+            detail_controls.append(ft.Divider(height=1, color=BORDER_COLOR))
+            detail_controls.extend(
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=14, color=ft.Colors.CYAN_200),
+                        ft.Text(detail, size=12, color=ft.Colors.GREY_300, selectable=True, expand=True),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                )
+                for detail in source.details
+            )
+
+        flexlink_param_dialog.title = ft.Row(
+            [
+                ft.Icon(ft.Icons.FUNCTIONS, size=18, color=ft.Colors.CYAN_200),
+                ft.Text(source.title, size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        flexlink_param_dialog.content = ft.Container(
+            content=ft.Column(detail_controls, spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
+            width=560,
+            bgcolor=PANEL_ALT_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=14,
+        )
+        flexlink_param_dialog.actions = [
+            ft.TextButton("Close", icon=ft.Icons.CLOSE, on_click=close_flexlink_param_dialog),
+        ]
+        flexlink_param_dialog.actions_alignment = ft.MainAxisAlignment.END
+        if hasattr(page, "show_dialog"):
+            page.show_dialog(flexlink_param_dialog)
+        else:
+            page.dialog = flexlink_param_dialog
+            flexlink_param_dialog.open = True
+            page.update()
+
+    def build_flexlink_command_row(command):
+        base_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREEN_200)
+        punct_style = ft.TextStyle(font_family="Consolas", size=12, color=ft.Colors.GREY_400)
+        param_style = ft.TextStyle(
+            font_family="Consolas",
+            size=12,
+            color=ft.Colors.CYAN_200,
+            decoration=ft.TextDecoration.UNDERLINE,
+        )
+
+        spans = [
+            ft.TextSpan("FLEXLINK", style=base_style),
+            ft.TextSpan("(", style=punct_style),
+        ]
+        for index, param in enumerate(command.parameters):
+            spans.append(
+                ft.TextSpan(
+                    param.text,
+                    style=param_style,
+                    tooltip=f"{param.name}: {param.source.title}",
+                    on_click=lambda e, p=param: show_flexlink_param_source(p),
+                )
+            )
+            if index < len(command.parameters) - 1:
+                spans.append(ft.TextSpan(", ", style=punct_style))
+        spans.append(ft.TextSpan(")", style=punct_style))
+
+        phase_badge = ft.Container(
+            content=ft.Text(
+                command.phase.upper(),
+                size=10,
+                color=ft.Colors.CYAN_100,
+                weight=ft.FontWeight.BOLD,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            width=72,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=5),
+            bgcolor="#12384a",
+            border=ft.Border.all(1, "#1f5f78"),
+            border_radius=6,
+            alignment=ft.Alignment.CENTER,
+            tooltip=command.purpose,
+        )
+        return ft.Container(
+            content=ft.Row(
+                [
+                    phase_badge,
+                    ft.Text(spans=spans, no_wrap=False, selectable=False, expand=True),
+                ],
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=DARKER_BG,
+            border=ft.Border.all(1, BORDER_COLOR),
+            border_radius=8,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+
+    def set_flexlink_only_commands(commands):
+        flexlink_only_state["text"] = emit_vffs_flexlink_only(commands)
+        flexlink_command_list.controls = [build_flexlink_command_row(command) for command in commands]
+
+    def clear_flexlink_only_commands(message):
+        flexlink_only_state["text"] = ""
+        flexlink_command_list.controls = [
+            ft.Text(message, size=12, color=MUTED_TEXT, selectable=True)
+        ]
+
+    flexlink_only_panel = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.LINK, size=15, color=ft.Colors.CYAN_200),
+                                ft.Text(
+                                    "FLEXLINK COMMAND",
+                                    size=10,
+                                    color=MUTED_TEXT,
+                                    weight=ft.FontWeight.BOLD,
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY,
+                            icon_color=ft.Colors.CYAN_200,
+                            tooltip="Copy FLEXLINK command",
+                            on_click=lambda e: copy_text_to_clipboard(
+                                flexlink_only_state["text"],
+                                "FLEXLINK command copied to clipboard.",
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                flexlink_command_list,
+            ],
+            spacing=8,
+        ),
+        bgcolor=PANEL_ALT_BG,
+        border=ft.Border.all(1, BORDER_COLOR),
+        border_radius=8,
+        padding=12,
+    )
+
     flexlink_phase_bar = ft.Column([
         ft.Text("Generated FLEXLINK velocity profile", size=12, color=ft.Colors.GREY_400),
         ft.Container(
@@ -7893,7 +8064,8 @@ def main(page: ft.Page):
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             tooltip=flexlink_tooltips["profile_graph"],
         ),
-    ], spacing=6)
+        flexlink_only_panel,
+    ], spacing=8)
 
     def flexlink_recalc(e=None):
         update_flexlink_startup_code()
@@ -7915,6 +8087,7 @@ def main(page: ft.Page):
             flexlink_warning_text.value = "Invalid inputs: enter numeric values for the VFFS FLEXLINK calculator."
             _apply_warning_severity("error", flexlink_warning_banner, flexlink_warning_icon, flexlink_warning_text)
             flexlink_code_output.value = ""
+            clear_flexlink_only_commands("Invalid inputs")
             page.update()
             return
 
@@ -7923,6 +8096,35 @@ def main(page: ft.Page):
         flexlink_link_source = flexlink_source_dropdown.value or "mpos"
         flexlink_direction_mode = flexlink_direction_dropdown.value or "any"
         flexlink_repeat_mode = flexlink_repeat_dropdown.value or "program_loop"
+
+        flexlink_profile = calculate_vffs_flexlink_profile(
+            flexlink_cycle_pitch,
+            flexlink_jaw_period,
+            flexlink_reg_trim,
+            flexlink_line_speed,
+            flexlink_base_in_mm,
+            flexlink_base_out_mm,
+            flexlink_excite_acc_mm,
+            flexlink_excite_dec_mm,
+            flexlink_seal_dwell_min_ms,
+        )
+        flexlink_excite_dist = flexlink_profile.excite_dist
+        flexlink_excite_window_mm = flexlink_profile.excite_window_mm
+        flexlink_flat_mm = flexlink_profile.flat_mm
+        flexlink_base_in_pct = flexlink_profile.base_in_pct
+        flexlink_base_out_pct = flexlink_profile.base_out_pct
+        flexlink_excite_acc_pct = flexlink_profile.excite_acc_pct
+        flexlink_excite_dec_pct = flexlink_profile.excite_dec_pct
+        flexlink_base_dist = flexlink_profile.base_dist
+        flexlink_mech_seal_advance = flexlink_profile.mech_seal_advance
+        flexlink_bump_denom_mm = flexlink_profile.bump_denom_mm
+        flexlink_peak_extra_speed = flexlink_profile.peak_extra_speed
+        flexlink_peak_speed = flexlink_profile.peak_speed
+        flexlink_cycle_time_ms = flexlink_profile.cycle_time_ms
+        flexlink_seal_dwell_mm = flexlink_profile.seal_dwell_mm
+        flexlink_seal_dwell_ms = flexlink_profile.seal_dwell_ms
+        flexlink_required_contact_mm = flexlink_profile.required_contact_mm
+        flexlink_dwell_margin_ms = flexlink_profile.dwell_margin_ms
 
         flexlink_errors = []
         if flexlink_cycle_pitch <= 0:
@@ -7941,51 +8143,6 @@ def main(page: ft.Page):
             flexlink_errors.append("Link position/channel must be >= 0 for selected start trigger")
         if flexlink_start_mode == "rmark" and int(flexlink_link_pos) != flexlink_link_pos:
             flexlink_errors.append("R_MARK channel must be a whole number")
-
-        flexlink_excite_window_mm = max(
-            0.0, flexlink_cycle_pitch - flexlink_base_in_mm - flexlink_base_out_mm
-        )
-        flexlink_flat_mm = max(
-            0.0, flexlink_excite_window_mm - flexlink_excite_acc_mm - flexlink_excite_dec_mm
-        )
-        flexlink_excite_time_s = flexlink_excite_window_mm / flexlink_line_speed if flexlink_line_speed > 0 else 0
-        # Convert UI distances to the percentages that Trio FLEXLINK actually expects
-        # (FLEXLINK.md: args 4-7 are percentages of the base / excite move time).
-        if flexlink_cycle_pitch > 0:
-            flexlink_base_in_pct = flexlink_base_in_mm / flexlink_cycle_pitch * 100.0
-            flexlink_base_out_pct = flexlink_base_out_mm / flexlink_cycle_pitch * 100.0
-        else:
-            flexlink_base_in_pct = 0.0
-            flexlink_base_out_pct = 0.0
-        if flexlink_excite_window_mm > 0:
-            flexlink_excite_acc_pct = flexlink_excite_acc_mm / flexlink_excite_window_mm * 100.0
-            flexlink_excite_dec_pct = flexlink_excite_dec_mm / flexlink_excite_window_mm * 100.0
-        else:
-            flexlink_excite_acc_pct = 0.0
-            flexlink_excite_dec_pct = 0.0
-        # VFFS convention: 1:1 background sync, so slave base_dist == link_dist (= bag length).
-        flexlink_base_dist = flexlink_cycle_pitch
-        # Mechanical baseline seal advance = how much the slave must overtake the
-        # master per cycle just to complete one jaw revolution. The operator's
-        # registration trim is the optional small offset on top.
-        flexlink_mech_seal_advance = flexlink_jaw_period - flexlink_cycle_pitch
-        flexlink_bump_denom_mm = (
-            0.5 * flexlink_excite_acc_mm + flexlink_flat_mm + 0.5 * flexlink_excite_dec_mm
-        )
-        if flexlink_bump_denom_mm > 0 and flexlink_line_speed > 0:
-            flexlink_peak_extra_speed = abs(flexlink_excite_dist) * flexlink_line_speed / flexlink_bump_denom_mm
-        else:
-            flexlink_peak_extra_speed = 0.0
-        flexlink_peak_speed = flexlink_line_speed + flexlink_peak_extra_speed if flexlink_line_speed > 0 else 0
-        flexlink_cycle_time_ms = flexlink_cycle_pitch / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
-        # Heat-seal dwell is the 1:1 locked base motion, not the excitation window.
-        flexlink_seal_dwell_mm = flexlink_base_in_mm + flexlink_base_out_mm
-        flexlink_seal_dwell_ms = flexlink_seal_dwell_mm / flexlink_line_speed * 1000.0 if flexlink_line_speed > 0 else 0
-        flexlink_required_contact_mm = (
-            flexlink_seal_dwell_min_ms * flexlink_line_speed / 1000.0
-            if flexlink_seal_dwell_min_ms > 0 and flexlink_line_speed > 0 else 0.0
-        )
-        flexlink_dwell_margin_ms = flexlink_seal_dwell_ms - flexlink_seal_dwell_min_ms
 
         flexlink_options = flexlink_build_options(
             flexlink_curve_type,
@@ -8129,12 +8286,25 @@ def main(page: ft.Page):
 
         if flexlink_severity == "error":
             flexlink_code_output.value = ""
+            clear_flexlink_only_commands("Resolve validation errors to generate a FLEXLINK command.")
         else:
             try:
                 flexlink_link_axis = int(axis_m_dropdown.value or "0")
                 flexlink_slave_axis = int(axis_s_dropdown.value or "1")
             except ValueError:
                 flexlink_link_axis, flexlink_slave_axis = 0, 1
+
+            flexlink_commands = build_vffs_flexlink_commands(
+                flexlink_profile,
+                flexlink_curve_type,
+                flexlink_start_mode,
+                flexlink_link_pos,
+                flexlink_link_source,
+                flexlink_direction_mode,
+                flexlink_repeat_mode,
+                flexlink_link_axis,
+            )
+            set_flexlink_only_commands(flexlink_commands)
 
             flexlink_options_args = ", link_options, link_pos" if flexlink_options > 0 or flexlink_link_pos != 0 else ""
             flexlink_loop_start = "" if flexlink_repeat_mode == "flexlink_repeat" else "WHILE TRUE\n"
