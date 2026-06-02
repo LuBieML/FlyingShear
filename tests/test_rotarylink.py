@@ -285,14 +285,25 @@ class RotaryLinkTests(unittest.TestCase):
         )
 
         self.assertIn("moveoptions.5 = TRUE", program)
-        self.assertIn("WHILE (1)", program)
-        self.assertIn("    TRIGGER", program)
         self.assertIn(
-            "ROTARYLINK(distance, linkdist, base_acc, base_sync, link_ax, moveoptions, start_pos)",
+            "\n".join(
+                [
+                    "WHILE (1)",
+                    "    TRIGGER",
+                    "    IF MOVES_BUFFERED< LIMIT_BUFFERED-1 THEN",
+                    (
+                        "        ROTARYLINK(distance, linkdist, base_acc, base_sync, "
+                        "link_ax, moveoptions, start_pos)"
+                    ),
+                    "        start_pos = start_pos + cut_length",
+                    "    ENDIF",
+                    "    WA(1)",
+                    "WEND",
+                ]
+            ),
             program,
         )
-        self.assertIn("start_pos = start_pos + cut_length", program)
-        self.assertIn("WAIT UNTIL MOVES_BUFFERED < 2", program)
+        self.assertNotIn("WAIT UNTIL MOVES_BUFFERED < 2", program)
 
     def test_rotarylink_basic_no_overlap_leaves_merge_off(self):
         program = emit_rotarylink_basic_program(

@@ -135,10 +135,11 @@ def emit_rotarylink_basic_program(
     lines.extend([
         "WHILE (1)",
         "    TRIGGER",
-        f"    {command}",
-        "    start_pos = start_pos + cut_length",
-        "    WA(10)",
-        "    WAIT UNTIL MOVES_BUFFERED < 2",
+        "    IF MOVES_BUFFERED< LIMIT_BUFFERED-1 THEN",
+        f"        {command}",
+        "        start_pos = start_pos + cut_length",
+        "    ENDIF",
+        "    WA(1)",
         "WEND",
     ])
 

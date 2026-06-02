@@ -361,7 +361,7 @@
     "sync_pos": 10.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
-    "profile": "sine",
+    "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
     "merge": true,
