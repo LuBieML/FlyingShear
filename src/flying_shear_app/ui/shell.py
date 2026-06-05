@@ -438,13 +438,92 @@ class AppShell:
             ],
         )
 
-        self.app_root.content = ft.Container(
+        trio_basic_page = ft.Container(
             content=ft.Column(
-                [hero, basic_section, advanced_section],
+                [basic_section, advanced_section],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 alignment=ft.MainAxisAlignment.START,
                 spacing=30,
                 scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=ft.Padding.only(top=24),
+            expand=True,
+        )
+
+        iec61131_section = self.training_section(
+            "Trio IEC61131 Example Projects",
+            "Structured Text project patterns for learning Trio controller workflows.",
+            [
+                self.placeholder_training_card(
+                    "ST Axis Template",
+                    "Axis startup, enable, homing, and status mapping in IEC61131 Structured Text.",
+                    ft.Icons.CODE,
+                ),
+                self.placeholder_training_card(
+                    "PLCopen Point Move",
+                    "MC_Power and MC_MoveAbsolute sequence with Busy, Done, and Error handling.",
+                    ft.Icons.OPEN_WITH,
+                ),
+                self.placeholder_training_card(
+                    "HMI Command Map",
+                    "Shared command and status tags for wiring operator controls to Trio tasks.",
+                    ft.Icons.TUNE,
+                ),
+                self.placeholder_training_card(
+                    "Linked Motion Project",
+                    "Master/slave sync structure for selecting profiles and supervising linked moves.",
+                    ft.Icons.CYCLONE,
+                ),
+            ],
+        )
+
+        iec61131_page = ft.Container(
+            content=ft.Column(
+                [iec61131_section],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.START,
+                spacing=30,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            padding=ft.Padding.only(top=24),
+            expand=True,
+        )
+
+        start_tabs = ft.Container(
+            width=1420,
+            expand=True,
+            content=ft.Tabs(
+                length=2,
+                selected_index=0,
+                content=ft.Column(
+                    [
+                        ft.TabBar(
+                            tabs=[
+                                ft.Tab(label="Trio BASIC", icon=ft.Icons.CODE),
+                                ft.Tab(label="IEC61131", icon=ft.Icons.TUNE),
+                            ],
+                            label_color=ft.Colors.CYAN_200,
+                            unselected_label_color=MUTED_TEXT,
+                            indicator_color=ACCENT_COLOR,
+                            divider_color=BORDER_COLOR,
+                        ),
+                        ft.TabBarView(
+                            controls=[trio_basic_page, iec61131_page],
+                            expand=1,
+                        ),
+                    ],
+                    expand=True,
+                ),
+                expand=1,
+            ),
+        )
+
+        self.app_root.content = ft.Container(
+            content=ft.Column(
+                [hero, start_tabs],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.START,
+                spacing=30,
             ),
             expand=True,
             alignment=ft.Alignment.TOP_CENTER,
