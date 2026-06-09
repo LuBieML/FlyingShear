@@ -288,9 +288,9 @@
       }
     }
   },
-  "master_speed": "12.0",
+  "master_speed": "29.0",
   "shear_calc": {
-    "cut": 90.0,
+    "cut": 80.0,
     "vline": 100.0,
     "amax": 7000.0,
     "tsync": 500.0,
@@ -306,13 +306,13 @@
     "use_base_dist": false
   },
   "cam_calc": {
-    "cut": 10.0,
+    "cut": 20.0,
     "drum_dia": 20.0,
-    "n_knives": 2,
+    "n_knives": 1,
     "cut_window": 20.0,
     "cpr": 8388608,
     "n_points": 20000,
-    "blend": 0.2,
+    "blend": 1.0,
     "vline": 10.0,
     "table_start": 1000,
     "drum_circumference": 62.83185307179586,
@@ -324,7 +324,7 @@
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
     "show_debug": false,
-    "slave_jog_speed": "10"
+    "slave_jog_speed": "200"
   },
   "cam_profile_view": {
     "start_deg": 0.0,
@@ -398,6 +398,6 @@
     "mpos_counts_per_rev_override": null,
     "match_tolerance_pct": 5.0,
     "show_debug": false,
-    "slave_jog_speed": "50"
+    "slave_jog_speed": "300"
   }
 }

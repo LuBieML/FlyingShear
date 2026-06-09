@@ -313,22 +313,25 @@ class AppShell:
         return card
 
     def placeholder_training_card(self, label, subtitle, icon):
+        content_controls = [
+            ft.Container(
+                content=ft.Icon(icon, size=30, color=MUTED_TEXT),
+                width=58,
+                height=58,
+                bgcolor=DARKER_BG,
+                border=ft.Border.all(1, BORDER_COLOR),
+                border_radius=14,
+                alignment=ft.Alignment.CENTER,
+            ),
+            ft.Container(height=2),
+        ]
+        if label:
+            content_controls.append(ft.Text(label, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300))
+        content_controls.append(ft.Text(subtitle, size=13, color=MUTED_TEXT, max_lines=3))
+
         return ft.Container(
             content=ft.Column(
-                [
-                    ft.Container(
-                        content=ft.Icon(icon, size=30, color=MUTED_TEXT),
-                        width=58,
-                        height=58,
-                        bgcolor=DARKER_BG,
-                        border=ft.Border.all(1, BORDER_COLOR),
-                        border_radius=14,
-                        alignment=ft.Alignment.CENTER,
-                    ),
-                    ft.Container(height=2),
-                    ft.Text(label, size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300),
-                    ft.Text(subtitle, size=13, color=MUTED_TEXT, max_lines=3),
-                ],
+                content_controls,
                 spacing=8,
                 expand=True,
             ),
@@ -455,22 +458,22 @@ class AppShell:
             "Structured Text project patterns for learning Trio controller workflows.",
             [
                 self.placeholder_training_card(
-                    "ST Axis Template",
+                    "Starting with IEC",
                     "Axis startup, enable, homing, and status mapping in IEC61131 Structured Text.",
                     ft.Icons.CODE,
                 ),
                 self.placeholder_training_card(
-                    "PLCopen Point Move",
+                    "",
                     "MC_Power and MC_MoveAbsolute sequence with Busy, Done, and Error handling.",
                     ft.Icons.OPEN_WITH,
                 ),
                 self.placeholder_training_card(
-                    "HMI Command Map",
+                    "",
                     "Shared command and status tags for wiring operator controls to Trio tasks.",
                     ft.Icons.TUNE,
                 ),
                 self.placeholder_training_card(
-                    "Linked Motion Project",
+                    "",
                     "Master/slave sync structure for selecting profiles and supervising linked moves.",
                     ft.Icons.CYCLONE,
                 ),
