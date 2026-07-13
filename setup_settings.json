@@ -288,10 +288,10 @@
       }
     }
   },
-  "master_speed": "29.0",
+  "master_speed": "10.0",
   "shear_calc": {
     "cut": 80.0,
-    "vline": 100.0,
+    "vline": 10.0,
     "amax": 7000.0,
     "tsync": 500.0,
     "safety": 1.5,
@@ -357,7 +357,7 @@
     "distance": 62.83185307179586,
     "link_dist": 62.83185307179586,
     "acc": 10.0,
-    "sync": 5.0,
+    "sync": 10.0,
     "sync_pos": 10.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
