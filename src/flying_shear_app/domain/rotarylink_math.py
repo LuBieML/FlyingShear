@@ -206,11 +206,11 @@ def _describe_rotarylink_option_bits(
         "rmark": "bits 0..1 = 3 for R_MARK channel",
     }
     profile_labels = {
-        "trapezoid": "bits 2..4 = 0 for trapezoidal profile",
-        "sine": "bits 2..4 = 1 for sine speed profile",
-        "power9": "bits 2..4 = 2 for power 9 polynomial speed profile",
-        "power7": "bits 2..4 = 3 for power 7 polynomial speed profile",
-        "power5": "bits 2..4 = 4 for power 5 polynomial speed profile",
+        "sine": "bits 2..4 = 0 for sine speed profile",
+        "power9": "bits 2..4 = 1 for power 9 polynomial speed profile",
+        "power7": "bits 2..4 = 2 for power 7 polynomial speed profile",
+        "power5": "bits 2..4 = 3 for power 5 polynomial speed profile",
+        "trapezoid": "bits 2..4 = 4 for trapezoidal profile",
     }
     set_bits = [str(bit) for bit in range(15) if options & (1 << bit)]
     return (

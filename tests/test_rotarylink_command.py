@@ -84,12 +84,12 @@ class RotaryLinkCommandTests(unittest.TestCase):
 
         self.assertEqual(
             emit_rotarylink_only(commands),
-            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, 2, 108, 10.000)",
+            "ROTARYLINK(62.832, 62.832, 10.000, 3.000, 2, 104, 10.000)",
         )
         moveoptions = commands[0].parameters[5]
         self.assertEqual(moveoptions.name, "moveoptions")
-        self.assertEqual(moveoptions.text, "108")
-        self.assertIn("Set bits: 2, 3, 5, 6", moveoptions.source.details)
+        self.assertEqual(moveoptions.text, "104")
+        self.assertIn("Set bits: 3, 5, 6", moveoptions.source.details)
         self.assertIn(
             "Merge: bit 5 ON because cut_length is shorter than distance",
             moveoptions.source.details,

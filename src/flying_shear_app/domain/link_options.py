@@ -100,8 +100,12 @@ def build_flexlink_options(
 def build_rotarylink_options(start_mode, profile, link_source, merge):
     """Build ROTARYLINK link_options.
 
-    ROTARYLINK encodes start mode in bits 0..1 and profile type in bits 2..4.
-    This differs from MOVELINK/FLEXLINK, where start modes are separate bits.
+    ROTARYLINK encodes start mode in bits 0..1 and profile type in bits 2..4:
+      0 - Sine speed profile
+      1 - Power 9 polynomial speed profile
+      2 - Power 7 polynomial speed profile
+      3 - Power 5 polynomial speed profile
+      4 - Trapezoidal profile
     """
     start_modes = {
         "immediate": 0,
@@ -111,11 +115,11 @@ def build_rotarylink_options(start_mode, profile, link_source, merge):
         "rmark": 3,
     }
     profile_modes = {
-        "trapezoid": 0,
-        "sine": 1,
-        "power9": 2,
-        "power7": 3,
-        "power5": 4,
+        "sine": 0,
+        "power9": 1,
+        "power7": 2,
+        "power5": 3,
+        "trapezoid": 4,
     }
 
     options = start_modes.get(start_mode, 0)

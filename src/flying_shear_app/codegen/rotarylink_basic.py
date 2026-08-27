@@ -11,11 +11,11 @@ ROTARYLINK_START_MODE_LABELS = {
 }
 
 ROTARYLINK_PROFILE_LABELS = {
-    0: "trapezoidal profile",
-    1: "sine speed profile",
-    2: "power 9 polynomial speed profile",
-    3: "power 7 polynomial speed profile",
-    4: "power 5 polynomial speed profile",
+    0: "sine speed profile",
+    1: "power 9 polynomial speed profile",
+    2: "power 7 polynomial speed profile",
+    3: "power 5 polynomial speed profile",
+    4: "trapezoidal profile",
 }
 
 

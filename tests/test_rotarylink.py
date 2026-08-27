@@ -51,12 +51,13 @@ class RotaryLinkTests(unittest.TestCase):
             self.assertNotIn(removed_key, profile)
 
     def test_rotarylink_option_encoding(self):
-        self.assertEqual(build_rotarylink_options("immediate", "trapezoid", "mpos", False), 0)
-        self.assertEqual(build_rotarylink_options("mark", "trapezoid", "mpos", False), 1)
-        self.assertEqual(build_rotarylink_options("markb", "trapezoid", "mpos", False), 2)
-        self.assertEqual(build_rotarylink_options("rmark", "trapezoid", "mpos", False), 3)
-        self.assertEqual(build_rotarylink_options("absolute", "sine", "mpos", False), 4)
-        self.assertEqual(build_rotarylink_options("absolute", "power7", "dpos", True), 108)
+        self.assertEqual(build_rotarylink_options("immediate", "sine", "mpos", False), 0)
+        self.assertEqual(build_rotarylink_options("mark", "sine", "mpos", False), 1)
+        self.assertEqual(build_rotarylink_options("markb", "sine", "mpos", False), 2)
+        self.assertEqual(build_rotarylink_options("rmark", "sine", "mpos", False), 3)
+        self.assertEqual(build_rotarylink_options("absolute", "power9", "mpos", False), 4)
+        self.assertEqual(build_rotarylink_options("absolute", "power7", "dpos", True), 104)
+        self.assertEqual(build_rotarylink_options("immediate", "trapezoid", "mpos", False), 16)
 
     def test_rotarylink_format_optional_arguments(self):
         self.assertEqual(
@@ -363,17 +364,17 @@ class RotaryLinkTests(unittest.TestCase):
             60,
             link_axis=0,
             base_axis=1,
-            link_options=108,
+            link_options=104,
             cut_length=300,
             required_merge=True,
             start_pos=50,
         )
 
         self.assertIn("' link_options bit breakdown:", program)
-        self.assertIn("'   decimal value = 108", program)
-        self.assertIn("'   set bits = 2, 3, 5, 6", program)
+        self.assertIn("'   decimal value = 104", program)
+        self.assertIn("'   set bits = 3, 5, 6", program)
         self.assertIn("'   bits 0..1 = 0: absolute sync position", program)
-        self.assertIn("'   bits 2..4 = 3: power 7 polynomial speed profile", program)
+        self.assertIn("'   bits 2..4 = 2: power 7 polynomial speed profile", program)
         self.assertIn("'   bit 5 = ON: merge consecutive ROTARYLINK commands", program)
         self.assertIn("'   bit 6 = ON: follow master DPOS", program)
 
@@ -416,7 +417,7 @@ class RotaryLinkTests(unittest.TestCase):
                 "'   decimal value = 0",
                 "'   set bits = none",
                 "'   bits 0..1 = 0: absolute sync position",
-                "'   bits 2..4 = 0: trapezoidal profile",
+                "'   bits 2..4 = 0: sine speed profile",
                 "'   bit 5 = OFF: no ROTARYLINK merge",
                 "'   bit 6 = OFF: follow master MPOS",
             ],

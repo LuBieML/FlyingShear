@@ -8799,7 +8799,7 @@ def main(page: ft.Page):
         ("rl_vline", 500),
         ("repeat_step", 330),
         ("buffered_commands", 4),
-        ("profile", "trapezoid"),
+        ("profile", "sine"),
         ("start_mode", "absolute"),
         ("link_source", "mpos"),
         ("merge", False),
@@ -8942,17 +8942,17 @@ def main(page: ft.Page):
     })
 
     rotarylink_profile_dropdown = make_dropdown(
-        "Profile", "profile", rotarylink_settings.get("profile", "trapezoid"),
+        "Profile", "profile", rotarylink_settings.get("profile", "sine"),
         [
-            ("trapezoid", "Trapezoidal"),
             ("sine", "Sine"),
             ("power9", "Power 9"),
             ("power7", "Power 7"),
             ("power5", "Power 5"),
+            ("trapezoid", "Trapezoidal"),
         ],
         width=160,
     )
-    rotarylink_profile_dropdown.value = str(rotarylink_settings.get("profile", "trapezoid"))
+    rotarylink_profile_dropdown.value = str(rotarylink_settings.get("profile", "sine"))
     rotarylink_profile_dropdown.tooltip = rotarylink_tooltips["profile"]
 
     rotarylink_start_dropdown = make_dropdown(
@@ -9514,7 +9514,7 @@ def main(page: ft.Page):
             page.update()
             return
 
-        rotarylink_profile = rotarylink_profile_dropdown.value or "trapezoid"
+        rotarylink_profile = rotarylink_profile_dropdown.value or "sine"
         rotarylink_start_mode = rotarylink_start_dropdown.value or "absolute"
         rotarylink_link_source = rotarylink_source_dropdown.value or "mpos"
         rotarylink_repeat_mode = rotarylink_repeat_dropdown.value or "program_loop"
@@ -11719,11 +11719,11 @@ def main(page: ft.Page):
                                     ("0..1", "1", "MARK start"),
                                     ("0..1", "2", "MARKB start"),
                                     ("0..1", "3", "R_MARK channel"),
-                                    ("2..4", "0", "Trapezoidal profile"),
-                                    ("2..4", "1", "Sine profile"),
-                                    ("2..4", "2", "Power 9 polynomial"),
-                                    ("2..4", "3", "Power 7 polynomial"),
-                                    ("2..4", "4", "Power 5 polynomial"),
+                                    ("2..4", "0", "Sine speed profile"),
+                                    ("2..4", "1", "Power 9 polynomial"),
+                                    ("2..4", "2", "Power 7 polynomial"),
+                                    ("2..4", "3", "Power 5 polynomial"),
+                                    ("2..4", "4", "Trapezoidal profile"),
                                     ("5", "32", "Merge consecutive ROTARYLINK commands"),
                                     ("6", "64", "Follow master DPOS instead of MPOS"),
                                 ],

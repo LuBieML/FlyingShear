@@ -356,15 +356,15 @@
   "rotarylink_calc": {
     "distance": 62.83185307179586,
     "link_dist": 62.83185307179586,
-    "acc": 10.0,
+    "acc": 20.0,
     "sync": 10.0,
-    "sync_pos": 10.0,
+    "sync_pos": 20.0,
     "repeat_step": 330.0,
     "buffered_commands": 1,
     "profile": "trapezoid",
     "start_mode": "immediate",
     "link_source": "mpos",
-    "merge": true,
+    "merge": false,
     "repeat_mode": "program_loop",
     "rl_drum_dia": 20.0,
     "rl_n_knives": 1,
@@ -373,7 +373,7 @@
     "rl_encoder_counts_per_rev": 8388608.0,
     "rl_circumference": 62.83185307179586,
     "rl_units": 133508.8428860218,
-    "cut_length": 40.0,
+    "cut_length": 110.0,
     "decel": 10.0
   },
   "point_to_point": {
