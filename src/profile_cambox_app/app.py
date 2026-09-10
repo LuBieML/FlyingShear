@@ -15,6 +15,7 @@ from .codegen import emit_points_csv, emit_trio_basic
 from .domain import ConvertedProfile, ProfileConfig, ProfileError, convert_profile, load_profile_csv
 from .settings import load_config, save_config
 from .simulation_view import SimulationView
+from .help_text import SETTING_HELP
 
 
 BG = "#202122"
@@ -69,6 +70,7 @@ def main(page: ft.Page) -> None:
     def field_control(key: str, label: str, value, *, suffix: str | None = None, width: int = 160) -> ft.TextField:
         control = ft.TextField(
             label=label,
+            tooltip=SETTING_HELP[key],
             value=str(value),
             suffix=suffix,
             width=width,
@@ -84,7 +86,7 @@ def main(page: ft.Page) -> None:
         return control
 
     def switch_control(key: str, label: str, value: bool) -> ft.Switch:
-        control = ft.Switch(label=label, value=value, active_color=MASTER, label_text_style=ft.TextStyle(size=11, color=TEXT))
+        control = ft.Switch(label=label, tooltip=SETTING_HELP[key], value=value, active_color=MASTER, label_text_style=ft.TextStyle(size=11, color=TEXT))
         controls[key] = control
         return control
 
@@ -99,6 +101,7 @@ def main(page: ft.Page) -> None:
 
     source_path = ft.TextField(
         label="CSV profile",
+        tooltip="The CSV file you are using. Click Import CSV to choose another file. Use the column settings below to tell the app where to find time, Y and C.",
         hint_text="Import a time / Y / C CSV file",
         read_only=True,
         expand=True,
@@ -176,7 +179,7 @@ def main(page: ft.Page) -> None:
     chart = fc.MatplotlibChart(figure=figure, expand=True)
     cursor_artists: list = []
 
-    cursor_slider = ft.Slider(min=0, max=1, value=0, divisions=1, active_color=MASTER, inactive_color=BORDER, disabled=True)
+    cursor_slider = ft.Slider(min=0, max=1, value=0, divisions=1, active_color=MASTER, inactive_color=BORDER, disabled=True, tooltip="Drag to look at a different moment in the movement. The numbers below show the positions at that moment. Release to move the vertical lines on the graphs.")
     cursor_values = {
         key: ft.Text("—", size=16, color=color, weight=ft.FontWeight.BOLD, font_family="Consolas")
         for key, color in (("master", MASTER), ("time", TEXT), ("y", Y_COLOR), ("c", C_COLOR), ("counts", MUTED))
@@ -444,7 +447,14 @@ def main(page: ft.Page) -> None:
         is_simulation = name == "simulation"
         if not is_simulation:
             simulation_view.stop()
-        body_holder.content = simulation_view.control if is_simulation else generator_body
+        # Keep chart canvases mounted: removing them disconnects their backend
+        # stream, which is not restored when the same control is reinserted.
+        generator_page.opacity = 0 if is_simulation else 1
+        generator_page.ignore_interactions = is_simulation
+        generator_page.disabled = is_simulation
+        simulation_page.opacity = 1 if is_simulation else 0
+        simulation_page.ignore_interactions = not is_simulation
+        simulation_page.disabled = not is_simulation
         generator_nav.bgcolor = PANEL_ALT if is_simulation else MASTER
         generator_nav.color = MUTED if is_simulation else BUTTON_INK
         simulation_nav.bgcolor = MASTER if is_simulation else PANEL_ALT
@@ -505,7 +515,15 @@ def main(page: ft.Page) -> None:
     )
     simulation_view = SimulationView(page, show_message)
     generator_body = ft.Row([sidebar, workspace], expand=True, spacing=0)
-    body_holder = ft.Container(content=generator_body, expand=True)
+    generator_page = ft.Container(content=generator_body, expand=True)
+    simulation_page = ft.Container(
+        content=simulation_view.control, expand=True,
+        opacity=0, ignore_interactions=True, disabled=True,
+    )
+    body_holder = ft.Stack(
+        controls=[generator_page, simulation_page],
+        fit=ft.StackFit.EXPAND, expand=True,
+    )
     footer = ft.Container(
         content=ft.Row([status_dot, status_text, ft.Container(expand=True), ft.Text("Offline generator · no controller writes", size=10, color=MUTED)], spacing=8),
         bgcolor="#262728",

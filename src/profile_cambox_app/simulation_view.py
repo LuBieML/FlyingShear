@@ -47,6 +47,7 @@ class SimulationView:
 
         self.radius = ft.TextField(
             label="C reference radius",
+            tooltip="Distance from the rotation centre to the moving point, in mm. A larger value draws a bigger circle and a wider path. Click Apply geometry to see the change. This only affects the picture.",
             value="50",
             suffix="mm",
             width=165,
@@ -59,6 +60,7 @@ class SimulationView:
         )
         self.angle_offset = ft.TextField(
             label="C zero-angle offset",
+            tooltip="Turn the simulation drawing by this many degrees. For example, 90 turns it a quarter-turn anticlockwise. Click Apply geometry to see the change. This only affects the picture.",
             value="0",
             suffix="°",
             width=170,
@@ -71,6 +73,7 @@ class SimulationView:
         )
         self.speed = ft.Dropdown(
             label="Playback",
+            tooltip="How fast to watch the animation. Use 0.5× for slow motion, 1× for normal speed or 2× for double speed. The exported movement and graph values stay the same.",
             value="1",
             options=[ft.DropdownOption(key=value, text=f"{value}×") for value in ("0.25", "0.5", "1", "2", "4")],
             width=125,
@@ -85,12 +88,14 @@ class SimulationView:
             "Apply geometry",
             icon=ft.Icons.REFRESH,
             on_click=self._rebuild_geometry,
+            tooltip="Redraw the simulation using your new circle size and angle. The animation returns to the beginning.",
             style=ft.ButtonStyle(color=TEXT, side=ft.BorderSide(1, BORDER), shape=ft.RoundedRectangleBorder(radius=3)),
         )
         self.play_button = ft.FilledButton(
             "Play one-shot",
             icon=ft.Icons.PLAY_ARROW,
             on_click=self._toggle_play,
+            tooltip="Start the animation, or pause it while it is running. It stops at the end. Click again to watch it from the beginning.",
             bgcolor=MASTER,
             color=BUTTON_INK,
             disabled=True,
@@ -100,6 +105,7 @@ class SimulationView:
             "Reset",
             icon=ft.Icons.REPLAY,
             on_click=self._reset,
+            tooltip="Stop the animation and go back to the beginning.",
             disabled=True,
             style=ft.ButtonStyle(color=TEXT, side=ft.BorderSide(1, BORDER), shape=ft.RoundedRectangleBorder(radius=3)),
         )
@@ -123,6 +129,7 @@ class SimulationView:
             active_color=MASTER,
             inactive_color=BORDER,
             on_change=self._scrub,
+            tooltip="Drag to any moment in the movement. The animation pauses so you can inspect the drawing, positions and graphs together.",
         )
         self.values = {
             name: ft.Text("—", size=15, color=color, weight=ft.FontWeight.BOLD, font_family="Consolas")

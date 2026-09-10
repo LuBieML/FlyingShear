@@ -11,7 +11,7 @@
   "y_travel_per_rev_mm": 4.0,
   "c_encoder_counts_per_rev": 8388608.0,
   "c_degrees_per_rev": 360.0,
-  "c_user_unit_deg": 0.1,
+  "c_user_unit_deg": 1.0,
   "master_speed_mm_s": 80.0,
   "master_accel_mm_s2": 1000.0,
   "master_decel_mm_s2": 1000.0,
