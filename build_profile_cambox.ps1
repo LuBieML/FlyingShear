@@ -7,10 +7,18 @@ $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
 Set-Location $Root
 
-$VenvPython = Join-Path $Root "venv\Scripts\python.exe"
-$FletExe = Join-Path $Root "venv\Scripts\flet.exe"
+$VenvDir = if (Test-Path (Join-Path $Root ".venv\Scripts\python.exe")) {
+    Join-Path $Root ".venv"
+} elseif (Test-Path (Join-Path $Root "venv\Scripts\python.exe")) {
+    Join-Path $Root "venv"
+} else {
+    Join-Path $Root ".venv"
+}
+
+$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+$FletExe = Join-Path $VenvDir "Scripts\flet.exe"
 if (-not (Test-Path $VenvPython)) {
-    throw "Project virtual environment was not found. Run build.ps1 once or create venv first."
+    throw "Project virtual environment was not found (.venv or venv). Run build.ps1 once or create venv first."
 }
 
 & $VenvPython -m pip install -r (Join-Path $Root "requirements.txt")
