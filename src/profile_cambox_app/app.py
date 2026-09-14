@@ -12,7 +12,7 @@ import flet_charts as fc
 import matplotlib.pyplot as plt
 
 from .codegen import emit_points_csv, emit_trio_basic
-from .domain import ConvertedProfile, ProfileConfig, ProfileError, convert_profile, load_profile_csv
+from .domain import ConvertedProfile, ProfileConfig, ProfileError, convert_profile, load_profile_csv, parse_gear_ratio
 from .settings import load_config, save_config
 from .simulation_view import SimulationView
 from .help_text import SETTING_HELP
@@ -70,7 +70,7 @@ def main(page: ft.Page) -> None:
     def field_control(key: str, label: str, value, *, suffix: str | None = None, width: int = 160) -> ft.TextField:
         control = ft.TextField(
             label=label,
-            tooltip=SETTING_HELP[key],
+            tooltip=SETTING_HELP.get(key, SETTING_HELP.get(key.rsplit("_", 1)[0])),
             value=str(value),
             suffix=suffix,
             width=width,
@@ -89,6 +89,22 @@ def main(page: ft.Page) -> None:
         control = ft.Switch(label=label, tooltip=SETTING_HELP[key], value=value, active_color=MASTER, label_text_style=ft.TextStyle(size=11, color=TEXT))
         controls[key] = control
         return control
+
+    def gear_ratio_control(axis: str, ratio: float) -> ft.Column:
+        key = f"{axis.lower()}_gear_ratio"
+        def format_turns(value: float) -> str:
+            return str(int(value)) if float(value).is_integer() else str(value)
+
+        motor = field_control(f"{key}_motor", f"{axis} motor turns", format_turns(ratio), width=144)
+        output = field_control(f"{key}_output", f"{axis} output turns", format_turns(1.0), width=144)
+        motor.keyboard_type = ft.KeyboardType.NUMBER
+        output.keyboard_type = ft.KeyboardType.NUMBER
+        return ft.Column([
+            ft.Text("Gear ratio · motor : output", size=10, color=MUTED),
+            ft.Row([motor, ft.Text(":", width=16, text_align=ft.TextAlign.CENTER,
+                                   size=18, color=TEXT), output], spacing=7,
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=6)
 
     def config_card(title: str, subtitle: str, content: list[ft.Control]) -> ft.Container:
         return ft.Container(
@@ -117,26 +133,75 @@ def main(page: ft.Page) -> None:
     # commissioning surface, not a wizard.
     source_card = config_card("Source mapping", "Time in seconds, Y in millimetres, C in radians", [
         ft.Row([field_control("time_column", "Time column", stored.time_column, width=105), field_control("y_column", "Y column", stored.y_column, width=105), field_control("c_column", "C column", stored.c_column, width=105)], spacing=8),
+    ])
+
+    def settings_divider(title: str, description: str, color: str) -> ft.Column:
+        return ft.Column([
+            ft.Divider(height=8, color=BORDER),
+            ft.Text(title, size=12, weight=ft.FontWeight.BOLD, color=color),
+            ft.Text(description, size=10, color=MUTED),
+        ], spacing=4)
+
+    y_card = config_card("Y · Linear axis", "Millimetres at the grinder", [
+        ft.Row([field_control("y_axis", "Y axis", stored.y_axis, width=100), switch_control("invert_y", "Invert Y", stored.invert_y)], spacing=14),
+        settings_divider("Motor and screw", "Effective controller counts per motor turn; screw lead before gearing.", Y_COLOR),
+        ft.Row([field_control("y_encoder_counts_per_rev", "Y counts/rev", stored.y_encoder_counts_per_rev, width=155), field_control("y_travel_per_rev_mm", "Y screw lead", stored.y_travel_per_rev_mm, suffix="mm/rev", width=155)], spacing=8),
+        gear_ratio_control("Y", stored.y_gear_ratio),
+        ft.Text("1:1 direct drive; 2:1 means two motor turns per screw turn.", size=10, color=MUTED),
+        settings_divider("Move to starting position", "Before CAMBOX: Y moves to the first CSV position. A distant starting position takes longer to reach.", Y_COLOR),
+        switch_control("demo_y_preposition", "Demo start: 5 mm before target", stored.demo_y_preposition),
+        ft.Text("Simulation only: demo start redefines Y coordinates with DEFPOS.", size=10, color=MUTED),
+        field_control("y_preposition_speed_mm_s", "Y speed", stored.y_preposition_speed_mm_s, suffix="mm/s", width=155),
+        ft.Row([field_control("y_preposition_accel_mm_s2", "Y accel", stored.y_preposition_accel_mm_s2, suffix="mm/s²", width=155), field_control("y_preposition_decel_mm_s2", "Y decel", stored.y_preposition_decel_mm_s2, suffix="mm/s²", width=155)], spacing=8),
+        ft.Text("During CAMBOX, the CSV sets the motion timing. This speed only sets the initial positioning move.", size=10, color=Y_COLOR),
+    ])
+    c_card = config_card("C · Rotary axis", "Output degrees at the blade", [
+        ft.Row([field_control("c_axis", "C axis", stored.c_axis, width=100), switch_control("invert_c", "Invert C", stored.invert_c)], spacing=14),
+        settings_divider("Motor and gearbox", "Effective controller counts per motor turn; gearing converts to blade rotation.", C_COLOR),
+        field_control("c_encoder_counts_per_rev", "C counts/rev", stored.c_encoder_counts_per_rev, width=155),
+        gear_ratio_control("C", stored.c_gear_ratio),
+        ft.Text("10:1 reduction means 36° at the blade per motor turn.", size=10, color=MUTED),
+        settings_divider("Angle units and wrap", "User units and position boundaries are independent of the gearbox.", C_COLOR),
+        ft.Row([field_control("c_user_unit_deg", "C user unit", stored.c_user_unit_deg, suffix="°", width=155), field_control("c_wrap_distance_deg", "C wrap ±", stored.c_wrap_distance_deg, suffix="°", width=155)], spacing=8),
         switch_control("unwrap_c_axis", "Unwrap C across ±π", stored.unwrap_c_axis),
+        settings_divider("Move to starting position", "Before CAMBOX: C turns to the first CSV angle. Both axes must arrive before the profile starts.", C_COLOR),
+        switch_control("demo_c_preposition", "Demo start: 5° before target", stored.demo_c_preposition),
+        ft.Text("Simulation only: demo start redefines C coordinates with DEFPOS.", size=10, color=MUTED),
+        field_control("c_preposition_speed_deg_s", "C speed", stored.c_preposition_speed_deg_s, suffix="°/s", width=155),
+        ft.Row([field_control("c_preposition_accel_deg_s2", "C accel", stored.c_preposition_accel_deg_s2, suffix="°/s²", width=155), field_control("c_preposition_decel_deg_s2", "C decel", stored.c_preposition_decel_deg_s2, suffix="°/s²", width=155)], spacing=8),
+        ft.Text("During CAMBOX, the CSV sets the rotation timing.", size=10, color=C_COLOR),
     ])
-    axes_card = config_card("Axes and direction", "Independent slaves linked to virtual master DPOS", [
-        ft.Row([field_control("y_axis", "Y axis", stored.y_axis, width=100), field_control("c_axis", "C axis", stored.c_axis, width=100), field_control("master_axis", "Master", stored.master_axis, width=100)], spacing=8),
-        ft.Row([switch_control("invert_y", "Invert Y", stored.invert_y), switch_control("invert_c", "Invert C", stored.invert_c)], spacing=14),
-    ])
-    scaling_card = config_card("Encoder scaling", "2²³ counts/rev with 4 mm linear pitch and 0.1° C units", [
+    master_card = config_card("Master · Virtual axis", "Software reference shared by Y and C", [
+        field_control("master_axis", "Master", stored.master_axis, width=100),
+        settings_divider("Virtual scale", "Independent of the motor encoders and mechanical gear ratios.", MASTER),
         ft.Row([field_control("master_encoder_counts_per_rev", "Master counts/rev", stored.master_encoder_counts_per_rev, width=155), field_control("master_travel_per_rev_mm", "Travel/rev", stored.master_travel_per_rev_mm, suffix="mm", width=155)], spacing=8),
-        ft.Row([field_control("y_encoder_counts_per_rev", "Y counts/rev", stored.y_encoder_counts_per_rev, width=155), field_control("y_travel_per_rev_mm", "Travel/rev", stored.y_travel_per_rev_mm, suffix="mm", width=155)], spacing=8),
-        ft.Row([field_control("c_encoder_counts_per_rev", "C counts/rev", stored.c_encoder_counts_per_rev, width=155), field_control("c_user_unit_deg", "C user unit", stored.c_user_unit_deg, suffix="°", width=155)], spacing=8),
-    ])
-    master_card = config_card("Master motion", "Lead-in keeps the full CAM profile at constant line speed", [
+        settings_divider("Motion and run-up", "The master accelerates before the profile begins. Regenerating preserves the CSV duration.", MASTER),
         ft.Row([field_control("master_speed_mm_s", "Speed", stored.master_speed_mm_s, suffix="mm/s", width=155), field_control("master_accel_mm_s2", "Acceleration", stored.master_accel_mm_s2, suffix="mm/s²", width=155)], spacing=8),
         ft.Row([field_control("master_decel_mm_s2", "Deceleration", stored.master_decel_mm_s2, suffix="mm/s²", width=155), field_control("lead_margin_mm", "Lead margin", stored.lead_margin_mm, suffix="mm", width=155)], spacing=8),
     ])
-    preposition_card = config_card("Slave preposition", "Independent absolute moves before CAMBOX is armed", [
-        ft.Row([field_control("y_preposition_speed_mm_s", "Y speed", stored.y_preposition_speed_mm_s, suffix="mm/s", width=155), field_control("c_preposition_speed_deg_s", "C speed", stored.c_preposition_speed_deg_s, suffix="°/s", width=155)], spacing=8),
-        ft.Row([field_control("y_preposition_accel_mm_s2", "Y accel", stored.y_preposition_accel_mm_s2, suffix="mm/s²", width=155), field_control("c_preposition_accel_deg_s2", "C accel", stored.c_preposition_accel_deg_s2, suffix="°/s²", width=155)], spacing=8),
-        ft.Row([field_control("y_preposition_decel_mm_s2", "Y decel", stored.y_preposition_decel_mm_s2, suffix="mm/s²", width=155), field_control("c_preposition_decel_deg_s2", "C decel", stored.c_preposition_decel_deg_s2, suffix="°/s²", width=155)], spacing=8),
-    ])
+    axis_cards = {"Y": y_card, "C": c_card, "Master": master_card}
+    axis_buttons = {}
+
+    def select_axis(name: str) -> None:
+        for key, card in axis_cards.items():
+            card.visible = key == name
+            axis_buttons[key].bgcolor = (C_COLOR if key == "C" else MASTER) if key == name else PANEL_ALT
+            axis_buttons[key].color = BUTTON_INK if key == name else TEXT
+        page.update()
+
+    for name in axis_cards:
+        axis_cards[name].visible = name == "Y"
+        axis_buttons[name] = ft.FilledButton(
+            name, expand=True, bgcolor=MASTER if name == "Y" else PANEL_ALT,
+            color=BUTTON_INK if name == "Y" else TEXT,
+            on_click=lambda _, name=name: select_axis(name),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=3)),
+        )
+    axis_settings = ft.Column([
+        ft.Text("Axis settings", size=13, weight=ft.FontWeight.BOLD, color=TEXT),
+        ft.Row(list(axis_buttons.values()), spacing=6),
+        y_card, c_card, master_card,
+    ], spacing=8)
     table_card = config_card("Controller TABLE", "Non-overlapping raw-count blocks", [
         ft.Row([field_control("y_table_start", "Y start", stored.y_table_start, width=100), field_control("c_table_start", "C start", stored.c_table_start, width=100), field_control("table_size", "TSIZE", stored.table_size, width=110)], spacing=8),
         ft.Row([field_control("values_per_table_line", "Values/line", stored.values_per_table_line, width=120), field_control("time_uniformity_tolerance_pct", "Time tolerance", stored.time_uniformity_tolerance_pct, suffix="%", width=160)], spacing=8),
@@ -144,7 +209,7 @@ def main(page: ft.Page) -> None:
     ])
 
     int_keys = {"y_axis", "c_axis", "master_axis", "y_table_start", "c_table_start", "table_size", "values_per_table_line"}
-    bool_keys = {"unwrap_c_axis", "invert_y", "invert_c"}
+    bool_keys = {"unwrap_c_axis", "invert_y", "invert_c", "demo_y_preposition", "demo_c_preposition"}
     string_keys = {"time_column", "y_column", "c_column", "program_name"}
 
     def read_config() -> ProfileConfig:
@@ -152,7 +217,11 @@ def main(page: ft.Page) -> None:
         for item in fields(ProfileConfig):
             key = item.name
             control = controls.get(key)
-            if control is None:
+            if key in {"y_gear_ratio", "c_gear_ratio"}:
+                motor = controls[f"{key}_motor"].value
+                output = controls[f"{key}_output"].value
+                values[key] = parse_gear_ratio(f"{motor}:{output}")
+            elif control is None:
                 values[key] = getattr(stored, key)
             elif key in bool_keys:
                 values[key] = bool(control.value)
@@ -228,8 +297,8 @@ def main(page: ft.Page) -> None:
         point = profile.points[index]
         cursor_values["master"].value = f"{point.master_mm:.3f} mm"
         cursor_values["time"].value = f"{point.time_s:.3f} s"
-        cursor_values["y"].value = f"{point.y_absolute_mm:.4f} mm"
-        cursor_values["c"].value = f"{point.c_absolute_deg:.4f}°"
+        cursor_values["y"].value = f"{point.y_commanded_mm:.4f} mm"
+        cursor_values["c"].value = f"{point.c_commanded_deg:.4f}°"
         cursor_values["counts"].value = f"{point.y_counts:,}  /  {point.c_counts:,}"
         if redraw:
             for artist in cursor_artists:
@@ -257,8 +326,8 @@ def main(page: ft.Page) -> None:
     def update_chart(profile: ConvertedProfile) -> None:
         nonlocal cursor_artists
         masters = [point.master_mm for point in profile.points]
-        y_values = [point.y_absolute_mm for point in profile.points]
-        c_values = [point.c_absolute_deg for point in profile.points]
+        y_values = [point.y_commanded_mm for point in profile.points]
+        c_values = [point.c_commanded_deg for point in profile.points]
         y_axes.clear()
         c_axes.clear()
         for axes, label, color in ((y_axes, "Y position [mm]", Y_COLOR), (c_axes, "C position [deg]", C_COLOR)):
@@ -290,9 +359,9 @@ def main(page: ft.Page) -> None:
                 ft.DataRow(cells=[
                     ft.DataCell(ft.Text(str(profile.points[index].index), size=10)),
                     ft.DataCell(ft.Text(f"{profile.points[index].master_mm:.3f}", size=10)),
-                    ft.DataCell(ft.Text(f"{profile.points[index].y_absolute_mm:.4f}", size=10, color=Y_COLOR)),
+                    ft.DataCell(ft.Text(f"{profile.points[index].y_commanded_mm:.4f}", size=10, color=Y_COLOR)),
                     ft.DataCell(ft.Text(f"{profile.points[index].y_counts:,}", size=10, font_family="Consolas")),
-                    ft.DataCell(ft.Text(f"{profile.points[index].c_absolute_deg:.4f}", size=10, color=C_COLOR)),
+                    ft.DataCell(ft.Text(f"{profile.points[index].c_commanded_deg:.4f}", size=10, color=C_COLOR)),
                     ft.DataCell(ft.Text(f"{profile.points[index].c_counts:,}", size=10, font_family="Consolas")),
                 ]) for index in sample_indexes
             ],
@@ -316,6 +385,11 @@ def main(page: ft.Page) -> None:
     def update_diagnostics(profile: ConvertedProfile) -> None:
         d = profile.diagnostics
         rows = [
+            diagnostic_row("Y scaling", f"{profile.config.y_units_counts_per_mm:.6f} counts/mm"),
+            diagnostic_row("C scaling", f"{profile.config.c_counts_per_degree:.6f} counts/degree"),
+            diagnostic_row("Y travel / motor rev", f"{profile.config.y_travel_per_rev_mm / profile.config.y_gear_ratio:.6f} mm"),
+            diagnostic_row("C rotation / motor rev", f"{profile.config.c_degrees_per_rev:.6f}°"),
+            diagnostic_row("Preview", "TABLE commands at configured scaling; no drive feedback"),
             diagnostic_row("Source samples", f"{d.sample_count:,} at {d.sample_interval_s:.6f} s"),
             diagnostic_row("Master profile", f"{d.link_distance_mm:.3f} mm · {d.master_step_mm:.3f} mm/interval", MASTER),
             diagnostic_row("Master CAM start", f"{d.profile_start_master_mm:.3f} mm absolute DPOS", MASTER),
@@ -331,10 +405,10 @@ def main(page: ft.Page) -> None:
             rows.append(ft.Container(content=ft.Row([ft.Icon(ft.Icons.WARNING_AMBER, color=WARNING, size=17), ft.Text(warning, size=11, color=WARNING, expand=True)], spacing=8), bgcolor="#3A301B", border_radius=2, padding=10))
         diagnostics_view.controls = rows
 
-    def generate_profile(_=None) -> None:
+    def generate_profile(_=None) -> bool:
         if not source_path.value:
             show_message("Import a CSV profile first.", ERROR)
-            return
+            return False
         try:
             config = read_config()
             raw = load_profile_csv(source_path.value, config)
@@ -344,13 +418,16 @@ def main(page: ft.Page) -> None:
             save_config(config)
         except (ProfileError, ValueError, OSError, RuntimeError) as exc:
             state.update(profile=None, basic="", csv="")
+            simulation_view.stop()
+            simulation_view.profile = None
+            simulation_view.series = None
             basic_preview.value = f"Generation blocked:\n\n{exc}"
             export_button.disabled = True
             status_dot.bgcolor = ERROR
             status_text.value = f"Blocked — {exc}"
             status_text.color = ERROR
             page.update()
-            return
+            return False
 
         state.update(profile=profile, basic=basic, csv=points_csv)
         basic_preview.value = basic
@@ -363,6 +440,7 @@ def main(page: ft.Page) -> None:
         status_text.value = f"Validated — {len(profile.points):,} points per axis · {profile.diagnostics.link_distance_mm:.3f} mm master profile"
         status_text.color = SUCCESS
         page.update()
+        return True
 
     async def import_csv(_=None) -> None:
         selected = await file_picker.pick_files(
@@ -377,13 +455,15 @@ def main(page: ft.Page) -> None:
         generate_profile()
 
     async def export_files(_=None) -> None:
-        profile = state.get("profile")
-        if not isinstance(profile, ConvertedProfile):
-            show_message("Generate a valid profile before exporting.", ERROR)
+        if not generate_profile():
             return
         directory = await file_picker.get_directory_path(dialog_title="Export BASIC program and CAM points")
         if not directory:
             return
+        # The picker yields to the UI; validate again in case inputs changed.
+        if not generate_profile():
+            return
+        profile = state["profile"]
         stem = _clean_filename(profile.config.program_name.lower())
         bas_path = Path(directory) / f"{stem}.bas"
         csv_path = Path(directory) / f"{stem}_cam_points.csv"
@@ -396,14 +476,28 @@ def main(page: ft.Page) -> None:
         show_message(f"Exported {bas_path.name} and {csv_path.name}", SUCCESS)
 
     async def copy_basic(_=None) -> None:
-        if not state.get("basic"):
-            show_message("Generate a valid profile first.", ERROR)
+        if not generate_profile():
             return
         await page.clipboard.set(str(state["basic"]))
         show_message("Trio BASIC copied to clipboard.", SUCCESS)
 
     generate_button.on_click = generate_profile
     export_button.on_click = export_files
+
+    def settings_changed(_=None) -> None:
+        state.update(profile=None, basic="", csv="")
+        simulation_view.stop()
+        simulation_view.profile = None
+        simulation_view.series = None
+        basic_preview.value = "Settings changed. Generate, copy, or export to recalculate."
+        export_button.disabled = not bool(source_path.value)
+        status_dot.bgcolor = WARNING
+        status_text.value = "Settings changed — displayed charts need regeneration"
+        status_text.color = WARNING
+        page.update()
+
+    for control in controls.values():
+        control.on_change = settings_changed
 
     tabs = ft.Tabs(
         length=3,
@@ -445,6 +539,8 @@ def main(page: ft.Page) -> None:
 
     def show_view(name: str) -> None:
         is_simulation = name == "simulation"
+        if is_simulation and source_path.value and not generate_profile():
+            return
         if not is_simulation:
             simulation_view.stop()
         # Keep chart canvases mounted: removing them disconnects their backend
@@ -485,7 +581,7 @@ def main(page: ft.Page) -> None:
     )
 
     sidebar = ft.Container(
-        content=ft.Column([source_card, axes_card, scaling_card, master_card, preposition_card, table_card], spacing=7, scroll=ft.ScrollMode.AUTO),
+        content=ft.Column([source_card, axis_settings, table_card], spacing=12, scroll=ft.ScrollMode.AUTO),
         width=365,
         padding=ft.Padding.only(left=14, right=8, top=14, bottom=14),
     )

@@ -17,6 +17,26 @@ class ProfileError(ValueError):
     """Raised when source data or configuration cannot produce a safe profile."""
 
 
+def parse_gear_ratio(value: str) -> float:
+    """Motor revolutions per output revolution, e.g. 10 or 10:1."""
+    try:
+        parts = str(value).strip().split(":")
+        if len(parts) == 1:
+            ratio = float(parts[0])
+        elif len(parts) == 2:
+            motor, output = map(float, parts)
+            if not math.isfinite(motor) or not math.isfinite(output) or motor <= 0 or output <= 0:
+                raise ValueError
+            ratio = motor / output
+        else:
+            raise ValueError
+        if not math.isfinite(ratio) or ratio <= 0:
+            raise ValueError
+        return ratio
+    except (ValueError, ZeroDivisionError) as exc:
+        raise ProfileError("Gear ratio must be positive motor:output revolutions, e.g. 10:1 or 10.") from exc
+
+
 @dataclass(frozen=True)
 class RawProfile:
     source_path: Path
@@ -42,9 +62,14 @@ class ProfileConfig:
     master_travel_per_rev_mm: float = 4.0
     y_encoder_counts_per_rev: float = DEFAULT_ENCODER_COUNTS
     y_travel_per_rev_mm: float = 4.0
+    y_gear_ratio: float = 1.0
     c_encoder_counts_per_rev: float = DEFAULT_ENCODER_COUNTS
     c_degrees_per_rev: float = 360.0
+    c_gear_ratio: float | None = None
     c_user_unit_deg: float = 0.1
+    c_wrap_distance_deg: float = 360.0
+    demo_y_preposition: bool = False
+    demo_c_preposition: bool = False
     master_speed_mm_s: float = 80.0
     master_accel_mm_s2: float = 1000.0
     master_decel_mm_s2: float = 1000.0
@@ -65,17 +90,24 @@ class ProfileConfig:
     invert_c: bool = False
     program_name: str = "PROFILE_CAMBOX_ONE_SHOT"
 
+    def __post_init__(self) -> None:
+        # Retain constructor and saved-file compatibility with output/rev.
+        if self.c_gear_ratio is None:
+            self.c_gear_ratio = 360.0 / self.c_degrees_per_rev if self.c_degrees_per_rev > 0 else 0.0
+        if self.c_gear_ratio > 0:
+            self.c_degrees_per_rev = 360.0 / self.c_gear_ratio
+
     @property
     def master_units_counts_per_mm(self) -> float:
         return self.master_encoder_counts_per_rev / self.master_travel_per_rev_mm
 
     @property
     def y_units_counts_per_mm(self) -> float:
-        return self.y_encoder_counts_per_rev / self.y_travel_per_rev_mm
+        return self.y_encoder_counts_per_rev * self.y_gear_ratio / self.y_travel_per_rev_mm
 
     @property
     def c_counts_per_degree(self) -> float:
-        return self.c_encoder_counts_per_rev / self.c_degrees_per_rev
+        return self.c_encoder_counts_per_rev * self.c_gear_ratio / 360.0
 
     @property
     def c_units_counts_per_user_unit(self) -> float:
@@ -83,7 +115,11 @@ class ProfileConfig:
 
     @property
     def c_full_revolution_user_units(self) -> float:
-        return self.c_degrees_per_rev / self.c_user_unit_deg
+        return 360.0 / self.c_user_unit_deg
+
+    @property
+    def c_wrap_counts(self) -> int:
+        return _round_count(self.c_wrap_distance_deg * self.c_counts_per_degree)
 
     @property
     def master_acceleration_distance_mm(self) -> float:
@@ -112,6 +148,8 @@ class CamPoint:
     c_relative_deg: float
     c_relative_user_units: float
     c_counts: int
+    y_commanded_mm: float
+    c_commanded_deg: float
 
 
 @dataclass(frozen=True)
@@ -257,9 +295,12 @@ def _validate_config(config: ProfileConfig) -> None:
         "master travel/rev": config.master_travel_per_rev_mm,
         "Y encoder counts/rev": config.y_encoder_counts_per_rev,
         "Y travel/rev": config.y_travel_per_rev_mm,
+        "Y gear ratio": config.y_gear_ratio,
+        "C gear ratio": config.c_gear_ratio,
         "C encoder counts/rev": config.c_encoder_counts_per_rev,
         "C degrees/rev": config.c_degrees_per_rev,
         "C user unit": config.c_user_unit_deg,
+        "C wrap distance": config.c_wrap_distance_deg,
         "master speed": config.master_speed_mm_s,
         "master acceleration": config.master_accel_mm_s2,
         "master deceleration": config.master_decel_mm_s2,
@@ -296,18 +337,22 @@ def convert_profile(raw: RawProfile, config: ProfileConfig | None = None) -> Con
         y_relative = (y_value - raw.y_mm[0]) * y_direction
         c_absolute_deg = math.degrees(c_value)
         c_relative_deg = math.degrees(c_value - c_values[0]) * c_direction
+        y_counts = _round_count(y_relative * cfg.y_units_counts_per_mm)
+        c_counts = _round_count(c_relative_deg * cfg.c_counts_per_degree)
         points.append(CamPoint(
             index=index,
             time_s=time_rel,
             master_mm=time_rel * cfg.master_speed_mm_s,
             y_absolute_mm=y_value,
             y_relative_mm=y_relative,
-            y_counts=_round_count(y_relative * cfg.y_units_counts_per_mm),
+            y_counts=y_counts,
             c_absolute_rad=c_value,
             c_absolute_deg=c_absolute_deg,
             c_relative_deg=c_relative_deg,
             c_relative_user_units=c_relative_deg / cfg.c_user_unit_deg,
-            c_counts=_round_count(c_relative_deg * cfg.c_counts_per_degree),
+            c_counts=c_counts,
+            y_commanded_mm=raw.y_mm[0] + y_counts / cfg.y_units_counts_per_mm,
+            c_commanded_deg=math.degrees(c_values[0]) + c_counts / cfg.c_counts_per_degree,
         ))
 
     y_table_end = cfg.y_table_start + raw.count - 1
@@ -317,8 +362,16 @@ def convert_profile(raw: RawProfile, config: ProfileConfig | None = None) -> Con
     if max(cfg.y_table_start, cfg.c_table_start) <= min(y_table_end, c_table_end):
         raise ProfileError(f"Y TABLE({cfg.y_table_start}..{y_table_end}) overlaps C TABLE({cfg.c_table_start}..{c_table_end}).")
 
-    y_peak_speed, y_peak_accel = _peak_kinematics([p.y_absolute_mm for p in points], raw.time_s)
-    c_peak_speed, c_peak_accel = _peak_kinematics([p.c_absolute_deg for p in points], raw.time_s)
+    if cfg.c_wrap_counts < 1 or any(
+        abs(p.c_commanded_deg * cfg.c_counts_per_degree) >= cfg.c_wrap_counts - 1
+        for p in points
+    ):
+        raise ProfileError("C commanded positions reach the wrap boundary. Increase C wrap ± degrees to contain the entire unwrapped profile.")
+    if cfg.demo_c_preposition and abs((points[0].c_absolute_deg - 5.0) * cfg.c_counts_per_degree) >= cfg.c_wrap_counts - 1:
+        raise ProfileError("C demo starting angle reaches the wrap boundary. Increase C wrap ± degrees or disable the C demo start.")
+
+    y_peak_speed, y_peak_accel = _peak_kinematics([p.y_commanded_mm for p in points], raw.time_s)
+    c_peak_speed, c_peak_accel = _peak_kinematics([p.c_commanded_deg for p in points], raw.time_s)
     warnings: list[str] = []
     if abs(points[-1].y_relative_mm) > 1e-9 or abs(points[-1].c_relative_deg) > 1e-9:
         warnings.append("One-shot endpoints do not close; continuous repeat remains disabled.")
@@ -332,9 +385,9 @@ def convert_profile(raw: RawProfile, config: ProfileConfig | None = None) -> Con
         link_distance_mm=points[-1].master_mm,
         master_step_mm=cfg.master_speed_mm_s * interval,
         y_start_mm=raw.y_mm[0],
-        y_end_mm=raw.y_mm[-1],
+        y_end_mm=points[-1].y_commanded_mm,
         c_start_deg=points[0].c_absolute_deg,
-        c_end_deg=points[-1].c_absolute_deg,
+        c_end_deg=points[-1].c_commanded_deg,
         y_peak_speed_mm_s=y_peak_speed,
         y_peak_accel_mm_s2=y_peak_accel,
         c_peak_speed_deg_s=c_peak_speed,

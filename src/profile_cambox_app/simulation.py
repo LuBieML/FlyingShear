@@ -67,8 +67,10 @@ def build_simulation_series(
 
     times = tuple(point.time_s for point in profile.points)
     masters = tuple(point.master_mm for point in profile.points)
-    y_values = tuple(point.y_absolute_mm for point in profile.points)
-    c_values = tuple(point.c_absolute_deg for point in profile.points)
+    # Reconstruct commands from quantized TABLE counts and configured scaling.
+    # This is a kinematic preview, not feedback from the drive or a servo model.
+    y_values = tuple(point.y_commanded_mm for point in profile.points)
+    c_values = tuple(point.c_commanded_deg for point in profile.points)
     y_speed = finite_difference(y_values, times)
     y_accel = finite_difference(y_speed, times)
     c_speed = finite_difference(c_values, times)

@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import replace
 import tempfile
 import unittest
 
@@ -30,8 +31,27 @@ class ProfileCamboxCodegenTests(unittest.TestCase):
     def test_points_csv_is_auditable(self):
         exported = emit_points_csv(self.profile)
         self.assertIn("master_mm", exported.splitlines()[0])
-        self.assertIn("c_relative_0.1deg", exported.splitlines()[0])
+        self.assertIn("c_relative_user_units", exported.splitlines()[0])
         self.assertEqual(len(exported.splitlines()), 4)
+
+    def test_demo_start_precedes_absolute_moves_and_converts_c_units(self):
+        for unit, expected_c in ((1, "138.239448783"), (.1, "1382.394487827")):
+            cfg = replace(self.profile.config, c_user_unit_deg=unit,
+                          demo_y_preposition=True, demo_c_preposition=True,
+                          y_axis=3, c_axis=4)
+            basic = emit_trio_basic(convert_profile(self.profile.source, cfg))
+            self.assertIn("DEFPOS(239) AXIS(3)\nWAIT UNTIL OFFPOS AXIS(3) = 0", basic)
+            self.assertIn(f"DEFPOS({expected_c}) AXIS(4)\nWAIT UNTIL OFFPOS AXIS(4) = 0", basic)
+            self.assertLess(basic.index(f"DEFPOS({expected_c})"), basic.index("MOVEABS(244)"))
+
+    def test_demo_defaults_off_and_axes_can_be_enabled_independently(self):
+        basic = emit_trio_basic(self.profile)
+        self.assertEqual(basic.count("DEFPOS("), 1)  # virtual master only
+        for y, c in ((True, False), (False, True)):
+            cfg = replace(self.profile.config, demo_y_preposition=y, demo_c_preposition=c)
+            basic = emit_trio_basic(convert_profile(self.profile.source, cfg))
+            self.assertEqual(basic.count("DEFPOS("), 2)
+            self.assertEqual("DEFPOS(239) AXIS(0)" in basic, y)
 
 
 if __name__ == "__main__":

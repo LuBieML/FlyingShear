@@ -66,6 +66,7 @@ def emit_trio_basic(profile: ConvertedProfile) -> str:
         "WAIT UNTIL OFFPOS = 0",
         "",
         "' Y axis configuration (millimetres).",
+        f"' Y gearing {cfg.y_gear_ratio:g}:1 motor:screw; screw lead {cfg.y_travel_per_rev_mm:g} mm/rev.",
         f"BASE({cfg.y_axis})",
         "SERVO = ON",
         f"UNITS = {_fmt(cfg.y_units_counts_per_mm, 9)}",
@@ -73,11 +74,15 @@ def emit_trio_basic(profile: ConvertedProfile) -> str:
         f"ACCEL = {_fmt(cfg.y_preposition_accel_mm_s2)}",
         f"DECEL = {_fmt(cfg.y_preposition_decel_mm_s2)}",
         "",
-        "' C axis configuration (0.1 degree user units by default).",
+        f"' C axis: {cfg.c_degrees_per_rev:g} output degrees/motor rev; {cfg.c_user_unit_deg:g} degrees/user unit.",
+        f"' C gearing {cfg.c_gear_ratio:g}:1 motor:blade.",
         f"BASE({cfg.c_axis})",
         "SERVO = ON",
+        "' Symmetric position wrap, independent of motor gearing. Set exact counts first.",
+        "UNITS = 1",
+        "REP_OPTION = 0",
+        f"REP_DIST = {cfg.c_wrap_counts}",
         f"UNITS = {_fmt(cfg.c_units_counts_per_user_unit, 9)}",
-        f"REP_DIST = {_fmt(cfg.c_full_revolution_user_units)}",
         f"SPEED = {_fmt(c_speed_user_units)}",
         f"ACCEL = {_fmt(c_accel_user_units)}",
         f"DECEL = {_fmt(c_decel_user_units)}",
@@ -87,6 +92,24 @@ def emit_trio_basic(profile: ConvertedProfile) -> str:
     lines.extend(_table_lines(cfg.y_table_start, profile.y_table_values, cfg.values_per_table_line))
     lines.extend(["", f"' C CAMBOX raw-count table: TABLE({cfg.c_table_start}..{diag.c_table_end})"])
     lines.extend(_table_lines(cfg.c_table_start, profile.c_table_values, cfg.values_per_table_line))
+    if cfg.demo_y_preposition or cfg.demo_c_preposition:
+        lines.extend([
+            "",
+            "' SIMULATION DEMO: redefine slave coordinates before prepositioning.",
+            "' DEFPOS changes reported position without moving; this replaces the axis datum.",
+        ])
+        if cfg.demo_y_preposition:
+            lines.extend([
+                "' Start Y 5 mm before the first CSV position.",
+                f"DEFPOS({_fmt(diag.y_start_mm - 5.0, 9)}) AXIS({cfg.y_axis})",
+                f"WAIT UNTIL OFFPOS AXIS({cfg.y_axis}) = 0",
+            ])
+        if cfg.demo_c_preposition:
+            lines.extend([
+                "' Start C 5 output degrees before the first CSV angle.",
+                f"DEFPOS({_fmt((diag.c_start_deg - 5.0) / cfg.c_user_unit_deg, 9)}) AXIS({cfg.c_axis})",
+                f"WAIT UNTIL OFFPOS AXIS({cfg.c_axis}) = 0",
+            ])
     lines.extend([
         "",
         "' Preposition both slave axes at the first absolute CSV sample.",
@@ -117,7 +140,8 @@ def emit_points_csv(profile: ConvertedProfile) -> str:
     writer = csv.writer(output, lineterminator="\n")
     writer.writerow([
         "index", "time_s", "master_mm", "y_absolute_mm", "y_relative_mm", "y_table_counts",
-        "c_absolute_rad", "c_absolute_deg", "c_relative_deg", "c_relative_0.1deg", "c_table_counts",
+        "c_absolute_rad", "c_absolute_deg", "c_relative_deg", "c_relative_user_units", "c_table_counts",
+        "y_commanded_mm", "c_commanded_deg",
     ])
     for point in profile.points:
         writer.writerow([
@@ -132,5 +156,7 @@ def emit_points_csv(profile: ConvertedProfile) -> str:
             f"{point.c_relative_deg:.12g}",
             f"{point.c_relative_user_units:.12g}",
             point.c_counts,
+            f"{point.y_commanded_mm:.12g}",
+            f"{point.c_commanded_deg:.12g}",
         ])
     return output.getvalue()
