@@ -7,7 +7,7 @@
   "master_axis": 10,
   "master_encoder_counts_per_rev": 65535.0,
   "master_travel_per_rev_mm": 1.0,
-  "y_encoder_counts_per_rev": 10000.0,
+  "y_encoder_counts_per_rev": 65535.0,
   "y_travel_per_rev_mm": 10.0,
   "y_gear_ratio": 1.0,
   "c_encoder_counts_per_rev": 65535.0,
