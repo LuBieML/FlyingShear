@@ -14,6 +14,7 @@ Time samples must be uniformly spaced. Profile time starts at zero by subtractin
 
 ## 2. Mechanical scaling
 
+
 Gear ratio means **motor revolutions per output revolution**: a 10:1 reduction has a ratio of 10.
 
 ```text
